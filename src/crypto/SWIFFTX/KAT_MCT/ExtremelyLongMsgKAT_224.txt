@@ -1,0 +1,7 @@
+# ExtremelyLongMsgKAT_224.txt
+# Algorithm Name: SWIFFTX
+# Principal Submitter: Daniele Micciancio
+
+Repeat = 16777216
+Text = abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmno
+MD = EB7B7C3874E92AA32D2299AC55E9452CA5D1D3B8DA2FAEC1D0AE0775
