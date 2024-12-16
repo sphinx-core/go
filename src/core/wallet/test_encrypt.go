@@ -28,9 +28,9 @@ import (
 	"log"
 	"os"
 
-	seed "github.com/sphinx-core/sphinx-core/src/accounts/phrase"
-	key "github.com/sphinx-core/sphinx-core/src/core/sphincs/key/backend"
-	"github.com/sphinx-core/sphinx-core/src/core/wallet/crypter"
+	seed "github.com/sphinx-core/go/src/accounts/phrase"
+	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
+	"github.com/sphinx-core/go/src/core/wallet/crypter"
 	"github.com/syndtr/goleveldb/leveldb"
 )
 

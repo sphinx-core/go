@@ -22,7 +22,7 @@
 
 package common
 
-import spxhash "github.com/sphinx-core/sphinx-core/src/spxhash/hash"
+import spxhash "github.com/sphinx-core/go/src/spxhash/hash"
 
 // Params represents the configuration for SphinxHash.
 type Params struct {

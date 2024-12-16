@@ -35,7 +35,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/sphinx-core/sphinx-core/src/common"
+	"github.com/sphinx-core/go/src/common"
 	"golang.org/x/crypto/argon2"
 )
 

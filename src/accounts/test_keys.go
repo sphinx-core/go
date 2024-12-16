@@ -26,7 +26,7 @@ import (
 	"fmt"
 	"log"
 
-	seed "github.com/sphinx-core/sphinx-core/src/accounts/phrase"
+	seed "github.com/sphinx-core/go/src/accounts/phrase"
 )
 
 func main() {

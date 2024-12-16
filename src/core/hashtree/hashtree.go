@@ -30,7 +30,7 @@ import (
 	"syscall"
 
 	"github.com/holiman/uint256"
-	"github.com/sphinx-core/sphinx-core/src/common"
+	"github.com/sphinx-core/go/src/common"
 	"github.com/syndtr/goleveldb/leveldb"
 )
 

@@ -27,8 +27,8 @@ import (
 	"errors"
 
 	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
-	"github.com/sphinx-core/sphinx-core/src/core/hashtree"
-	key "github.com/sphinx-core/sphinx-core/src/core/sphincs/key/backend"
+	"github.com/sphinx-core/go/src/core/hashtree"
+	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 	"github.com/syndtr/goleveldb/leveldb"
 )
 

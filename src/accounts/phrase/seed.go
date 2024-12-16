@@ -28,9 +28,9 @@ import (
 	"encoding/base32"
 	"fmt"
 
-	sips3 "github.com/sphinx-core/sphinx-core/src/accounts/mnemonic"
-	"github.com/sphinx-core/sphinx-core/src/common"
-	key "github.com/sphinx-core/sphinx-core/src/core/sphincs/key/backend"
+	sips3 "github.com/sphinx-core/go/src/accounts/mnemonic"
+	"github.com/sphinx-core/go/src/common"
+	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/ripemd160"
 )

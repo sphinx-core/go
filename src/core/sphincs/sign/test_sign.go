@@ -27,9 +27,9 @@ import (
 	"log"
 	"os"
 
-	"github.com/sphinx-core/sphinx-core/src/core/hashtree"
-	key "github.com/sphinx-core/sphinx-core/src/core/sphincs/key/backend"
-	sign "github.com/sphinx-core/sphinx-core/src/core/sphincs/sign/backend"
+	"github.com/sphinx-core/go/src/core/hashtree"
+	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
+	sign "github.com/sphinx-core/go/src/core/sphincs/sign/backend"
 
 	"github.com/syndtr/goleveldb/leveldb"
 )

@@ -27,7 +27,7 @@ import (
 	"errors"
 
 	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
-	"github.com/sphinx-core/sphinx-core/src/core/hashtree"
+	"github.com/sphinx-core/go/src/core/hashtree"
 	"golang.org/x/crypto/sha3"
 )
 

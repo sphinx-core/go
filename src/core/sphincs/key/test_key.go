@@ -28,7 +28,7 @@ import (
 	"log"
 
 	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs" // Import the SPHINCS+ library
-	key "github.com/sphinx-core/sphinx-core/src/core/sphincs/key/backend"
+	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 )
 
 func main() {
