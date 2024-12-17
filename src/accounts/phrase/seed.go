@@ -220,8 +220,8 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		return "", "", nil, fmt.Errorf("failed to hash passkey: %v", err)
 	}
 
-	// Truncate to the first 8 bytes (for 10-character Base32 encoding)
-	truncatedHashedPasskey := hashedPasskey[:8]
+	// Truncate to the first 6 bytes (48 bits for 10-character Base32 encoding)
+	truncatedHashedPasskey := hashedPasskey[:6]
 
 	// Encode the truncated hash in Base32
 	base32Passkey = EncodeBase32(truncatedHashedPasskey)
