@@ -121,7 +121,13 @@ func main() {
 		log.Fatalf("Failed to load key pair from LevelDB: %v", err)
 	}
 
-	// Decrypt the loaded data if needed (e.g., using the same decryption logic as before)
+	// Decrypt the loaded data using passphrase and base32 passkey for key regeneration
+	// Regenerate the decryption key from passphrase and base32 passkey
+	// Set the decryption key using the passphrase and base32 passkey
+	if !crypt.SetKeyFromPassphrase(hashedPasskey, salt, 1000) {
+		log.Fatalf("Failed to set key for decryption from passphrase and base32 passkey") // Log and exit if key setting fails
+	}
+
 	// Decrypt the secret key
 	decryptedSecretKey, err := crypt.Decrypt(loadedSkBytes)
 	if err != nil {
