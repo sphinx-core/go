@@ -129,19 +129,19 @@ func main() {
 	combinedData := append(append(encryptedSecretKey, separator...), encryptedHashedPasskey...) // Append both parts with separator
 
 	// Save the combined encrypted data to a file
-	err = walletConfig.SaveKeyPair([]byte("keystoreDir/secretkey.dat"), combinedData)
+	err = walletConfig.SaveKeyPair([]byte("keystoreDir/sphinxKeys.dat"), combinedData)
 	if err != nil {
 		log.Fatalf("Failed to save secret key to file: %v", err) // Log and exit if file saving fails
 	}
 
 	// Load the combined data from the file for later decryption
-	err = os.WriteFile("keystoreDir/secretkey.dat", combinedData, 0644)
+	err = os.WriteFile("keystoreDir/sphinxKeys.dat", combinedData, 0644)
 	if err != nil {
 		log.Fatalf("Failed to save secret key to file: %v", err)
 	}
 
 	// Load the combined data from the file for later decryption
-	loadedData, err := os.ReadFile("keystoreDir/secretkey.dat")
+	loadedData, err := os.ReadFile("keystoreDir/sphinxKeys.dat")
 	if err != nil {
 		log.Fatalf("Failed to load secret key from file: %v", err) // Log and exit if file loading fails
 	}
@@ -149,7 +149,7 @@ func main() {
 	// Split the combined data back into encrypted secret key and encrypted hashed passkey
 	parts := bytes.Split(loadedData, separator)
 	if len(parts) != 2 {
-		log.Fatalf("Unexpected data format in secretkey.dat") // Log and exit if the data format is incorrect
+		log.Fatalf("Unexpected data format in sphinxKeys.dat") // Log and exit if the data format is incorrect
 	}
 	loadedEncryptedSecretKey := parts[0]     // First part is the encrypted secret key
 	loadedEncryptedHashedPasskey := parts[1] // Second part is the encrypted hashed passkey

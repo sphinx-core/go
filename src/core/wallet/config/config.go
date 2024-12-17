@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/syndtr/goleveldb/leveldb"
 )
@@ -72,16 +73,26 @@ func (config *walletConfig) SaveKeyPair(sk []byte, pk []byte) error {
 	// Define the key to store the combined keys (you can use a unique identifier here)
 	key := []byte("sphinxKeys")
 
-	// Save the combined keys in a .dat file format inside LevelDB (by storing the byte slice)
+	// Save the combined keys in LevelDB
 	err := config.db.Put(key, combinedKeys, nil)
 	if err != nil {
 		return fmt.Errorf("failed to save keys in LevelDB: %v", err)
 	}
 
-	// Optionally, save the .dat file to the disk as well, if needed
-	err = os.WriteFile("sphinxKeys.dat", combinedKeys, 0644)
+	// Save the .dat file to the disk inside the keystoreDir
+	keystoreDir := "src/accounts/keystore"                   // The keystore directory
+	filePath := filepath.Join(keystoreDir, "sphinxkeys.dat") // Correct file path for sphinxkeys.dat
+
+	// Ensure the directory exists
+	err = os.MkdirAll(keystoreDir, os.ModePerm)
 	if err != nil {
-		return fmt.Errorf("failed to save keys to file sphinxKeys.dat: %v", err)
+		return fmt.Errorf("failed to create keystore directory %s: %v", keystoreDir, err)
+	}
+
+	// Save the combined keys to a file in the keystore directory
+	err = os.WriteFile(filePath, combinedKeys, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to save keys to file %s: %v", filePath, err)
 	}
 
 	return nil
