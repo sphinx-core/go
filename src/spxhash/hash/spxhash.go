@@ -296,7 +296,7 @@ func (s *SphinxHash) sphinxHash(hash1, hash2 []byte, primeConstant uint64) []byt
 	sphinxHash := chainHash[:] // Convert the [32]byte result to a []byte for further manipulation.
 
 	// Step 5: Apply iterative rounds to increase diffusion and avalanche effects.
-	rounds := 100 // Set the number of rounds for iterative hashing to enhance diffusion.
+	rounds := 3000 // Set the number of rounds for iterative hashing to enhance diffusion.
 	// The number of rounds is a critical factor for making sure that the hash undergoes substantial transformations
 	// through multiple rounds of mixing and re-hashing. The higher the number of rounds, the harder it becomes
 	// to predict the final output, even with a quantum computer or brute force attack.
