@@ -62,31 +62,24 @@ func NewWalletConfig() (*walletConfig, error) {
 	return &walletConfig{db: db}, nil
 }
 
-// SaveKeyPair saves the serialized SPHINCS secret (sk) and public (pk) key pair in LevelDB.
-func (config *walletConfig) SaveKeyPair(sk []byte, pk []byte) error {
-	if sk == nil || pk == nil {
-		return errors.New("secret or public key is nil")
+// SaveKeyPair saves the combined encrypted data in LevelDB and as a .dat file
+func (config *walletConfig) SaveKeyPair(combinedData []byte, pk []byte) error {
+	if combinedData == nil || pk == nil {
+		return errors.New("combined data or public key is nil")
 	}
 
-	// Save the lengths of the keys to help with correct retrieval later
-	skLength := len(sk)
-	pkLength := len(pk)
-
-	// Store the lengths of the keys, followed by the keys themselves
-	combinedKeys := append(append([]byte(fmt.Sprintf("%d,%d", skLength, pkLength)), sk...), pk...)
-
-	// Define the key to store the combined keys (you can use a unique identifier here)
+	// Define the key to store the combined data (you can use a unique identifier here)
 	key := []byte("sphinxKeys")
 
-	// Save the combined keys in LevelDB
-	err := config.db.Put(key, combinedKeys, nil)
+	// Save the combined data in LevelDB
+	err := config.db.Put(key, combinedData, nil)
 	if err != nil {
-		return fmt.Errorf("failed to save keys in LevelDB: %v", err)
+		return fmt.Errorf("failed to save combined data in LevelDB: %v", err)
 	}
 
 	// Save the .dat file to the disk inside the keystoreDir
-	keystoreDir := "src/accounts/keystore"
-	filePath := filepath.Join(keystoreDir, "sphinxkeys.dat")
+	keystoreDir := "src/accounts/keystore"                   // The keystore directory
+	filePath := filepath.Join(keystoreDir, "sphinxkeys.dat") // Correct file path for sphinxkeys.dat
 
 	// Ensure the directory exists
 	err = os.MkdirAll(keystoreDir, os.ModePerm)
@@ -94,48 +87,40 @@ func (config *walletConfig) SaveKeyPair(sk []byte, pk []byte) error {
 		return fmt.Errorf("failed to create keystore directory %s: %v", keystoreDir, err)
 	}
 
-	// Save the combined keys to the .dat file
-	err = os.WriteFile(filePath, combinedKeys, 0644)
+	// Save the combined data to a file in the keystore directory
+	err = os.WriteFile(filePath, combinedData, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to save keys to file: %v", err)
+		return fmt.Errorf("failed to save combined data to file %s: %v", filePath, err)
 	}
 
 	return nil
 }
 
+// LoadKeyPair retrieves the combined data and splits it back into SK and PK.
 func (config *walletConfig) LoadKeyPair() ([]byte, []byte, error) {
-	// Retrieve the combined keys from LevelDB
+	// Define the key used to retrieve the combined data
 	key := []byte("sphinxKeys")
-	combinedKeys, err := config.db.Get(key, nil)
+
+	// Retrieve the combined data from LevelDB
+	combinedData, err := config.db.Get(key, nil)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load keys from LevelDB: %v", err)
+		return nil, nil, fmt.Errorf("failed to load combined data from LevelDB: %v", err)
 	}
 
-	// Extract the lengths of the keys from the beginning of the byte slice
-	delimiterIndex := bytes.IndexByte(combinedKeys, ',')
-	if delimiterIndex == -1 {
-		return nil, nil, errors.New("invalid combined keys format")
+	fmt.Printf("Combined Data: %x\n", combinedData) // Debug print to check format
+
+	// Find the separator and split the data back into secret key (sk) and hashed passkey
+	separator := []byte("|")
+	parts := bytes.Split(combinedData, separator)
+	if len(parts) != 2 {
+		return nil, nil, errors.New("invalid combined data format")
 	}
 
-	// Extract the lengths part
-	lengths := combinedKeys[:delimiterIndex]
+	// The first part is the encrypted secret key
+	sk := parts[0]
 
-	// Parse the lengths
-	var skLength, pkLength int
-	_, err = fmt.Sscanf(string(lengths), "%d,%d", &skLength, &pkLength)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse key lengths: %v", err)
-	}
-
-	// Validate the length of combined keys
-	expectedLength := delimiterIndex + 1 + skLength + pkLength
-	if len(combinedKeys) != expectedLength {
-		return nil, nil, fmt.Errorf("invalid combined keys length, expected %d but got %d", expectedLength, len(combinedKeys))
-	}
-
-	// Split the combined keys into the secret key (sk) and public key (pk)
-	sk := combinedKeys[delimiterIndex+1 : delimiterIndex+1+skLength]
-	pk := combinedKeys[delimiterIndex+1+skLength:]
+	// The second part is the encrypted hashed passkey
+	pk := parts[1]
 
 	return sk, pk, nil
 }

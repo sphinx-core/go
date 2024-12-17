@@ -23,10 +23,8 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"log"
-	"os"
 
 	seed "github.com/sphinx-core/go/src/accounts/phrase"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
@@ -35,6 +33,13 @@ import (
 )
 
 func main() {
+	// Initialize a wallet config for saving/loading keys
+	walletConfig, err := config.NewWalletConfig() // Initialize the wallet configuration with LevelDB
+	if err != nil {
+		log.Fatal("Failed to initialize wallet config:", err) // Log and exit if initialization fails
+	}
+	defer walletConfig.Close() // Ensure the database is closed when done
+
 	// Initialize a key manager for generating keys
 	keyManager, err := key.NewKeyManager()
 	if err != nil {
@@ -62,30 +67,6 @@ func main() {
 	}
 	fmt.Printf("Public Key (PK): %x\n", pkBytes)                    // Print the public key in hexadecimal format
 	fmt.Printf("Size of Public Key (PK): %d bytes\n", len(pkBytes)) // Print the size of the PK
-
-	// Initialize walletConfig for saving and retrieving keys
-	walletConfig, err := config.NewWalletConfig()
-	if err != nil {
-		log.Fatal("Failed to initialize walletConfig:", err) // Log and exit if walletConfig initialization fails
-	}
-	defer walletConfig.Close()
-
-	// Save the key pair to LevelDB using walletConfig
-	err = walletConfig.SaveKeyPair(skBytes, pkBytes)
-	if err != nil {
-		log.Fatal("Failed to save key pair:", err) // Log and exit if key saving fails
-	}
-	fmt.Println("Key pair successfully saved to LevelDB.")
-
-	// Retrieve the key pair from LevelDB using walletConfig
-	loadedSk, loadedPk, err := walletConfig.LoadKeyPair()
-	if err != nil {
-		log.Fatal("Failed to load key pair:", err) // Log and exit if key loading fails
-	}
-
-	// Print the loaded keys for verification
-	fmt.Printf("Loaded Secret Key (SK): %x\n", loadedSk)
-	fmt.Printf("Loaded Public Key (PK): %x\n", loadedPk)
 
 	// Generate passphrase, base32 passkey, and hashed passkey from a seed
 	passphrase, base32Passkey, hashedPasskey, err := seed.GenerateKeys()
@@ -125,51 +106,31 @@ func main() {
 	fmt.Printf("Encrypted Hashed Passkey: %x\n", encryptedHashedPasskey) // Print the encrypted hashed passkey
 
 	// Combine both encrypted secret key and encrypted hashed passkey into a single data buffer
-	separator := []byte(":::")                                                                  // Define a custom separator
-	combinedData := append(append(encryptedSecretKey, separator...), encryptedHashedPasskey...) // Append both parts with separator
+	separator := []byte("|") // Define a custom separator
+	combinedData := append(append(encryptedSecretKey, separator...), encryptedHashedPasskey...)
 
-	// Save the combined encrypted data to a file
-	err = walletConfig.SaveKeyPair([]byte("keystoreDir/sphinxKeys.dat"), combinedData)
+	// Save the combined encrypted data using the walletConfig (from config package)
+	err = walletConfig.SaveKeyPair(combinedData, pkBytes) // Save the combined data using the config package
 	if err != nil {
-		log.Fatalf("Failed to save secret key to file: %v", err) // Log and exit if file saving fails
+		log.Fatalf("Failed to save key pair to LevelDB: %v", err)
 	}
 
-	// Load the combined data from the file for later decryption
-	err = os.WriteFile("keystoreDir/sphinxKeys.dat", combinedData, 0644)
+	// Load the combined data from LevelDB for later decryption
+	loadedSkBytes, loadedPkBytes, err := walletConfig.LoadKeyPair() // Load the key pair from LevelDB
 	if err != nil {
-		log.Fatalf("Failed to save secret key to file: %v", err)
+		log.Fatalf("Failed to load key pair from LevelDB: %v", err)
 	}
 
-	// Load the combined data from the file for later decryption
-	loadedData, err := os.ReadFile("keystoreDir/sphinxKeys.dat")
-	if err != nil {
-		log.Fatalf("Failed to load secret key from file: %v", err) // Log and exit if file loading fails
-	}
-
-	// Split the combined data back into encrypted secret key and encrypted hashed passkey
-	parts := bytes.Split(loadedData, separator)
-	if len(parts) != 2 {
-		log.Fatalf("Unexpected data format in sphinxKeys.dat") // Log and exit if the data format is incorrect
-	}
-	loadedEncryptedSecretKey := parts[0]     // First part is the encrypted secret key
-	loadedEncryptedHashedPasskey := parts[1] // Second part is the encrypted hashed passkey
-
-	// Initialize crypter for decryption
-	decryptCrypt := &crypter.CCrypter{}
-	// Set the decryption key using the hashed passkey and salt
-	if !decryptCrypt.SetKeyFromPassphrase(hashedPasskey, salt, 1000) {
-		log.Fatalf("Failed to set key from hashed passkey for decryption") // Log and exit if key setting fails
-	}
-
+	// Decrypt the loaded data if needed (e.g., using the same decryption logic as before)
 	// Decrypt the secret key
-	decryptedSecretKey, err := decryptCrypt.Decrypt(loadedEncryptedSecretKey)
+	decryptedSecretKey, err := crypt.Decrypt(loadedSkBytes)
 	if err != nil {
 		log.Fatalf("Failed to decrypt secret key: %v", err) // Log and exit if decryption fails
 	}
 	fmt.Printf("Decrypted Secret Key: %x\n", decryptedSecretKey) // Print the decrypted secret key in hexadecimal format
 
 	// Decrypt the hashed passkey
-	decryptedHashedPasskey, err := decryptCrypt.Decrypt(loadedEncryptedHashedPasskey)
+	decryptedHashedPasskey, err := crypt.Decrypt(loadedPkBytes)
 	if err != nil {
 		log.Fatalf("Failed to decrypt hashed passkey: %v", err) // Log and exit if decryption fails
 	}
