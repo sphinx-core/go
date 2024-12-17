@@ -23,6 +23,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"log"
@@ -61,14 +62,18 @@ func NewWalletConfig() (*walletConfig, error) {
 	return &walletConfig{db: db}, nil
 }
 
-// SaveKeyPair saves a serialized SPHINCS secret (sk) and public (pk) key pair in LevelDB in a .dat file format.
+// SaveKeyPair saves the serialized SPHINCS secret (sk) and public (pk) key pair in LevelDB.
 func (config *walletConfig) SaveKeyPair(sk []byte, pk []byte) error {
 	if sk == nil || pk == nil {
 		return errors.New("secret or public key is nil")
 	}
 
-	// Combine the secret and public keys into one byte slice
-	combinedKeys := append(sk, pk...)
+	// Save the lengths of the keys to help with correct retrieval later
+	skLength := len(sk)
+	pkLength := len(pk)
+
+	// Store the lengths of the keys, followed by the keys themselves
+	combinedKeys := append(append([]byte(fmt.Sprintf("%d,%d", skLength, pkLength)), sk...), pk...)
 
 	// Define the key to store the combined keys (you can use a unique identifier here)
 	key := []byte("sphinxKeys")
@@ -80,8 +85,8 @@ func (config *walletConfig) SaveKeyPair(sk []byte, pk []byte) error {
 	}
 
 	// Save the .dat file to the disk inside the keystoreDir
-	keystoreDir := "src/accounts/keystore"                   // The keystore directory
-	filePath := filepath.Join(keystoreDir, "sphinxkeys.dat") // Correct file path for sphinxkeys.dat
+	keystoreDir := "src/accounts/keystore"
+	filePath := filepath.Join(keystoreDir, "sphinxkeys.dat")
 
 	// Ensure the directory exists
 	err = os.MkdirAll(keystoreDir, os.ModePerm)
@@ -89,34 +94,48 @@ func (config *walletConfig) SaveKeyPair(sk []byte, pk []byte) error {
 		return fmt.Errorf("failed to create keystore directory %s: %v", keystoreDir, err)
 	}
 
-	// Save the combined keys to a file in the keystore directory
+	// Save the combined keys to the .dat file
 	err = os.WriteFile(filePath, combinedKeys, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to save keys to file %s: %v", filePath, err)
+		return fmt.Errorf("failed to save keys to file: %v", err)
 	}
 
 	return nil
 }
 
-// LoadKeyPair retrieves the serialized SPHINCS secret (sk) and public (pk) key pair from LevelDB, interpreting it as a .dat file.
 func (config *walletConfig) LoadKeyPair() ([]byte, []byte, error) {
-	// Define the key used to retrieve the combined keys
+	// Retrieve the combined keys from LevelDB
 	key := []byte("sphinxKeys")
-
-	// Retrieve the combined keys (as a .dat file) from LevelDB
 	combinedKeys, err := config.db.Get(key, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load keys from LevelDB: %v", err)
 	}
 
-	// Check that the combined keys length matches the expected total length (96 bytes for SK + 48 bytes for PK)
-	if len(combinedKeys) != 144 { // 96 bytes for SK + 48 bytes for PK
-		return nil, nil, errors.New("invalid combined keys length")
+	// Extract the lengths of the keys from the beginning of the byte slice
+	delimiterIndex := bytes.IndexByte(combinedKeys, ',')
+	if delimiterIndex == -1 {
+		return nil, nil, errors.New("invalid combined keys format")
 	}
 
-	// Split the keys back into separate secret key (sk) and public key (pk)
-	sk := combinedKeys[:96] // First 96 bytes are for the secret key
-	pk := combinedKeys[96:] // Last 48 bytes are for the public key
+	// Extract the lengths part
+	lengths := combinedKeys[:delimiterIndex]
+
+	// Parse the lengths
+	var skLength, pkLength int
+	_, err = fmt.Sscanf(string(lengths), "%d,%d", &skLength, &pkLength)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse key lengths: %v", err)
+	}
+
+	// Validate the length of combined keys
+	expectedLength := delimiterIndex + 1 + skLength + pkLength
+	if len(combinedKeys) != expectedLength {
+		return nil, nil, fmt.Errorf("invalid combined keys length, expected %d but got %d", expectedLength, len(combinedKeys))
+	}
+
+	// Split the combined keys into the secret key (sk) and public key (pk)
+	sk := combinedKeys[delimiterIndex+1 : delimiterIndex+1+skLength]
+	pk := combinedKeys[delimiterIndex+1+skLength:]
 
 	return sk, pk, nil
 }
