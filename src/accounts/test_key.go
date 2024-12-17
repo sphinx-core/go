@@ -39,5 +39,5 @@ func main() {
 	// Print the generated keys and passphrase
 	fmt.Println("Generated Passphrase: ", passphrase)
 	fmt.Println("Base32-Encoded Truncated Passkey: ", base32Passkey)
-	fmt.Println("Full Hashed Passkey: ", hashedPasskey)
+	fmt.Printf("Hashed Passkey (Hex): %x\n", hashedPasskey)
 }
