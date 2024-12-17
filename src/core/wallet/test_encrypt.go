@@ -30,54 +30,11 @@ import (
 
 	seed "github.com/sphinx-core/go/src/accounts/phrase"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
+	"github.com/sphinx-core/go/src/core/wallet/config"
 	"github.com/sphinx-core/go/src/core/wallet/crypter"
-	"github.com/syndtr/goleveldb/leveldb"
 )
 
-// saveToFile saves the provided data to a specified file path.
-func saveToFile(filepath string, data []byte) error {
-	// Create or open the file for writing
-	file, err := os.Create(filepath)
-	if err != nil {
-		return fmt.Errorf("failed to create file %s: %v", filepath, err) // Return an error if file creation fails
-	}
-	defer file.Close() // Ensure the file is closed once the function finishes
-
-	// Write data to the file
-	_, err = file.Write(data)
-	if err != nil {
-		return fmt.Errorf("failed to write data to file %s: %v", filepath, err) // Return an error if writing fails
-	}
-	return nil // Return nil if the operation is successful
-}
-
-// loadFromFile reads the data from the specified file.
-func loadFromFile(filepath string) ([]byte, error) {
-	// Read the content of the file
-	data, err := os.ReadFile(filepath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file %s: %v", filepath, err) // Return an error if reading fails
-	}
-	return data, nil // Return the data if the operation is successful
-}
-
 func main() {
-	// Define the keystore directory path
-	keystoreDir := "src/accounts/keystore"
-
-	// Create the keystore directory if it doesn't already exist
-	err := os.MkdirAll(keystoreDir, os.ModePerm)
-	if err != nil {
-		log.Fatal("Failed to create keystore directory:", err) // Log and exit if directory creation fails
-	}
-
-	// Open the LevelDB database for storing keys
-	db, err := leveldb.OpenFile(keystoreDir+"/sphinxkeys", nil)
-	if err != nil {
-		log.Fatal("Failed to open LevelDB:", err) // Log and exit if database opening fails
-	}
-	defer db.Close() // Ensure the database is closed once the function finishes
-
 	// Initialize a key manager for generating keys
 	keyManager, err := key.NewKeyManager()
 	if err != nil {
@@ -105,6 +62,30 @@ func main() {
 	}
 	fmt.Printf("Public Key (PK): %x\n", pkBytes)                    // Print the public key in hexadecimal format
 	fmt.Printf("Size of Public Key (PK): %d bytes\n", len(pkBytes)) // Print the size of the PK
+
+	// Initialize walletConfig for saving and retrieving keys
+	walletConfig, err := config.NewWalletConfig()
+	if err != nil {
+		log.Fatal("Failed to initialize walletConfig:", err) // Log and exit if walletConfig initialization fails
+	}
+	defer walletConfig.Close()
+
+	// Save the key pair to LevelDB using walletConfig
+	err = walletConfig.SaveKeyPair(skBytes, pkBytes)
+	if err != nil {
+		log.Fatal("Failed to save key pair:", err) // Log and exit if key saving fails
+	}
+	fmt.Println("Key pair successfully saved to LevelDB.")
+
+	// Retrieve the key pair from LevelDB using walletConfig
+	loadedSk, loadedPk, err := walletConfig.LoadKeyPair()
+	if err != nil {
+		log.Fatal("Failed to load key pair:", err) // Log and exit if key loading fails
+	}
+
+	// Print the loaded keys for verification
+	fmt.Printf("Loaded Secret Key (SK): %x\n", loadedSk)
+	fmt.Printf("Loaded Public Key (PK): %x\n", loadedPk)
 
 	// Generate passphrase, base32 passkey, and hashed passkey from a seed
 	passphrase, base32Passkey, hashedPasskey, err := seed.GenerateKeys()
@@ -148,21 +129,27 @@ func main() {
 	combinedData := append(append(encryptedSecretKey, separator...), encryptedHashedPasskey...) // Append both parts with separator
 
 	// Save the combined encrypted data to a file
-	err = saveToFile(keystoreDir+"/secretkey.dat", combinedData)
+	err = walletConfig.SaveKeyPair([]byte("keystoreDir/secretkey.dat"), combinedData)
 	if err != nil {
 		log.Fatalf("Failed to save secret key to file: %v", err) // Log and exit if file saving fails
 	}
 
 	// Load the combined data from the file for later decryption
-	loadedData, err := loadFromFile(keystoreDir + "/secretkey.dat")
+	err = os.WriteFile("keystoreDir/secretkey.dat", combinedData, 0644)
 	if err != nil {
-		log.Fatalf("Failed to load data from file: %v", err) // Log and exit if file loading fails
+		log.Fatalf("Failed to save secret key to file: %v", err)
+	}
+
+	// Load the combined data from the file for later decryption
+	loadedData, err := os.ReadFile("keystoreDir/secretkey.dat")
+	if err != nil {
+		log.Fatalf("Failed to load secret key from file: %v", err) // Log and exit if file loading fails
 	}
 
 	// Split the combined data back into encrypted secret key and encrypted hashed passkey
 	parts := bytes.Split(loadedData, separator)
 	if len(parts) != 2 {
-		log.Fatalf("Unexpected data format in src/accounts/keystore/secretkey.dat") // Log and exit if the data format is incorrect
+		log.Fatalf("Unexpected data format in secretkey.dat") // Log and exit if the data format is incorrect
 	}
 	loadedEncryptedSecretKey := parts[0]     // First part is the encrypted secret key
 	loadedEncryptedHashedPasskey := parts[1] // Second part is the encrypted hashed passkey
