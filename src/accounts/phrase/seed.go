@@ -177,14 +177,11 @@ func GeneratePasskey(passphrase string, pk []byte) ([]byte, error) {
 // HashPasskey hashes the passkey using double SphinxHash and then applies RIPEMD-160.
 func HashPasskey(passkey []byte) ([]byte, error) {
 	// First SphinxHash instance
-	firstHash := common.SpxHash(passkey)
-
-	// Second SphinxHash instance for double hashing
-	secondHash := common.SpxHash(firstHash)
+	Hasher := common.SpxHash(passkey)
 
 	// Apply RIPEMD-160 to the double-hashed output
 	hashRIPEMD160 := ripemd160.New()
-	if _, err := hashRIPEMD160.Write(secondHash); err != nil {
+	if _, err := hashRIPEMD160.Write(Hasher); err != nil {
 		return nil, fmt.Errorf("error hashing with RIPEMD-160: %v", err)
 	}
 
