@@ -31,7 +31,8 @@ import (
 
 func main() {
 	// Call the GenerateKeys function from the seed package
-	passphrase, base32Passkey, _, err := seed.GenerateKeys() // We don't need to capture hashedPasskey
+	// We don't need to printed hashedPasskey since it only for internal use (e.g., for login verification)
+	passphrase, base32Passkey, _, err := seed.GenerateKeys()
 	if err != nil {
 		log.Fatalf("Error generating keys: %v", err)
 	}
