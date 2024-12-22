@@ -71,6 +71,14 @@ func (km *SphincsManager) SignMessage(message []byte, deserializedSK *sphincs.SP
 
 	// Split the serialized signature into parts to build a Merkle tree
 	// We divide the signature into 4 equal-sized chunks
+	// Assumption if we used params := parameters.MakeSphincsPlusSHAKE256256fRobust
+	// So, each chunk will be 8,750 bytes. However, if there's any leftover due to rounding (in case of an odd number),
+	// the last chunk will take the remainder. But in this case, the total is divisible by 4, so all four chunks will be exactly 8,750 bytes.
+	// First chunk: From byte 0 to 8,749 (8,750 bytes)
+	// Second chunk: From byte 8,750 to 17,499 (8,750 bytes)
+	// Third chunk: From byte 17,500 to 26,249 (8,750 bytes)
+	// Fourth chunk: From byte 26,250 to 34,999 (8,750 bytes)
+	// These chunks are then used to construct a Merkle tree, where each chunk becomes a leaf node in the tree.
 	chunkSize := len(sigBytes) / 4
 	sigParts := make([][]byte, 4) // Initialize an array to hold the 4 signature parts
 	for i := 0; i < 4; i++ {
