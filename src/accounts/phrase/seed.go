@@ -156,20 +156,19 @@ func GeneratePasskey(passphrase string, pk []byte) ([]byte, error) {
 	ikmHashInput := append(passphraseBytes, doubleHashedPk[:]...)
 	ikm := sha256.Sum256(ikmHashInput) // Using SHA-256 to derive initial key material (IKM)
 
-	// Step 5: Generate a random salt and nonce
-	salt, err := GenerateSalt()
-	if err != nil {
-		return nil, fmt.Errorf("error generating salt: %v", err)
-	}
+	// Step 5: Generate salt by combining the public key and passphrase
+	salt := append(pk, passphraseBytes...) // Salt = pk + passphrase
+
+	// Step 6: Generate a random nonce
 	nonce, err := GenerateNonce()
 	if err != nil {
 		return nil, fmt.Errorf("error generating nonce: %v", err)
 	}
 
-	// Step 6: Combine salt and nonce to create a unique salt for Argon2
+	// Step 7: Combine the salt and nonce to create a unique salt for Argon2
 	combinedSalt := append(salt, nonce...)
 
-	// Step 7: Derive the passkey using Argon2 with IKM and combined salt
+	// Step 8: Derive the passkey using Argon2 with IKM and combined salt
 	passkey := argon2.IDKey(ikm[:], combinedSalt, iterations, memory, parallelism, PasskeySize)
 	return passkey, nil
 }

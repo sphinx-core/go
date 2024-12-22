@@ -60,10 +60,10 @@ func (km *SphincsManager) SignMessage(message []byte, deserializedSK *sphincs.SP
 	params := km.keyManager.Params
 
 	// Sign the message
-	sig := sphincs.Spx_sign(params, message, deserializedSK)
+	signature := sphincs.Spx_sign(params, message, deserializedSK)
 
 	// Serialize the generated signature into a byte array for further processing
-	sigBytes, err := sig.SerializeSignature()
+	sigBytes, err := signature.SerializeSignature()
 	if err != nil {
 		// Return an error if the serialization process fails
 		return nil, nil, err
@@ -118,7 +118,7 @@ func (km *SphincsManager) SignMessage(message []byte, deserializedSK *sphincs.SP
 	}
 
 	// Return the generated signature and the root node of the Merkle tree
-	return sig, merkleRoot, nil
+	return signature, merkleRoot, nil
 }
 
 // VerifySignature verifies if a signature is valid for a given message and public key
