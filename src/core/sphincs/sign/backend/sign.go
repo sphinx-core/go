@@ -176,7 +176,7 @@ func (sm *SphincsManager) VerifySignature(params *key.KeyManager, message []byte
 	}
 
 	// Build a Merkle tree from the signature parts to reconstruct the Merkle tree root.
-	// If the tree cannot be built, return false.
+	// This part only constructs the tree without reconstructing the entire signature.
 	rebuiltRoot, err := buildMerkleTreeFromSignature(sigParts)
 	if err != nil {
 		return false

@@ -112,6 +112,7 @@ func main() {
 		log.Fatal("Failed to load root hash from file:", err)
 	}
 	fmt.Printf("Loaded Merkle Tree Root Hash: %x\n", loadedHash)
+	fmt.Printf("Size of Loaded Merkle Tree Root Hash: %d bytes\n", len(loadedHash))
 
 	// Save leaves to LevelDB
 	leaves := [][]byte{sigBytes} // Example usage
@@ -136,4 +137,8 @@ func main() {
 	if isValid {
 		fmt.Printf("Original Message: %s\n", message)
 	}
+
+	// Print the number of bytes loaded during verification
+	// This includes the size of the signature and the Merkle root hash loaded during verification
+	fmt.Printf("Bytes loaded during verification: Signature: %d bytes, Merkle root hash: %d bytes\n", len(sigBytes), len(loadedHash))
 }
