@@ -26,7 +26,9 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base32"
+	"errors"
 	"fmt"
+	"unicode/utf8"
 
 	sips3 "github.com/sphinx-core/go/src/accounts/mnemonic"
 	"github.com/sphinx-core/go/src/common"
@@ -127,7 +129,12 @@ func GeneratePassphrase(entropy []byte) (string, error) {
 // GeneratePasskey generates a passkey using Argon2 with the given passphrase and an optional public key as input material.
 // If no public key is provided, a new one will be generated.
 func GeneratePasskey(passphrase string, pk []byte) ([]byte, error) {
-	// Step 1: Check if pk is empty, and generate a new one if necessary.
+	// Step 1: Validate the passphrase encoding (UTF-8 validation)
+	if !utf8.Valid([]byte(passphrase)) {
+		return nil, errors.New("invalid UTF-8 encoding in passphrase")
+	}
+
+	// Step 2: Check if pk is empty, and generate a new one if necessary.
 	if len(pk) == 0 {
 		keyManager, err := key.NewKeyManager() // Initialize the KeyManager
 		if err != nil {
@@ -145,31 +152,34 @@ func GeneratePasskey(passphrase string, pk []byte) ([]byte, error) {
 		}
 	}
 
-	// Step 2: Convert the passphrase to bytes
+	// Step 3: Convert the passphrase to bytes
 	passphraseBytes := []byte(passphrase)
 
-	// Step 3: Perform double sphinx hash hashing on the public key
+	// Step 4: Perform double sphinx hash hashing on the public key
 	firstHash := common.SpxHash(pk)                // First sphinx hash of the public key
 	doubleHashedPk := common.SpxHash(firstHash[:]) // Second sphinx hash (double hash) of the public key
 
-	// Step 4: Combine passphrase and double-hashed public key for key material
+	// Step 5: Combine passphrase and double-hashed public key for key material
 	ikmHashInput := append(passphraseBytes, doubleHashedPk[:]...)
 	ikm := sha256.Sum256(ikmHashInput) // Using SHA-256 to derive initial key material (IKM)
 
-	// Step 5: Generate salt by combining the public key and passphrase
-	salt := append(pk, passphraseBytes...) // Salt = pk + passphrase
+	// Step 6: Generate salt by combining the public key and passphrase
+	salt := "passphrase" + string(doubleHashedPk)
 
-	// Step 6: Generate a random nonce
+	// Step 7: Convert salt to bytes
+	saltBytes := []byte(salt)
+
+	// Step 8: Generate a random nonce
 	nonce, err := GenerateNonce()
 	if err != nil {
 		return nil, fmt.Errorf("error generating nonce: %v", err)
 	}
 
-	// Step 7: Combine the salt and nonce to create a unique salt for Argon2
-	combinedSalt := append(salt, nonce...)
+	// Step 9: Combine the salt and nonce to create a unique salt for Argon2
+	combinedSaltandNonce := append(saltBytes, nonce...)
 
-	// Step 8: Derive the passkey using Argon2 with IKM and combined salt
-	passkey := argon2.IDKey(ikm[:], combinedSalt, iterations, memory, parallelism, PasskeySize)
+	// Step 10: Derive the passkey using Argon2 with IKM and combined salt
+	passkey := argon2.IDKey(ikm[:], combinedSaltandNonce, iterations, memory, parallelism, PasskeySize)
 	return passkey, nil
 }
 
