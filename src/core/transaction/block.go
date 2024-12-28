@@ -100,14 +100,37 @@ func NewBlock(header *BlockHeader, body *BlockBody) *Block {
 
 // GenerateBlockHash generates the hash of the block using the BlockHeader's fields and SphinxHash.
 func (b *Block) GenerateBlockHash() []byte {
-	// Concatenate the fields of BlockHeader and BlockBody to generate the block data
+	// Concatenate the fields of BlockHeader and BlockBody to generate the block hash
 	headerData := append(b.Header.PrevHash, b.Header.TxRoot...)
 	headerData = append(headerData, b.Header.StateRoot...)
 	headerData = append(headerData, b.Header.ParentHash...)
 	headerData = append(headerData, b.Header.OmmersHash...)
 
-	// Use the SphinxHash algorithm to generate the hash
+	// Use common.SpxHash to hash the concatenated data
 	return common.SpxHash(headerData)
+}
+
+// MineBlock adjusts the nonce in the BlockHeader until a valid block hash is found.
+func (b *Block) MineBlock() {
+	for {
+		// Generate the block hash
+		blockHash := b.GenerateBlockHash()
+
+		// Check if the hash meets the difficulty criteria
+		if meetsDifficulty(blockHash, b.Header.Difficulty) {
+			break
+		}
+
+		// Increment the nonce and try again
+		b.Header.Nonce++
+	}
+}
+
+// meetsDifficulty checks if the block hash meets the mining difficulty.
+func meetsDifficulty(hash []byte, difficulty *big.Int) bool {
+	// Check if the hash meets the difficulty, e.g., the hash must be less than the difficulty
+	hashBigInt := new(big.Int).SetBytes(hash)
+	return hashBigInt.Cmp(difficulty) == -1
 }
 
 // Example of a function to create a transaction
