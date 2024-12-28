@@ -34,7 +34,7 @@ var spxParams = Params{
 	BitSize: 256,
 }
 
-// SpxHash is a simplified function that uses predefined params for SphinxHash.
+// SpxHash hashes the given data using the SphinxHash algorithm with the predefined parameters.
 func SpxHash(data []byte) []byte {
 	// Use the default params (256-bit configuration)
 	params := spxParams
@@ -42,6 +42,6 @@ func SpxHash(data []byte) []byte {
 	// Create a new SphinxHash instance with the configured bit size
 	sphinxHash := spxhash.NewSphinxHash(params.BitSize, data)
 
-	// Use the GetHash function to retrieve the hash for the data
+	// Return the final hash for the data
 	return sphinxHash.GetHash(data)
 }

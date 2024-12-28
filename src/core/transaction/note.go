@@ -21,3 +21,25 @@
 // SOFTWARE.
 
 package types
+
+import "time"
+
+// Note represents the receipt or note of a transaction.
+type Note struct {
+	To      string    `json:"to"`      // Recipient (Bob's wallet address)
+	From    string    `json:"from"`    // Sender (Alice's wallet address)
+	Fee     float64   `json:"fee"`     // Transaction fee
+	Storage string    `json:"storage"` // Storage information for the transaction
+	Date    time.Time `json:"date"`    // Date when the transaction was created
+}
+
+// NewNote creates a new note with the provided details.
+func NewNote(to, from string, fee float64, storage string) *Note {
+	return &Note{
+		To:      to,
+		From:    from,
+		Fee:     fee,
+		Storage: storage,
+		Date:    time.Now(),
+	}
+}
