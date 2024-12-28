@@ -31,6 +31,7 @@ import (
 
 // BlockHeader represents the metadata for a block in the blockchain.
 type BlockHeader struct {
+	NBlock     uint64   `json:"n_block"`     // The position of the block in the blockchain (index)
 	Timestamp  int64    `json:"timestamp"`   // The timestamp when the block is mined
 	PrevHash   []byte   `json:"prev_hash"`   // Hash of the previous block (direct predecessor)
 	Difficulty *big.Int `json:"difficulty"`  // Difficulty level of mining the block
@@ -67,8 +68,9 @@ type Transaction struct {
 }
 
 // NewBlockHeader creates a new BlockHeader.
-func NewBlockHeader(prevHash []byte, difficulty *big.Int, txRoot, stateRoot []byte, gasLimit, gasUsed *big.Int, parentHash, unclesHash []byte) *BlockHeader {
+func NewBlockHeader(nBlock uint64, prevHash []byte, difficulty *big.Int, txRoot, stateRoot []byte, gasLimit, gasUsed *big.Int, parentHash, unclesHash []byte) *BlockHeader {
 	return &BlockHeader{
+		NBlock:     nBlock, // Set nBlock as the block's position in the chain
 		Timestamp:  time.Now().Unix(),
 		PrevHash:   prevHash,
 		Difficulty: difficulty,
