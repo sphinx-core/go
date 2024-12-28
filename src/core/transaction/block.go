@@ -32,7 +32,7 @@ import (
 // BlockHeader represents the metadata for a block in the blockchain.
 type BlockHeader struct {
 	Timestamp  int64    `json:"timestamp"`   // The timestamp when the block is mined
-	PrevHash   []byte   `json:"prev_hash"`   // Hash of the previous block
+	PrevHash   []byte   `json:"prev_hash"`   // Hash of the previous block (direct predecessor)
 	Difficulty *big.Int `json:"difficulty"`  // Difficulty level of mining the block
 	Nonce      uint64   `json:"nonce"`       // The nonce used in mining
 	TxRoot     []byte   `json:"tx_root"`     // Merkle root of the transactions in the block
@@ -40,19 +40,19 @@ type BlockHeader struct {
 	GasLimit   *big.Int `json:"gas_limit"`   // The maximum gas that can be used in the block
 	GasUsed    *big.Int `json:"gas_used"`    // The actual gas used by the transactions
 	ParentHash []byte   `json:"parent_hash"` // The hash of the parent block (alternative to PrevHash)
-	OmmersHash []byte   `json:"ommers_hash"` // The hash of the ommers (uncle blocks)
+	UnclesHash []byte   `json:"uncles_hash"` // The hash of the uncles (previous block headers, also known as ommers)
 }
 
 // BlockBody represents the transactions and other data inside the block.
 type BlockBody struct {
 	TxList     []*Transaction `json:"tx_list"`     // A list of transactions in the block
-	OmmersHash []byte         `json:"ommers_hash"` // Hash representing ommers
+	UnclesHash []byte         `json:"uncles_hash"` // Hash representing uncles (previous block headers, ommers)
 }
 
 // Block represents the entire block structure including the header and body.
 type Block struct {
 	Header BlockHeader `json:"header"` // Block metadata
-	Body   BlockBody   `json:"body"`   // Block transactions and ommers
+	Body   BlockBody   `json:"body"`   // Block transactions and uncles
 }
 
 // Transaction represents a single transaction within the block.
@@ -67,7 +67,7 @@ type Transaction struct {
 }
 
 // NewBlockHeader creates a new BlockHeader.
-func NewBlockHeader(prevHash []byte, difficulty *big.Int, txRoot, stateRoot []byte, gasLimit, gasUsed *big.Int, parentHash, ommersHash []byte) *BlockHeader {
+func NewBlockHeader(prevHash []byte, difficulty *big.Int, txRoot, stateRoot []byte, gasLimit, gasUsed *big.Int, parentHash, unclesHash []byte) *BlockHeader {
 	return &BlockHeader{
 		Timestamp:  time.Now().Unix(),
 		PrevHash:   prevHash,
@@ -78,15 +78,15 @@ func NewBlockHeader(prevHash []byte, difficulty *big.Int, txRoot, stateRoot []by
 		GasLimit:   gasLimit,
 		GasUsed:    gasUsed,
 		ParentHash: parentHash,
-		OmmersHash: ommersHash,
+		UnclesHash: unclesHash,
 	}
 }
 
-// NewBlockBody creates a new BlockBody with a list of transactions and ommers hash.
-func NewBlockBody(txList []*Transaction, ommersHash []byte) *BlockBody {
+// NewBlockBody creates a new BlockBody with a list of transactions and uncles hash.
+func NewBlockBody(txList []*Transaction, unclesHash []byte) *BlockBody {
 	return &BlockBody{
 		TxList:     txList,
-		OmmersHash: ommersHash,
+		UnclesHash: unclesHash,
 	}
 }
 
@@ -104,7 +104,7 @@ func (b *Block) GenerateBlockHash() []byte {
 	headerData := append(b.Header.PrevHash, b.Header.TxRoot...)
 	headerData = append(headerData, b.Header.StateRoot...)
 	headerData = append(headerData, b.Header.ParentHash...)
-	headerData = append(headerData, b.Header.OmmersHash...)
+	headerData = append(headerData, b.Header.UnclesHash...)
 
 	// Use common.SpxHash to hash the concatenated data
 	return common.SpxHash(headerData)
