@@ -71,11 +71,11 @@ func (v *Validator) CreateAddress(nonce int64) (string, error) {
 	hash := common.SpxHash([]byte(contractData))
 
 	// Use the common.Address function to manipulate the contract address
-	contractAddress, err := common.Address(hash)
+	address, err := common.Address(hash)
 	if err != nil {
 		return "", err
 	}
 
 	// Return the manipulated contract address
-	return contractAddress, nil
+	return address, nil
 }
