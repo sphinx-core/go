@@ -29,7 +29,8 @@ import (
 	"strings"
 )
 
-// Address manipulates a given contract address by adding a "0x" prefix.
+// Address manipulates a given contract address by adding or removing the "0x" prefix.
+// If the input starts with "0x", it removes the prefix; otherwise, it adds "0x".
 func Address(hash []byte) (string, error) {
 	if len(hash) != 32 {
 		return "", fmt.Errorf("invalid hash length: expected 32 bytes, got %d", len(hash))
@@ -43,6 +44,12 @@ func Address(hash []byte) (string, error) {
 
 	// Compute the checksum using the sha256 function
 	checksumAddress := applyChecksum(trimmedHexAddress)
+
+	// Add the "0x" prefix if it doesn't exist; otherwise, remove it
+	if strings.HasPrefix(checksumAddress, "0x") {
+		// Remove the "0x" prefix
+		return checksumAddress[2:], nil
+	}
 
 	// Add the "0x" prefix
 	return fmt.Sprintf("0x%s", checksumAddress), nil
