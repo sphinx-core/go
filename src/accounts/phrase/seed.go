@@ -230,7 +230,25 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	}
 
 	// Truncate to the first 6 bytes (48 bits for 10-character Base32 encoding)
-	truncatedHashedPasskey := hashedPasskey[:6]
+	// If you want to select portions of the hash (start, middle, and end), here's an example approach:
+
+	// Example of selecting the start, middle, and end of the hash for truncation:
+	hashLen := len(hashedPasskey)
+	if hashLen < 6 {
+		return "", "", nil, fmt.Errorf("hashed passkey is too short to truncate")
+	}
+
+	// Define portions of the hash to select (e.g., first 2 bytes, middle 2 bytes, and last 2 bytes)
+	startPart := hashedPasskey[:2]                         // Start of the hash (first 2 bytes)
+	middlePart := hashedPasskey[hashLen/3 : (hashLen/3)+2] // Middle part (2 bytes from the middle third)
+	endPart := hashedPasskey[hashLen-2:]                   // End of the hash (last 2 bytes)
+
+	// Combine the selected portions
+	combinedParts := append(startPart, middlePart...)
+	combinedParts = append(combinedParts, endPart...)
+
+	// Now, truncate to the first 6 bytes of the combined parts (48 bits for Base32 encoding)
+	truncatedHashedPasskey := combinedParts[:6]
 
 	// Encode the truncated hash in Base32
 	base32Passkey = EncodeBase32(truncatedHashedPasskey)
