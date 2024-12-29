@@ -20,24 +20,15 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package types
+package header
 
 import "fmt"
 
 // GenerateHeaders generates ledger and asset headers for SPX.
 func GenerateHeaders(ledger, asset string, amount float64, address string) string {
+	// Format the amount in scientific notation
 	return fmt.Sprintf(
-		"Ledger: %s\nAsset: %s\nAmount: %.2f\nAddress: %s",
+		"Ledger: %s\nAsset: %s\nAmount: %.6e\nAddress: %s", // "%.6e" for scientific notation with 6 decimal places
 		ledger, asset, amount, address,
 	)
-}
-
-func main() {
-	ledger := "sphinxchain"
-	asset := "spx"
-	amount := 1000.00
-	address := "0x5B38Da6a701c568545dCfcB03FcB875f56beddC4"
-
-	headers := GenerateHeaders(ledger, asset, amount, address)
-	fmt.Println(headers)
 }
