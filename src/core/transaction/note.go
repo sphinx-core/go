@@ -48,7 +48,7 @@ func NewNote(to, from string, fee float64, storage string) *Note {
 }
 
 // ToTransaction converts a Note to a Transaction.
-func (n *Note) ToTransaction(nonce uint64, gasLimit, gasPrice *big.Int) *Transaction {
+func (n *Note) ToTxs(nonce uint64, gasLimit, gasPrice *big.Int) *Transaction {
 	// Convert Fee to Amount (using Fee as amount for simplicity)
 	amount := big.NewInt(int64(n.Fee))
 
