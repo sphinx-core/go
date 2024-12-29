@@ -38,13 +38,21 @@ type Contract struct {
 	Timestamp int64    `json:"timestamp"` // Changed to int64 to store Unix timestamp
 }
 
+// getSPX retrieves the SPX multiplier from the params package
+func getSPX() *big.Int {
+	return big.NewInt(params.SPX)
+}
+
 // CreateContract creates a contract between Alice and Bob based on the validated note.
 func CreateContract(note *Note, amountInSPX float64) (*Contract, error) {
 	// No need to call Unix() as note.Timestamp is already int64
 	timestamp := note.Timestamp // Directly use the int64 timestamp
 
+	// Use getSPX to retrieve the SPX multiplier
+	spxMultiplier := getSPX()
+
 	// Multiply the amountInSPX by the SPX multiplier (params.SPX)
-	amountInnSPX := amountInSPX * params.SPX
+	amountInnSPX := amountInSPX * float64(spxMultiplier.Int64())
 
 	// Create a new big.Rat to handle fractional values
 	amountRat := new(big.Rat).SetFloat64(amountInnSPX)
