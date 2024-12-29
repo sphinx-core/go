@@ -23,6 +23,7 @@
 package types
 
 import (
+	"errors"
 	"math/big"
 
 	"github.com/sphinx-core/go/src/params"
@@ -33,7 +34,7 @@ type Contract struct {
 	Sender    string   `json:"sender"`
 	Receiver  string   `json:"receiver"`
 	Amount    *big.Int `json:"amount"` // Use big.Int for the Amount field
-	Fee       float64  `json:"fee"`
+	Fee       *big.Int `json:"fee"`    // Changed Fee to *big.Int for consistency
 	Storage   string   `json:"storage"`
 	Timestamp int64    `json:"timestamp"` // Changed to int64 to store Unix timestamp
 }
@@ -49,8 +50,15 @@ func getSPX() *big.Int {
 
 // CreateContract creates a contract between Alice and Bob based on the validated note.
 func CreateContract(note *Note, amountInSPX float64) (*Contract, error) {
-	// No need to call Unix() as note.Timestamp is already int64
-	timestamp := note.Timestamp // Directly use the int64 timestamp
+	// Validate amountInSPX to be non-negative
+	if amountInSPX < 0 {
+		return nil, errors.New("amountInSPX must be non-negative")
+	}
+
+	// Validate Timestamp to ensure it’s not unrealistic
+	if note.Timestamp <= 0 {
+		return nil, errors.New("invalid timestamp")
+	}
 
 	// Use getSPX to retrieve the SPX multiplier
 	spxMultiplier := getSPX()
@@ -69,13 +77,20 @@ func CreateContract(note *Note, amountInSPX float64) (*Contract, error) {
 	amount := new(big.Int)
 	amount.Set(amountRat.Num()) // Use the numerator as the big.Int value
 
+	// Calculate the Fee as a big.Int (assuming the fee is also based on SPX)
+	// Here we assume Fee is a percentage (e.g., 0.01 for 1% fee).
+	feeRat := new(big.Rat).SetFloat64(note.Fee) // Fee as a float64, convert to big.Rat
+	feeRat.Mul(feeRat, amountRat)               // Multiply the fee by the amount
+	fee := new(big.Int)
+	fee.Set(feeRat.Num()) // Convert fee to big.Int
+
 	contract := &Contract{
 		Sender:    note.From,
 		Receiver:  note.To,
 		Amount:    amount, // Set the Amount as *big.Int
-		Fee:       note.Fee,
+		Fee:       fee,    // Set the Fee as *big.Int
 		Storage:   note.Storage,
-		Timestamp: timestamp, // Use int64 timestamp here
+		Timestamp: note.Timestamp, // Use int64 timestamp here
 	}
 
 	// Returning contract and nil error means successful contract creation
