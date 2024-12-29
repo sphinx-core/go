@@ -39,7 +39,6 @@ import (
 )
 
 // Argon2 parameters
-// Argon memory standard is required minimum 15MiB (15 * 1024 * 1024) memory in allocation
 const (
 	memory      = 64 * 1024 // Memory cost set to 64 KiB (64 * 1024 bytes) is for demonstration purpose
 	iterations  = 2         // Number of iterations for Argon2id set to 2
@@ -59,8 +58,8 @@ type GitHubFile struct {
 	Type string `json:"type"` // Type of the file (e.g., file, directory)
 }
 
-// Base URL for accessing the repository directory on GitHub (HTTP version)
-const baseURL = "http://api.github.com/repos/sphinx-core/sips/contents/.github/workflows/sips0003"
+// Base URL for accessing the repository directory on GitHub (HTTPS version)
+const baseURL = "https://api.github.com/repos/sphinx-core/sips/contents/.github/workflows/sips0003"
 
 // FetchFileList fetches the list of files from a specified URL
 func FetchFileList(url string) ([]GitHubFile, error) {
@@ -111,7 +110,7 @@ func SelectAndLoadTxtFile(url string) ([]string, error) {
 	}
 
 	// Constructs the URL for fetching the raw content of the selected file
-	rawBaseURL := "http://raw.githubusercontent.com/sphinx-core/sips/main/.github/workflows/sips0003/" // Changed to HTTP
+	rawBaseURL := "https://raw.githubusercontent.com/sphinx-core/sips/main/.github/workflows/sips0003/" // Changed to HTTPS
 	fileURL := rawBaseURL + selectedFile.Name
 
 	// Fetches the content of the selected file
