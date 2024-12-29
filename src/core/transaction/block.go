@@ -101,11 +101,6 @@ func NewBlock(header *BlockHeader, body *BlockBody) *Block {
 	}
 }
 
-// AddTxs adds a transaction to the block's body.
-func (b *Block) AddTxs(tx *Transaction) {
-	b.Body.TxList = append(b.Body.TxList, tx)
-}
-
 // GenerateBlockHash generates the hash of the block using the BlockHeader's fields and SphinxHash.
 func (b *Block) GenerateBlockHash() []byte {
 	// Concatenate the fields of BlockHeader and BlockBody to generate the block hash
@@ -141,17 +136,26 @@ func meetsDifficulty(hash []byte, difficulty *big.Int) bool {
 	return hashBigInt.Cmp(difficulty) == -1
 }
 
+// AddTxs adds a transaction to the block's body.
+func (b *Block) AddTxs(tx *Transaction) {
+	b.Body.TxList = append(b.Body.TxList, tx)
+}
+
 // Example of a function to create a transaction
-func NewTxs(sender, receiver string, amount *big.Int, gasLimit, gasPrice *big.Int, nonce uint64) *Transaction {
-	return &Transaction{
-		Sender:    sender,
-		Receiver:  receiver,
-		Amount:    amount,
-		GasLimit:  gasLimit,
-		GasPrice:  gasPrice,
-		Timestamp: time.Now().Unix(),
-		Nonce:     nonce,
+func NewTxs(to, from string, fee float64, storage string, nonce uint64, gasLimit, gasPrice *big.Int, block *Block) error {
+	// Create a new Note
+	note, err := NewNote(to, from, fee, storage)
+	if err != nil {
+		return err
 	}
+
+	// Convert the Note to a Transaction
+	tx := note.ToTxs(nonce, gasLimit, gasPrice)
+
+	// Add the Transaction to the Block
+	block.AddTxs(tx)
+
+	return nil
 }
 
 // SanityCheck verifies the validity and integrity of the block's header and body.
