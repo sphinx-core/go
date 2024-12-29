@@ -29,21 +29,21 @@ import (
 
 // Note represents the receipt or note of a transaction.
 type Note struct {
-	To      string    `json:"to"`      // Recipient (Bob's wallet address)
-	From    string    `json:"from"`    // Sender (Alice's wallet address)
-	Fee     float64   `json:"fee"`     // Transaction fee
-	Storage string    `json:"storage"` // Storage information for the transaction
-	Date    time.Time `json:"date"`    // Date when the transaction was created
+	To        string  `json:"to"`        // Recipient (Bob's wallet address)
+	From      string  `json:"from"`      // Sender (Alice's wallet address)
+	Fee       float64 `json:"fee"`       // Transaction fee
+	Storage   string  `json:"storage"`   // Storage information for the transaction
+	Timestamp int64   `json:"timestamp"` // Timestamp when the transaction was created (in int64 format)
 }
 
 // NewNote creates a new note with the provided details.
 func NewNote(to, from string, fee float64, storage string) *Note {
 	return &Note{
-		To:      to,
-		From:    from,
-		Fee:     fee,
-		Storage: storage,
-		Date:    time.Now(),
+		To:        to,
+		From:      from,
+		Fee:       fee,
+		Storage:   storage,
+		Timestamp: time.Now().Unix(), // Storing timestamp as int64
 	}
 }
 
@@ -59,7 +59,7 @@ func (n *Note) ToTransaction(nonce uint64, gasLimit, gasPrice *big.Int) *Transac
 		Amount:    amount,
 		GasLimit:  gasLimit,
 		GasPrice:  gasPrice,
-		Timestamp: n.Date.Unix(),
+		Timestamp: n.Timestamp, // Passing the int64 timestamp directly
 		Nonce:     nonce,
 	}
 }

@@ -41,8 +41,8 @@ type Contract struct {
 
 // CreateContract creates a contract between Alice and Bob based on the validated note.
 func CreateContract(note *Note, amountInSPX float64) (*Contract, error) {
-	// Convert the note date to Unix timestamp (int64)
-	timestamp := note.Date.Unix() // Get Unix timestamp as int64
+	// No need to call Unix() as note.Timestamp is already int64
+	timestamp := note.Timestamp // Directly use the int64 timestamp
 
 	// Multiply the amountInSPX by the SPX multiplier (params.SPX)
 	amountInnSPX := amountInSPX * params.SPX
