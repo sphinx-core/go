@@ -163,7 +163,7 @@ func GeneratePasskey(passphrase string, pk []byte) ([]byte, error) {
 	ikmHashInput := append(passphraseBytes, doubleHashedPk[:]...)
 	ikm := sha256.Sum256(ikmHashInput) // Using SHA-256 to derive initial key material (IKM)
 
-	// Step 6: Generate salt by combining the public key and passphrase
+	// Step 6: Generate salt by combining the hashed public key and passphrase
 	salt := "passphrase" + string(doubleHashedPk)
 
 	// Step 7: Convert salt to bytes
