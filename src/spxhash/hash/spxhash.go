@@ -159,13 +159,12 @@ type SphinxHash struct {
 
 // Generate salt using Argon2
 func generateSalt(data []byte, saltSize int) []byte {
-	// Argon2 parameters: time cost, memory cost, and parallelism
-	timeCost := uint32(3)           // Number of iterations
-	memoryCost := uint32(64 * 1024) // 64 KiB of memory
-	parallelism := uint8(1)         // Parallelism factor
+	// Use the constants for Argon2 parameters
+	timeCost := uint32(iterations)    // Use the number of iterations from the constant
+	memoryCost := uint32(memory)      // Use memory cost from the constant
+	parallelism := uint8(parallelism) // Use parallelism from the constant
 
 	// Argon2id (a combination of Argon2d and Argon2i) for secure hash-based salt generation
-	// Cast saltSize to int here
 	salt := argon2.IDKey(data, data, timeCost, memoryCost, parallelism, uint32(saltSize))
 
 	return salt
