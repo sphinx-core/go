@@ -38,9 +38,13 @@ type Contract struct {
 	Timestamp int64    `json:"timestamp"` // Changed to int64 to store Unix timestamp
 }
 
+const (
+	SPX = 1e18 // 1 SPX equals 1e18 nSPX, similar to how 1 Ether equals 1e18 wei.
+)
+
 // getSPX retrieves the SPX multiplier from the params package
 func getSPX() *big.Int {
-	return big.NewInt(params.SPX)
+	return big.NewInt(params.SPX) // 1e18, equivalent to the full SPX token
 }
 
 // CreateContract creates a contract between Alice and Bob based on the validated note.
@@ -51,16 +55,14 @@ func CreateContract(note *Note, amountInSPX float64) (*Contract, error) {
 	// Use getSPX to retrieve the SPX multiplier
 	spxMultiplier := getSPX()
 
-	// Multiply the amountInSPX by the SPX multiplier (params.SPX)
-	amountInnSPX := amountInSPX * float64(spxMultiplier.Int64())
+	// Convert amountInSPX to a big.Rat to handle fractional amounts
+	amountRat := new(big.Rat).SetFloat64(amountInSPX)
 
-	// Create a new big.Rat to handle fractional values
-	amountRat := new(big.Rat).SetFloat64(amountInnSPX)
+	// Multiply the amount by the SPX multiplier
+	amountRat.Mul(amountRat, new(big.Rat).SetInt(spxMultiplier))
 
-	// Convert 1e18 to *big.Rat (as a fraction)
+	// Convert the resulting big.Rat into a big.Int by multiplying by 10^18 to handle decimals
 	multiplier := big.NewRat(1e18, 1) // This creates a *big.Rat equivalent to 1e18
-
-	// Multiply the amount by 10^18 (to handle decimals)
 	amountRat.Mul(amountRat, multiplier)
 
 	// Convert the resulting big.Rat into a big.Int and round to the nearest integer
