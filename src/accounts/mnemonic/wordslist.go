@@ -24,7 +24,6 @@ package sips3
 
 import (
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -136,14 +135,7 @@ func SelectAndLoadTxtFile(url string) ([]string, error) {
 		}
 	}
 
-	// Base64URL encode the words
-	encodedWords := make([]string, len(words))
-	for i, word := range words {
-		encodedWords[i] = base64.URLEncoding.EncodeToString([]byte(word)) // Base64URL encoding each word
-	}
-
-	// Returns the encoded words
-	return encodedWords, nil // Returns the list of encoded words
+	return words, nil // Returns the list of words
 }
 
 // GeneratePassphrase creates a secure passphrase using a given word list
@@ -163,16 +155,7 @@ func GeneratePassphrase(words []string, wordCount int) (string, string, error) {
 			return "", "", fmt.Errorf("failed to generate random index: %w", err)
 		}
 		// Append the selected word to the passphrase slice
-		encodedWord := words[randIndex.Int64()]
-
-		// Decode the Base64URL encoded word into its original form
-		decodedWord, err := base64.URLEncoding.DecodeString(encodedWord)
-		if err != nil {
-			// Return an error if decoding fails
-			return "", "", fmt.Errorf("failed to decode word: %w", err)
-		}
-		// Convert the decoded word to a string and append it to the passphrase
-		passphrase = append(passphrase, string(decodedWord))
+		passphrase = append(passphrase, words[randIndex.Int64()])
 	}
 
 	// Join the words in the passphrase slice into a single string separated by spaces
@@ -218,30 +201,11 @@ func GeneratePassphrase(words []string, wordCount int) (string, string, error) {
 		// Return an error if a duplicate passphrase is detected
 		return "", "", errors.New("duplicate passphrase detected, regenerate")
 	}
-	// Add the new hash to the hash map
+
+	// Store the hash in the map to avoid future duplicates
 	passphraseHashes[stretchedHashStr] = struct{}{}
 
-	// Encode the passphrase bytes using Base64 URL encoding
-	encodedPassphrase := base64.URLEncoding.EncodeToString(passphraseBytes)
-	// Encode the nonce bytes using Base64 URL encoding
-	encodedNonce := base64.URLEncoding.EncodeToString(nonce)
-
-	// Decode the Base64-encoded passphrase back into a byte slice
-	decodedPassphrase, err := base64.URLEncoding.DecodeString(encodedPassphrase)
-	if err != nil {
-		// Return an error if passphrase decoding fails
-		return "", "", fmt.Errorf("failed to decode passphrase: %w", err)
-	}
-
-	// Decode the Base64-encoded nonce back into a byte slice
-	decodedNonce, err := base64.URLEncoding.DecodeString(encodedNonce)
-	if err != nil {
-		// Return an error if nonce decoding fails
-		return "", "", fmt.Errorf("failed to decode nonce: %w", err)
-	}
-
-	// Convert the decoded passphrase and nonce byte slices to strings and return them
-	return string(decodedPassphrase), string(decodedNonce), nil
+	return passphraseStr, stretchedHashStr, nil // Return the generated passphrase and stretched hash
 }
 
 // NewMnemonic generates a mnemonic from any .txt file in the directory

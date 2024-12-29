@@ -23,6 +23,7 @@
 package types
 
 import (
+	"fmt"
 	"math/big"
 	"time"
 
@@ -146,4 +147,75 @@ func NewTxs(sender, receiver string, amount *big.Int, gasLimit, gasPrice *big.In
 		Timestamp: time.Now().Unix(),
 		Nonce:     nonce,
 	}
+}
+
+// SanityCheck verifies the validity and integrity of the block's header and body.
+func (b *Block) SanityCheck() error {
+	// Check if the timestamp is valid (not in the future)
+	if b.Header.Timestamp > time.Now().Unix() {
+		return fmt.Errorf("invalid timestamp: %d", b.Header.Timestamp)
+	}
+
+	// Ensure PrevHash is not empty (except for the genesis block)
+	if b.Header.NBlock > 0 && len(b.Header.PrevHash) == 0 {
+		return fmt.Errorf("previous hash is missing for block number: %d", b.Header.NBlock)
+	}
+
+	// Check if Difficulty is non-negative
+	if b.Header.Difficulty.Sign() == -1 {
+		return fmt.Errorf("invalid difficulty: %s", b.Header.Difficulty.String())
+	}
+
+	// Ensure TxRoot and StateRoot are not empty
+	if len(b.Header.TxRoot) == 0 {
+		return fmt.Errorf("transaction root is missing")
+	}
+	if len(b.Header.StateRoot) == 0 {
+		return fmt.Errorf("state root is missing")
+	}
+
+	// Check GasUsed does not exceed GasLimit
+	if b.Header.GasUsed.Cmp(b.Header.GasLimit) > 0 {
+		return fmt.Errorf("gas used (%s) exceeds gas limit (%s)", b.Header.GasUsed.String(), b.Header.GasLimit.String())
+	}
+
+	// Validate ParentHash and UnclesHash if uncles are present
+	if len(b.Body.UnclesHash) > 0 && len(b.Header.UnclesHash) == 0 {
+		return fmt.Errorf("uncles hash mismatch")
+	}
+
+	// Ensure all transactions in the body are valid
+	for _, tx := range b.Body.TxList {
+		if err := tx.SanityCheck(); err != nil {
+			return fmt.Errorf("invalid transaction: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// SanityCheck verifies the validity of a transaction.
+func (tx *Transaction) SanityCheck() error {
+	// Ensure sender and receiver addresses are not empty
+	if tx.Sender == "" {
+		return fmt.Errorf("transaction sender is missing")
+	}
+	if tx.Receiver == "" {
+		return fmt.Errorf("transaction receiver is missing")
+	}
+
+	// Ensure the amount is non-negative
+	if tx.Amount.Sign() == -1 {
+		return fmt.Errorf("transaction amount is negative")
+	}
+
+	// Check gas limit and gas price are non-negative
+	if tx.GasLimit.Sign() == -1 {
+		return fmt.Errorf("invalid gas limit: %s", tx.GasLimit.String())
+	}
+	if tx.GasPrice.Sign() == -1 {
+		return fmt.Errorf("invalid gas price: %s", tx.GasPrice.String())
+	}
+
+	return nil
 }
