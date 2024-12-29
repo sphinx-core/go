@@ -101,6 +101,11 @@ func NewBlock(header *BlockHeader, body *BlockBody) *Block {
 	}
 }
 
+// AddTransaction adds a transaction to the block's body.
+func (b *Block) AddTransaction(tx *Transaction) {
+	b.Body.TxList = append(b.Body.TxList, tx)
+}
+
 // GenerateBlockHash generates the hash of the block using the BlockHeader's fields and SphinxHash.
 func (b *Block) GenerateBlockHash() []byte {
 	// Concatenate the fields of BlockHeader and BlockBody to generate the block hash

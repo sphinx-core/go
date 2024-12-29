@@ -22,7 +22,10 @@
 
 package types
 
-import "time"
+import (
+	"math/big"
+	"time"
+)
 
 // Note represents the receipt or note of a transaction.
 type Note struct {
@@ -41,5 +44,22 @@ func NewNote(to, from string, fee float64, storage string) *Note {
 		Fee:     fee,
 		Storage: storage,
 		Date:    time.Now(),
+	}
+}
+
+// ToTransaction converts a Note to a Transaction.
+func (n *Note) ToTransaction(nonce uint64, gasLimit, gasPrice *big.Int) *Transaction {
+	// Convert Fee to Amount (using Fee as amount for simplicity)
+	amount := big.NewInt(int64(n.Fee))
+
+	// Create the transaction from the Note
+	return &Transaction{
+		Sender:    n.From,
+		Receiver:  n.To,
+		Amount:    amount,
+		GasLimit:  gasLimit,
+		GasPrice:  gasPrice,
+		Timestamp: n.Date.Unix(),
+		Nonce:     nonce,
 	}
 }
