@@ -37,7 +37,7 @@ type BlockHeader struct {
 	PrevHash   []byte   `json:"prev_hash"`   // Hash of the previous block (direct predecessor)
 	Difficulty *big.Int `json:"difficulty"`  // Difficulty level of mining the block
 	Nonce      uint64   `json:"nonce"`       // The nonce used in mining
-	TxRoot     []byte   `json:"tx_root"`     // Merkle root of the transactions in the block
+	TxsRoot    []byte   `json:"txs_root"`    // Merkle root of the transactions in the block
 	StateRoot  []byte   `json:"state_root"`  // Merkle root of the state (EVM-like state)
 	GasLimit   *big.Int `json:"gas_limit"`   // The maximum gas that can be used in the block
 	GasUsed    *big.Int `json:"gas_used"`    // The actual gas used by the transactions
@@ -47,7 +47,7 @@ type BlockHeader struct {
 
 // BlockBody represents the transactions and other data inside the block.
 type BlockBody struct {
-	TxList     []*Transaction `json:"tx_list"`     // A list of transactions in the block
+	TxsList    []*Transaction `json:"txs_list"`    // A list of transactions in the block
 	UnclesHash []byte         `json:"uncles_hash"` // Hash representing uncles (previous block headers, ommers)
 }
 
@@ -69,14 +69,14 @@ type Transaction struct {
 }
 
 // NewBlockHeader creates a new BlockHeader.
-func NewBlockHeader(nBlock uint64, prevHash []byte, difficulty *big.Int, txRoot, stateRoot []byte, gasLimit, gasUsed *big.Int, parentHash, unclesHash []byte) *BlockHeader {
+func NewBlockHeader(nBlock uint64, prevHash []byte, difficulty *big.Int, txsRoot, stateRoot []byte, gasLimit, gasUsed *big.Int, parentHash, unclesHash []byte) *BlockHeader {
 	return &BlockHeader{
 		NBlock:     nBlock, // Set nBlock as the block's position in the chain
 		Timestamp:  time.Now().Unix(),
 		PrevHash:   prevHash,
 		Difficulty: difficulty,
 		Nonce:      uint64(0), // Default nonce is 0, will be adjusted during mining
-		TxRoot:     txRoot,
+		TxsRoot:    txsRoot,
 		StateRoot:  stateRoot,
 		GasLimit:   gasLimit,
 		GasUsed:    gasUsed,
@@ -86,9 +86,9 @@ func NewBlockHeader(nBlock uint64, prevHash []byte, difficulty *big.Int, txRoot,
 }
 
 // NewBlockBody creates a new BlockBody with a list of transactions and uncles hash.
-func NewBlockBody(txList []*Transaction, unclesHash []byte) *BlockBody {
+func NewBlockBody(txsList []*Transaction, unclesHash []byte) *BlockBody {
 	return &BlockBody{
-		TxList:     txList,
+		TxsList:    txsList,
 		UnclesHash: unclesHash,
 	}
 }
@@ -104,7 +104,7 @@ func NewBlock(header *BlockHeader, body *BlockBody) *Block {
 // GenerateBlockHash generates the hash of the block using the BlockHeader's fields and SphinxHash.
 func (b *Block) GenerateBlockHash() []byte {
 	// Concatenate the fields of BlockHeader and BlockBody to generate the block hash
-	headerData := append(b.Header.PrevHash, b.Header.TxRoot...)
+	headerData := append(b.Header.PrevHash, b.Header.TxsRoot...)
 	headerData = append(headerData, b.Header.StateRoot...)
 	headerData = append(headerData, b.Header.ParentHash...)
 	headerData = append(headerData, b.Header.UnclesHash...)
@@ -138,7 +138,7 @@ func meetsDifficulty(hash []byte, difficulty *big.Int) bool {
 
 // AddTxs adds a transaction to the block's body.
 func (b *Block) AddTxs(tx *Transaction) {
-	b.Body.TxList = append(b.Body.TxList, tx)
+	b.Body.TxsList = append(b.Body.TxsList, tx)
 }
 
 // Example of a function to create a transaction
@@ -176,7 +176,7 @@ func (b *Block) SanityCheck() error {
 	}
 
 	// Ensure TxRoot and StateRoot are not empty
-	if len(b.Header.TxRoot) == 0 {
+	if len(b.Header.TxsRoot) == 0 {
 		return fmt.Errorf("transaction root is missing")
 	}
 	if len(b.Header.StateRoot) == 0 {
@@ -194,7 +194,7 @@ func (b *Block) SanityCheck() error {
 	}
 
 	// Ensure all transactions in the body are valid
-	for _, tx := range b.Body.TxList {
+	for _, tx := range b.Body.TxsList {
 		if err := tx.SanityCheck(); err != nil {
 			return fmt.Errorf("invalid transaction: %v", err)
 		}
