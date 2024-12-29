@@ -58,20 +58,31 @@ func NewNote(to, from string, fee float64, storage string) (*Note, error) {
 	}, nil
 }
 
-// validateAddress checks if the address is in the correct format (either with 0x or base58).
+// validateAddress checks if the address is in the correct format (26-62 alphanumeric characters).
 func validateAddress(address string) error {
-	// Simply hex address (0x + 40 hex characters)
-	if strings.HasPrefix(address, "0x") && len(address) == 42 {
+
+	// Base58 address validation (starts with 'x' and length between 26 and 62 characters)
+	if len(address) >= 26 && len(address) <= 62 && strings.HasPrefix(address, "x") && isAlphanumeric(address[1:]) {
+		// Check if the address starts with 'x' and is alphanumeric (excluding the 'x')
 		return nil
 	}
 
-	// Base58 address validation (address starts with "x" and has a valid length)
-	if len(address) >= 27 && len(address) <= 36 && strings.HasPrefix(address, "x") {
-		// Assuming the base58 address starts with "x" and falls within the length range
-		return nil
-	}
+	return errors.New("invalid address format. Must be an alphanumeric address with 26-62 characters, starting with 'x'")
+}
 
-	return errors.New("invalid address format. Must be a 0x-prefixed or base58 address (starting with 'x')")
+// isAlphanumeric checks if the string contains only alphanumeric characters.
+func isAlphanumeric(s string) bool {
+	for _, char := range s {
+		if !isAlphanumericChar(char) {
+			return false
+		}
+	}
+	return true
+}
+
+// isAlphanumericChar checks if the character is alphanumeric.
+func isAlphanumericChar(c rune) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 // ToTransaction converts a Note to a Transaction.
