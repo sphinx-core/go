@@ -23,10 +23,11 @@
 package common
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"strings"
+
+	"golang.org/x/crypto/sha3"
 )
 
 // Address manipulates a given contract address by adding or removing the "0x" prefix.
@@ -42,7 +43,7 @@ func Address(hash []byte) (string, error) {
 	// Take the last 20 bytes (40 hex characters)
 	trimmedHexAddress := hexAddress[len(hexAddress)-40:]
 
-	// Compute the checksum using the sha256 function
+	// Compute the checksum using the SHAKE256 function
 	checksumAddress := applyChecksum(trimmedHexAddress)
 
 	// Add the "0x" prefix if it doesn't exist; otherwise, remove it
@@ -55,14 +56,19 @@ func Address(hash []byte) (string, error) {
 	return fmt.Sprintf("0x%s", checksumAddress), nil
 }
 
-// applyChecksum applies a checksum to a given address string using sha256.
+// applyChecksum applies a checksum to a given address string using SHAKE256.
 func applyChecksum(address string) string {
 	// Convert the address to lowercase
 	lowerAddress := strings.ToLower(address)
 
-	// Compute the sha256 hash of the lowercase address
-	hash := sha256.Sum256([]byte(lowerAddress))
-	hashHex := hex.EncodeToString(hash[:])
+	// Compute the SHAKE256 hash of the lowercase address
+	hasher := sha3.NewShake256()
+	hasher.Write([]byte(lowerAddress))
+
+	// Get 32 bytes (64 hex characters) of output from SHAKE256
+	hash := make([]byte, 32)
+	hasher.Read(hash)
+	hashHex := hex.EncodeToString(hash)
 
 	// Apply checksum: uppercase if corresponding hash hex character is >= 8
 	var checksumAddress strings.Builder
@@ -81,7 +87,7 @@ func applyChecksum(address string) string {
 	return checksumAddress.String()
 }
 
-// ValidateAddress checks if an address is valid and matches the sha256-based checksum.
+// ValidateAddress checks if an address is valid and matches the SHAKE256-based checksum.
 func ValidateAddress(address string) (bool, error) {
 	// Ensure the address starts with "0x"
 	if !strings.HasPrefix(address, "0x") {
