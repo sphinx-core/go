@@ -27,12 +27,12 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha512"
 	"encoding/json"
 	"errors"
 	"log"
 
 	"github.com/holiman/uint256"
+	"golang.org/x/crypto/sha3"
 )
 
 const (
@@ -145,7 +145,7 @@ func (c *CCrypter) BytesToKeySHA512AES(salt, keyData []byte, count int) ([]byte,
 	}
 
 	// Initialize a new SHA-512 hash function.
-	hash := sha512.New()
+	hash := sha3.NewLegacyKeccak512()
 
 	// Create a buffer to store the output of the SHA-512 hashing.
 	// CSHA512OutputSize is likely 64 bytes (512 bits), the output size of SHA-512.
