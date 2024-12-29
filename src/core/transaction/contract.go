@@ -40,7 +40,7 @@ type Contract struct {
 }
 
 const (
-	SPX = 1e18 // 1 SPX equals 1e18 nSPX, similar to how 1 Ether equals 1e18 wei.
+	SPX = 1e18 // 1 SPX equals 1e18 nSPX (10^18), similar to how 1 Ether equals 1e18 wei.
 )
 
 // getSPX retrieves the SPX multiplier from the params package
