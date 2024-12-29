@@ -23,7 +23,9 @@
 package types
 
 import (
+	"errors"
 	"math/big"
+	"strings"
 	"time"
 )
 
@@ -37,14 +39,39 @@ type Note struct {
 }
 
 // NewNote creates a new note with the provided details.
-func NewNote(to, from string, fee float64, storage string) *Note {
+func NewNote(to, from string, fee float64, storage string) (*Note, error) {
+	// Validate wallet addresses to ensure they are in the correct format
+	if err := validateAddress(to); err != nil {
+		return nil, err
+	}
+
+	if err := validateAddress(from); err != nil {
+		return nil, err
+	}
+
 	return &Note{
 		To:        to,
 		From:      from,
 		Fee:       fee,
 		Storage:   storage,
 		Timestamp: time.Now().Unix(), // Storing timestamp as int64
+	}, nil
+}
+
+// validateAddress checks if the address is in the correct format (either with 0x or base58).
+func validateAddress(address string) error {
+	// Simply hex address (0x + 40 hex characters)
+	if strings.HasPrefix(address, "0x") && len(address) == 42 {
+		return nil
 	}
+
+	// Base58 address validation (address starts with "x" and has a valid length)
+	if len(address) >= 27 && len(address) <= 36 && strings.HasPrefix(address, "x") {
+		// Assuming the base58 address starts with "x" and falls within the length range
+		return nil
+	}
+
+	return errors.New("invalid address format. Must be a 0x-prefixed or base58 address (starting with 'x')")
 }
 
 // ToTransaction converts a Note to a Transaction.
