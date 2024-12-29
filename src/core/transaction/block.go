@@ -101,7 +101,7 @@ func NewBlock(header *BlockHeader, body *BlockBody) *Block {
 	}
 }
 
-// AddTransaction adds a transaction to the block's body.
+// AddTxs adds a transaction to the block's body.
 func (b *Block) AddTxs(tx *Transaction) {
 	b.Body.TxList = append(b.Body.TxList, tx)
 }
