@@ -23,7 +23,6 @@
 package types
 
 import (
-	"encoding/hex"
 	"fmt"
 
 	"github.com/sphinx-core/go/src/common"
@@ -63,17 +62,20 @@ func (v *Validator) Validate(note *Note) error {
 	return nil
 }
 
-// CreateContractAddress generates a unique contract address using sender, recipient, and nonce.
-func (v *Validator) CreateContractAddress(nonce int64) (string, error) {
+// CreateAddress generates a unique contract address using sender, recipient, and nonce.
+func (v *Validator) CreateAddress(nonce int64) (string, error) {
 	// Combine the sender address, recipient address, and nonce into a single string
 	contractData := fmt.Sprintf("%s-%s-%d", v.senderAddress, v.recipientAddress, nonce)
 
 	// Use common.SpxHash to get the hash for the combined contract data
 	hash := common.SpxHash([]byte(contractData))
 
-	// Convert the hash to a hexadecimal string
-	contractAddress := hex.EncodeToString(hash)
+	// Use the common.Address function to manipulate the contract address
+	contractAddress, err := common.Address(hash)
+	if err != nil {
+		return "", err
+	}
 
-	// Return the generated contract address
+	// Return the manipulated contract address
 	return contractAddress, nil
 }
