@@ -23,6 +23,7 @@
 package common
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -40,21 +41,21 @@ func Address(hash []byte) (string, error) {
 	// Take the last 20 bytes (40 hex characters)
 	trimmedHexAddress := hexAddress[len(hexAddress)-40:]
 
-	// Compute the checksum using the SphinxHash function
+	// Compute the checksum using the sha256 function
 	checksumAddress := applyChecksum(trimmedHexAddress)
 
 	// Add the "0x" prefix
 	return fmt.Sprintf("0x%s", checksumAddress), nil
 }
 
-// applyChecksum applies a checksum to a given address string using SphinxHash.
+// applyChecksum applies a checksum to a given address string using sha256.
 func applyChecksum(address string) string {
 	// Convert the address to lowercase
 	lowerAddress := strings.ToLower(address)
 
-	// Compute the SphinxHash of the lowercase address
-	hash := SpxHash([]byte(lowerAddress))
-	hashHex := hex.EncodeToString(hash)
+	// Compute the sha256 hash of the lowercase address
+	hash := sha256.Sum256([]byte(lowerAddress))
+	hashHex := hex.EncodeToString(hash[:])
 
 	// Apply checksum: uppercase if corresponding hash hex character is >= 8
 	var checksumAddress strings.Builder
@@ -73,7 +74,7 @@ func applyChecksum(address string) string {
 	return checksumAddress.String()
 }
 
-// ValidateAddress checks if an address is valid and matches the SphinxHash-based checksum.
+// ValidateAddress checks if an address is valid and matches the sha256-based checksum.
 func ValidateAddress(address string) (bool, error) {
 	// Ensure the address starts with "0x"
 	if !strings.HasPrefix(address, "0x") {
