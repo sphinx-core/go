@@ -85,7 +85,7 @@ func isAlphanumericChar(c rune) bool {
 	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
-// ToTransaction converts a Note to a Transaction.
+// ToTxs converts a Note to a Transaction.
 func (n *Note) ToTxs(nonce uint64, gasLimit, gasPrice *big.Int) *Transaction {
 	// Convert Fee to Amount (using Fee as amount for simplicity)
 	amount := big.NewInt(int64(n.Fee))
