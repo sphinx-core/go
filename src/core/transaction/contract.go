@@ -26,7 +26,7 @@ import (
 	"errors"
 	"math/big"
 
-	"github.com/sphinx-core/go/src/params"
+	"github.com/sphinx-core/go/src/denom/params"
 )
 
 // Contract represents the contract between Alice and Bob.
