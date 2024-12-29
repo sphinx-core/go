@@ -20,12 +20,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package header
+package commit
 
 import "fmt"
 
 // GenerateHeaders generates ledger and asset headers for SPX.
-func GenerateHeaders(ledger, asset string, amount float64, address string) string {
+func SpxHeaders(ledger, asset string, amount float64, address string) string {
 	// Format the amount in scientific notation
 	return fmt.Sprintf(
 		"Ledger: %s\nAsset: %s\nAmount: %.6e\nAddress: %s", // "%.6e" for scientific notation with 6 decimal places
