@@ -23,7 +23,6 @@
 package types
 
 import (
-	"fmt"
 	"math/big"
 
 	"github.com/sphinx-core/go/src/params"
@@ -47,12 +46,18 @@ func CreateContract(note *Note, amountInSPX float64) (*Contract, error) {
 	// Multiply the amountInSPX by the SPX multiplier (params.SPX)
 	amountInnSPX := amountInSPX * params.SPX
 
-	// The 10 here is not a hardcoded value representing a specific number of tokens but refers to the base (decimal) of the number being parsed.
-	// It's used because big.Int requires the base of the number system when converting a string to a large integer, and for typical token amounts,
-	// the base is usually 10 (decimal).
-	// Convert the amountInNanoSPX (a float64) to *big.Int
+	// Create a new big.Rat to handle fractional values
+	amountRat := new(big.Rat).SetFloat64(amountInnSPX)
+
+	// Convert 1e18 to *big.Rat (as a fraction)
+	multiplier := big.NewRat(1e18, 1) // This creates a *big.Rat equivalent to 1e18
+
+	// Multiply the amount by 10^18 (to handle decimals)
+	amountRat.Mul(amountRat, multiplier)
+
+	// Convert the resulting big.Rat into a big.Int and round to the nearest integer
 	amount := new(big.Int)
-	amount, _ = amount.SetString(fmt.Sprintf("%.0f", amountInnSPX), 10) // Convert to *big.Int
+	amount.Set(amountRat.Num()) // Use the numerator as the big.Int value
 
 	contract := &Contract{
 		Sender:    note.From,
