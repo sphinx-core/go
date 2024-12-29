@@ -134,6 +134,20 @@ func (l *LRUCache) moveToFront(node *Node) {
 	l.head = node
 }
 
+// Define prime constants for hash calculations.
+const (
+	prime32  = 0x9e3779b9         // Example prime constant for 32-bit hash
+	prime64  = 0x9e3779b97f4a7c15 // Example prime constant for 64-bit hash
+	saltSize = 16                 // Size of salt in bytes (128 bits = 16 bytes)
+
+	// Argon2 parameters
+	memory           = 64 * 1024 // Memory cost set to 64 KiB (64 * 1024 bytes) is for demonstration purpose
+	iterations       = 2         // Number of iterations for Argon2id set to 2
+	parallelism      = 1         // Degree of parallelism set to 1
+	tagSize          = 32        // Tag size set to 256 bits (32 bytes)
+	DefaultCacheSize = 100       // Default cache size for SphinxHash
+)
+
 // SphinxHash implements hashing based on SIP-0001 draft.
 type SphinxHash struct {
 	bitSize      int       // Specifies the bit size of the hash (128, 256, 384, 512)
@@ -143,31 +157,24 @@ type SphinxHash struct {
 	maxCacheSize int       // Maximum cache size
 }
 
-// Define prime constants for hash calculations.
-const (
-	prime32  = 0x9e3779b9         // Example prime constant for 32-bit hash
-	prime64  = 0x9e3779b97f4a7c15 // Example prime constant for 64-bit hash
-	saltSize = 16                 // Size of salt in bytes (128 bits = 16 bytes)
+// Generate salt using Argon2
+func generateSalt(data []byte, saltSize int) []byte {
+	// Argon2 parameters: time cost, memory cost, and parallelism
+	timeCost := uint32(3)           // Number of iterations
+	memoryCost := uint32(64 * 1024) // 64 KiB of memory
+	parallelism := uint8(1)         // Parallelism factor
 
-	// Argon2 parameters
-	// Argon memory standard is required minimum 15MiB (15 * 1024 * 1024) memory in allocation
-	memory           = 64 * 1024 // Memory cost set to 64 KiB (64 * 1024 bytes) is for demonstration purpose
-	iterations       = 2         // Number of iterations for Argon2id set to 2
-	parallelism      = 1         // Degree of parallelism set to 1
-	tagSize          = 32        // Tag size set to 256 bits (32 bytes)
-	DefaultCacheSize = 100       // Default cache size for SphinxHash
-)
+	// Argon2id (a combination of Argon2d and Argon2i) for secure hash-based salt generation
+	// Cast saltSize to int here
+	salt := argon2.IDKey(data, data, timeCost, memoryCost, parallelism, uint32(saltSize))
 
-// Generate deterministic salt based on input data.
-func generateSalt(data []byte) []byte {
-	// Use a hash of the data as the salt to ensure determinism
-	hash := sha256.Sum256(data)
-	return hash[:saltSize] // Return the first 16 bytes as salt
+	return salt
 }
 
 // NewSphinxHash creates a new SphinxHash with a specific bit size for the hash.
 func NewSphinxHash(bitSize int, data []byte) *SphinxHash {
-	salt := generateSalt(data) // Use deterministic salt based on input data
+	// Pass saltSize explicitly when calling generateSalt
+	salt := generateSalt(data, saltSize) // Use deterministic salt based on input data
 	return &SphinxHash{
 		bitSize:      bitSize,
 		salt:         salt,
