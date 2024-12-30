@@ -25,11 +25,28 @@ package utils
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base32"
 	"fmt"
 )
 
+// EncodeBase32 encodes a byte slice into a Base32 string.
+func EncodeBase32(data []byte) string {
+	// Base32 encode the data
+	return base32.StdEncoding.EncodeToString(data)
+}
+
+// DecodeBase32 decodes a Base32 string into a byte slice.
+func DecodeBase32(base32Str string) ([]byte, error) {
+	// Decode the Base32 string
+	decoded, err := base32.StdEncoding.DecodeString(base32Str)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode base32 string: %v", err)
+	}
+	return decoded, nil
+}
+
 // Generate a root hash that combines the combined parts and the hashed passkey for easy verification
-func Fingerprint(combinedParts []byte, hashedPasskey []byte) ([]byte, error) {
+func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error) {
 	// Combine combinedParts and hashedPasskey
 	combined := append(combinedParts, hashedPasskey...)
 
@@ -53,9 +70,10 @@ func VerifyBase32Passkey(base32Passkey string, hashedPasskey []byte) (bool, erro
 		return false, err
 	}
 
-	// Compare the root hash with the expected hash for verification
-	// Here, you would store the expected root hash somewhere safe to compare
-	// If the root hash matches the expected value, the passkey is verified
-	expectedRootHash := GetExpectedRootHash() // Assume this is fetched from a secure source
-	return bytes.Equal(rootHash, expectedRootHash), nil
+	// Now, compare the root hash with the hashed passkey (which was generated during key creation)
+	// You can directly compare rootHash and hashedPasskey or return the fingerprint for verification
+
+	// For example, if you store the fingerprint generated during key creation,
+	// you can directly compare it with rootHash to verify correctness:
+	return bytes.Equal(rootHash, hashedPasskey), nil
 }

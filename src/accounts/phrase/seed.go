@@ -34,6 +34,7 @@ import (
 	sips3 "github.com/sphinx-core/go/src/accounts/mnemonic"
 	"github.com/sphinx-core/go/src/common"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
+	utils "github.com/sphinx-core/go/src/core/wallet/config"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/sha3"
 )
@@ -202,35 +203,35 @@ func EncodeBase32(data []byte) string {
 }
 
 // GenerateKeys generates a passphrase and a hashed, Base32-encoded passkey.
-func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, err error) {
+func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, FingerPrint []byte, err error) {
 	// Generate entropy for the mnemonic
 	entropy, err := GenerateEntropy()
 	if err != nil {
-		return "", "", nil, fmt.Errorf("failed to generate entropy: %v", err)
+		return "", "", nil, nil, fmt.Errorf("failed to generate entropy: %v", err)
 	}
 
 	// Generate passphrase from entropy
 	passphrase, err = GeneratePassphrase(entropy)
 	if err != nil {
-		return "", "", nil, fmt.Errorf("failed to generate passphrase: %v", err)
+		return "", "", nil, nil, fmt.Errorf("failed to generate passphrase: %v", err)
 	}
 
 	// Generate passkey from the passphrase
 	passkey, err := GeneratePasskey(passphrase, nil)
 	if err != nil {
-		return "", "", nil, fmt.Errorf("failed to generate passkey: %v", err)
+		return "", "", nil, nil, fmt.Errorf("failed to generate passkey: %v", err)
 	}
 
 	// Hash the generated passkey
 	hashedPasskey, err = HashPasskey(passkey)
 	if err != nil {
-		return "", "", nil, fmt.Errorf("failed to hash passkey: %v", err)
+		return "", "", nil, nil, fmt.Errorf("failed to hash passkey: %v", err)
 	}
 
 	// Ensure hashedPasskey is long enough
 	hashLen := len(hashedPasskey)
 	if hashLen < 6 {
-		return "", "", nil, fmt.Errorf("hashed passkey is too short to truncate")
+		return "", "", nil, nil, fmt.Errorf("hashed passkey is too short to truncate")
 	}
 
 	// Randomly select 2-byte segments from the hash without overlap
@@ -264,6 +265,12 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	// Encode the combinedParts (6 bytes) in Base32
 	base32Passkey = EncodeBase32(combinedParts)
 
+	// Generate root hash of combined parts and hashed passkey
+	FingerPrint, err = utils.GenerateRootHash(combinedParts, hashedPasskey)
+	if err != nil {
+		return "", "", nil, nil, fmt.Errorf("failed to generate root hash: %v", err)
+	}
+
 	// Return the generated passphrase, Base32-encoded passkey, and hashed passkey
-	return passphrase, base32Passkey, hashedPasskey, nil
+	return passphrase, base32Passkey, hashedPasskey, FingerPrint, nil
 }

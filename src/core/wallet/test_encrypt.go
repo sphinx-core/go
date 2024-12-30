@@ -28,7 +28,7 @@ import (
 
 	seed "github.com/sphinx-core/go/src/accounts/phrase"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
-	"github.com/sphinx-core/go/src/core/wallet/config"
+	config "github.com/sphinx-core/go/src/core/wallet/config"
 	"github.com/sphinx-core/go/src/core/wallet/crypter"
 )
 
@@ -69,14 +69,17 @@ func main() {
 	fmt.Printf("Size of Public Key (PK): %d bytes\n", len(pkBytes)) // Print the size of the PK
 
 	// Generate passphrase, base32 passkey, and hashed passkey from a seed
-	passphrase, base32Passkey, hashedPasskey, err := seed.GenerateKeys()
+	// Generate passphrase, base32 passkey, hashed passkey, and fingerprint from a seed
+	passphrase, base32Passkey, hashedPasskey, FingerPrint, err := seed.GenerateKeys()
 	if err != nil {
 		log.Fatalf("Failed to generate keys from seed: %v", err) // Log and exit if key generation from seed fails
 	}
+
 	// Print the generated keys for reference
 	fmt.Printf("Passphrase: %s\n", passphrase)
 	fmt.Printf("Base32Passkey: %s\n", base32Passkey)
 	fmt.Printf("Hashed Passkey (hex): %x\n", hashedPasskey)
+	fmt.Printf("Fingerprint: %s\n", FingerPrint) // Use the FingerPrint variable
 
 	// Initialize crypter for encryption/decryption
 	crypt := &crypter.CCrypter{}
