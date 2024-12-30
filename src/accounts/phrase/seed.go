@@ -35,7 +35,7 @@ import (
 	"github.com/sphinx-core/go/src/common"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 	"golang.org/x/crypto/argon2"
-	"golang.org/x/crypto/ripemd160"
+	"golang.org/x/crypto/sha3"
 )
 
 // SIPS-0004 https://github.com/sphinx-core/sips/wiki/SIPS0004
@@ -184,18 +184,15 @@ func GeneratePasskey(passphrase string, pk []byte) ([]byte, error) {
 	return passkey, nil
 }
 
-// HashPasskey hashes the passkey using double SphinxHash and then applies RIPEMD-160.
 func HashPasskey(passkey []byte) ([]byte, error) {
-	// First SphinxHash instance
-	Hasher := common.SpxHash(passkey)
-
-	// Apply RIPEMD-160 to the double-hashed output
-	hashRIPEMD160 := ripemd160.New()
-	if _, err := hashRIPEMD160.Write(Hasher); err != nil {
-		return nil, fmt.Errorf("error hashing with RIPEMD-160: %v", err)
+	// Use SHA3-512 (Keccak-512) to hash the passkey
+	hash := sha3.NewLegacyKeccak512() // Create the Keccak-512 hasher
+	if _, err := hash.Write(passkey); err != nil {
+		return nil, fmt.Errorf("error hashing with SHA3-512: %v", err)
 	}
 
-	return hashRIPEMD160.Sum(nil), nil // Return the final hashed output
+	// Return the final hashed output
+	return hash.Sum(nil), nil
 }
 
 // EncodeBase32 encodes the data in Base32 without padding.
@@ -236,12 +233,28 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		return "", "", nil, fmt.Errorf("hashed passkey is too short to truncate")
 	}
 
-	// Randomly select 2-byte segments from the hash
-	selectedParts := make([][]byte, 3) // To store the 3 selected parts
+	// Randomly select 2-byte segments from the hash without overlap
+	selectedParts := make([][]byte, 3)    // To store the 3 selected parts
+	selectedIndices := make(map[int]bool) // To track used indices and prevent overlap
+
 	for i := 0; i < 3; i++ {
-		startIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(hashLen-1))) // Ensure space for 2 bytes
-		start := int(startIndex.Int64())
-		selectedParts[i] = hashedPasskey[start : start+2] // Extract 2 bytes starting at the random index
+		var start int
+		for {
+			// Randomly select a start index ensuring space for 2 bytes
+			startIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(hashLen-2))) // Ensure space for 2 bytes
+			start = int(startIndex.Int64())
+
+			// Ensure the selected segment does not overlap with previously selected segments
+			if !selectedIndices[start] && !selectedIndices[start+1] {
+				// Mark the indices as used
+				selectedIndices[start] = true
+				selectedIndices[start+1] = true
+				break
+			}
+		}
+
+		// Extract the 2-byte segment starting from the random index
+		selectedParts[i] = hashedPasskey[start : start+2]
 	}
 
 	// Combine the selected parts
