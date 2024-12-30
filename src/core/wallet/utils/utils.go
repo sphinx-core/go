@@ -51,24 +51,33 @@ func DecodeBase32(base32Str string) ([]byte, error) {
 // This function appends the combined parts with the hashed passkey and then hashes the resulting data using SHA-256.
 // The root hash can then be used for verification purposes.
 func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error) {
-	// Combine the decoded parts with the hashed passkey
-	keyMaterial := append(combinedParts, hashedPasskey...)
-	// Generate the root hash by applying SHA-256 on the combined data
-	rootHash := sha256.Sum256(keyMaterial)
+	// Combine the decoded parts with the hashed passkey to generate the fingerprint
+	KeyMaterial := append(combinedParts, hashedPasskey...)
+
+	// Print the fingerprint (key material) for debugging purposes
+	fmt.Printf("Combined Key Material: %x\n", KeyMaterial)
+
+	// Generate the root hash by applying SHA-256 on the fingerprint (combined data)
+	rootHash := sha256.Sum256(KeyMaterial)
+
+	// Print the root hash (after SHA-256) for debugging purposes
+	fmt.Printf("RootHash of FingerPrint: %x\n", rootHash)
+
 	// Ensure the length is 32 bytes (256 bits)
 	if len(rootHash) != 32 {
 		return nil, fmt.Errorf("root hash is not 256 bits (32 bytes)")
 	}
+
 	// Return the root hash (256 bits = 32 bytes)
 	return rootHash[:], nil
 }
 
-// DeriveHashedPasskey computes the hashed passkey based on the provided combined parts.
+// DeriveRootHash computes the hashed passkey based on the provided combined parts.
 // This function simply takes the combined parts and hashes them using SHA-256.
 // This is useful to recreate the hashed passkey from the original data.
-func DeriveBase32Passkey(keyMaterial []byte) []byte {
+func DeriveRootHash(fingerprint []byte) []byte {
 	// Hash the combined parts using SHA-256
-	hashed := sha256.Sum256(keyMaterial)
+	hashed := sha256.Sum256(fingerprint)
 	// Return the hashed passkey as a slice of bytes
 	return hashed[:]
 }
@@ -86,17 +95,14 @@ func VerifyBase32Passkey(base32Passkey string) (bool, []byte, []byte, error) {
 	fmt.Printf("Decoded Passkey: %x\n", decodedPasskey)
 
 	// Recalculate hash using DeriveBase32Passkey
-	derivedKeyMaterial := DeriveBase32Passkey(decodedPasskey)
+	derivedFingerprint := DeriveRootHash(decodedPasskey)
 
 	// Generate root hash by combining decoded passkey and hashed passkey
-	rootHash, err := GenerateRootHash(decodedPasskey, derivedKeyMaterial)
+	rootHash, err := GenerateRootHash(decodedPasskey, derivedFingerprint)
 	if err != nil {
 		return false, nil, nil, fmt.Errorf("failed to generate root hash: %v", err)
 	}
 
-	// Print debug information
-	fmt.Printf("RootHash of FingerPrint: %x\nDerivedHashedPasskey: %x\n", rootHash, derivedKeyMaterial)
-
 	// Return true if everything was processed correctly
-	return true, rootHash, derivedKeyMaterial, nil
+	return true, rootHash, derivedFingerprint, nil
 }

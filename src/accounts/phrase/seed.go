@@ -203,7 +203,7 @@ func EncodeBase32(data []byte) string {
 }
 
 // GenerateKeys generates a passphrase and a hashed, Base32-encoded passkey.
-func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, FingerPrint []byte, err error) {
+func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, fingerprint []byte, err error) {
 	// Generate entropy for the mnemonic
 	entropy, err := GenerateEntropy()
 	if err != nil {
@@ -268,15 +268,15 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	// Encode the combinedParts (6 bytes) in Base32
 	base32Passkey = EncodeBase32(combinedParts)
 
-	// Generate root hash of combined parts and hashed passkey
-	FingerPrint, err = utils.GenerateRootHash(combinedParts, hashedPasskey)
+	// Generate fingerprint (root hash of combined parts and hashed passkey)
+	fingerprint, err = utils.GenerateRootHash(combinedParts, hashedPasskey)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate root hash: %v", err)
 	}
 
-	// Print the raw FingerPrint length (in bytes) and its hex representation
-	fmt.Printf("RootHash (roothash of combined part and hashedPasskey, 256-bit): %x\n", FingerPrint)
+	// Print the raw Fingerprint length (in bytes) and its hex representation
+	fmt.Printf("RootHash = FingerPrint (combinedParts and hashedPasskey): %x\n", fingerprint)
 
-	// Return the generated passphrase, Base32-encoded passkey, and hashed passkey
-	return passphrase, base32Passkey, hashedPasskey, FingerPrint, nil
+	// Return the generated passphrase, Base32-encoded passkey, hashed passkey, and fingerprint
+	return passphrase, base32Passkey, hashedPasskey, fingerprint, nil
 }
