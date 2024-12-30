@@ -28,6 +28,7 @@ import (
 	"encoding/base32"
 	"errors"
 	"fmt"
+	"math/big"
 	"unicode/utf8"
 
 	sips3 "github.com/sphinx-core/go/src/accounts/mnemonic"
@@ -204,6 +205,7 @@ func EncodeBase32(data []byte) string {
 }
 
 // GenerateKeys generates a passphrase and a hashed, Base32-encoded passkey.
+// GenerateKeys generates a passphrase and a hashed, Base32-encoded passkey.
 func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, err error) {
 	// Generate entropy for the mnemonic
 	entropy, err := GenerateEntropy()
@@ -217,7 +219,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		return "", "", nil, fmt.Errorf("failed to generate passphrase: %v", err)
 	}
 
-	// Generate passkey from the passphrase, passing `nil` as the second argument if no public key is provided
+	// Generate passkey from the passphrase
 	passkey, err := GeneratePasskey(passphrase, nil)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("failed to generate passkey: %v", err)
@@ -229,29 +231,29 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		return "", "", nil, fmt.Errorf("failed to hash passkey: %v", err)
 	}
 
-	// Truncate to the first 6 bytes (48 bits for 10-character Base32 encoding)
-	// If you want to select portions of the hash (start, middle, and end), here's an example approach:
-
-	// Example of selecting the start, middle, and end of the hash for truncation:
+	// Ensure hashedPasskey is long enough
 	hashLen := len(hashedPasskey)
 	if hashLen < 6 {
 		return "", "", nil, fmt.Errorf("hashed passkey is too short to truncate")
 	}
 
-	// Define portions of the hash to select (e.g., first 2 bytes, middle 2 bytes, and last 2 bytes)
-	startPart := hashedPasskey[:2]                         // Start of the hash (first 2 bytes)
-	middlePart := hashedPasskey[hashLen/3 : (hashLen/3)+2] // Middle part (2 bytes from the middle third)
-	endPart := hashedPasskey[hashLen-2:]                   // End of the hash (last 2 bytes)
+	// Randomly select 2-byte segments from the hash
+	selectedParts := make([][]byte, 3) // To store the 3 selected parts
+	for i := 0; i < 3; i++ {
+		startIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(hashLen-1))) // Ensure space for 2 bytes
+		start := int(startIndex.Int64())
+		selectedParts[i] = hashedPasskey[start : start+2] // Extract 2 bytes starting at the random index
+	}
 
-	// Combine the selected portions
-	combinedParts := append(startPart, middlePart...)
-	combinedParts = append(combinedParts, endPart...)
+	// Combine the selected parts
+	combinedParts := append(selectedParts[0], selectedParts[1]...)
+	combinedParts = append(combinedParts, selectedParts[2]...)
 
-	// Now, truncate to the first 6 bytes of the combined parts (48 bits for Base32 encoding)
-	truncatedHashedPasskey := combinedParts[:6]
+	// Truncate to the first 6 bytes (48 bits for Base32 encoding)
+	hashParts := combinedParts[:6]
 
-	// Encode the truncated hash in Base32
-	base32Passkey = EncodeBase32(truncatedHashedPasskey)
+	// Encode the selected hashParts in Base32
+	base32Passkey = EncodeBase32(hashParts)
 
 	// Return the generated passphrase, Base32-encoded passkey, and hashed passkey
 	return passphrase, base32Passkey, hashedPasskey, nil
