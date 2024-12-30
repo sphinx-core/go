@@ -40,5 +40,5 @@ func main() {
 	// Print only the generated passphrase and Base32-encoded passkey (used for login)
 	fmt.Println("Passphrase: ", passphrase)
 	fmt.Println("Passkey: ", base32Passkey)
-	fmt.Println("FingerPrint: ", FingerPrint)
+	fmt.Printf("Fingerprint: %x\n", FingerPrint)
 }
