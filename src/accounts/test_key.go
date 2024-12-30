@@ -42,10 +42,10 @@ func main() {
 	fmt.Printf("Fingerprint: %x\n", fingerprint)
 
 	// Verify the passkey
-	isValid, rootHash, derivedHashedPasskey, err := utils.VerifyBase32Passkey(base32Passkey)
+	isValid, rootHash, derivedKeyMaterial, err := utils.VerifyBase32Passkey(base32Passkey)
 	if err != nil {
 		fmt.Printf("Verification failed: %v\n", err)
 	} else {
-		fmt.Printf("Verification result: %t\nRootHash of FingerPrint: %x\nDerivedHashedPasskey: %x\n", isValid, rootHash, derivedHashedPasskey)
+		fmt.Printf("Verification result: %t\nRootHash of FingerPrint: %x\nDerivedHashedPasskey: %x\n", isValid, rootHash, derivedKeyMaterial)
 	}
 }
