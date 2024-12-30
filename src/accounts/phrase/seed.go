@@ -270,13 +270,9 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate root hash: %v", err)
 	}
-	// Ensure that the Fingerprint is 256-bit (32 bytes)
-	if len(FingerPrint) != 32 {
-		return "", "", nil, nil, fmt.Errorf("generated Fingerprint is not 256-bit (32 bytes), found: %d bytes", len(FingerPrint))
-	}
 
 	// Print the raw FingerPrint length (in bytes) and its hex representation
-	fmt.Printf("RootHash (root hash of fingerprint, 256-bit): %x\n", FingerPrint)
+	fmt.Printf("RootHash (roothash of combined part and hashedPasskey, 256-bit): %x\n", FingerPrint)
 
 	// Return the generated passphrase, Base32-encoded passkey, and hashed passkey
 	return passphrase, base32Passkey, hashedPasskey, FingerPrint, nil
