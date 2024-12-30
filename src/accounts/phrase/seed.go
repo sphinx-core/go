@@ -248,11 +248,8 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	combinedParts := append(selectedParts[0], selectedParts[1]...)
 	combinedParts = append(combinedParts, selectedParts[2]...)
 
-	// Truncate to the first 6 bytes (48 bits for Base32 encoding)
-	hashParts := combinedParts[:6]
-
-	// Encode the selected hashParts in Base32
-	base32Passkey = EncodeBase32(hashParts)
+	// Encode the combinedParts (6 bytes) in Base32
+	base32Passkey = EncodeBase32(combinedParts)
 
 	// Return the generated passphrase, Base32-encoded passkey, and hashed passkey
 	return passphrase, base32Passkey, hashedPasskey, nil
