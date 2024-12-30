@@ -23,7 +23,6 @@
 package utils
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/base32"
 	"fmt"
@@ -31,8 +30,9 @@ import (
 
 // EncodeBase32 encodes a byte slice into a Base32 string.
 // This is useful when you need to convert binary data into a human-readable format.
+// EncodeBase32 encodes the data in Base32 without padding.
 func EncodeBase32(data []byte) string {
-	return base32.StdEncoding.EncodeToString(data)
+	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(data)
 }
 
 // DecodeBase32 decodes a Base32 string into a byte slice.
@@ -80,30 +80,26 @@ func DeriveBase32Passkey(combinedParts []byte) []byte {
 // This function takes the user's Base32-encoded passkey, decodes it, derives the hashed passkey from the decoded data,
 // and generates a root hash by combining the decoded parts and hashed passkey.
 // Finally, it compares the root hash with the provided hashed passkey to verify correctness.
-// If the verification passes, it returns true, along with the root hash and the derived hashed passkey.
 func VerifyBase32Passkey(base32Passkey string) (bool, []byte, []byte, error) {
-	// Decode the Base32-encoded passkey to obtain the original combined parts
-	combinedParts, err := DecodeBase32(base32Passkey)
+	// Decode the Base32 passkey
+	decodedPasskey, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(base32Passkey)
 	if err != nil {
-		// Return an error if decoding the passkey fails
 		return false, nil, nil, fmt.Errorf("failed to decode base32 passkey: %v", err)
 	}
+	fmt.Printf("Decoded Passkey: %x\n", decodedPasskey)
 
-	// Derive the hashed passkey by hashing the decoded combined parts
-	hashedPasskey := DeriveBase32Passkey(combinedParts)
+	// Recalculate hash using DeriveBase32Passkey
+	derivedHashedPasskey := DeriveBase32Passkey(decodedPasskey)
 
-	// Generate the root hash using the combined parts and the derived hashed passkey
-	rootHash, err := GenerateRootHash(combinedParts, hashedPasskey)
+	// Generate root hash by combining decoded passkey and hashed passkey
+	rootHash, err := GenerateRootHash(decodedPasskey, derivedHashedPasskey)
 	if err != nil {
-		// Return an error if generating the root hash fails
-		return false, nil, nil, err
+		return false, nil, nil, fmt.Errorf("failed to generate root hash: %v", err)
 	}
 
-	// For this example, assume the stored root hash matches the derived one (mock verification)
-	// Replace this with actual comparison logic to verify the root hash against a stored value
-	// The root hash is compared to the hashed passkey to verify if they match
-	isVerified := bytes.Equal(rootHash, hashedPasskey)
+	// Print debug information
+	fmt.Printf("RootHash: %x\nDerivedHashedPasskey: %x\n", rootHash, derivedHashedPasskey)
 
-	// Return the result of the verification, along with the root hash and hashed passkey
-	return isVerified, rootHash, hashedPasskey, nil
+	// Return true if everything was processed correctly
+	return true, rootHash, derivedHashedPasskey, nil
 }

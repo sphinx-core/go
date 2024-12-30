@@ -262,6 +262,9 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	combinedParts := append(selectedParts[0], selectedParts[1]...)
 	combinedParts = append(combinedParts, selectedParts[2]...)
 
+	// Print combinedParts in hexadecimal format for better readability
+	fmt.Printf("CombinedParts (6 bytes, selected segments from hashedPasskey): %x\n", combinedParts)
+
 	// Encode the combinedParts (6 bytes) in Base32
 	base32Passkey = EncodeBase32(combinedParts)
 

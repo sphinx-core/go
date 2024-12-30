@@ -27,19 +27,25 @@ import (
 	"log"
 
 	seed "github.com/sphinx-core/go/src/accounts/phrase"
+	utils "github.com/sphinx-core/go/src/core/wallet/utils"
 )
 
 func main() {
-	// Call the GenerateKeys function from the seed package
-	// We don't need to printed hashedPasskey since it only for internal use (e.g., for login verification)
-	passphrase, base32Passkey, HashedPasskey, FingerPrint, err := seed.GenerateKeys()
+	passphrase, base32Passkey, hashedPasskey, fingerprint, err := seed.GenerateKeys()
 	if err != nil {
 		log.Fatalf("Error generating keys: %v", err)
 	}
 
-	// Print only the generated passphrase and Base32-encoded passkey (used for login)
 	fmt.Println("Passphrase: ", passphrase)
 	fmt.Println("Passkey: ", base32Passkey)
-	fmt.Printf("HashedPasskey: %x\n", HashedPasskey)
-	fmt.Printf("Fingerprint: %x\n", FingerPrint)
+	fmt.Printf("HashedPasskey: %x\n", hashedPasskey)
+	fmt.Printf("Fingerprint: %x\n", fingerprint)
+
+	// Verify the passkey
+	isValid, rootHash, derivedHashedPasskey, err := utils.VerifyBase32Passkey(base32Passkey)
+	if err != nil {
+		fmt.Printf("Verification failed: %v\n", err)
+	} else {
+		fmt.Printf("Verification result: %t\nRootHash: %x\nDerivedHashedPasskey: %x\n", isValid, rootHash, derivedHashedPasskey)
+	}
 }
