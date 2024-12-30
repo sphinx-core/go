@@ -34,7 +34,7 @@ import (
 	sips3 "github.com/sphinx-core/go/src/accounts/mnemonic"
 	"github.com/sphinx-core/go/src/common"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
-	utils "github.com/sphinx-core/go/src/core/wallet/config"
+	utils "github.com/sphinx-core/go/src/core/wallet/utils"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/sha3"
 )

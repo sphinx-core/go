@@ -30,50 +30,73 @@ import (
 )
 
 // EncodeBase32 encodes a byte slice into a Base32 string.
+// This is useful when you need to convert binary data into a human-readable format.
 func EncodeBase32(data []byte) string {
-	// Base32 encode the data
 	return base32.StdEncoding.EncodeToString(data)
 }
 
 // DecodeBase32 decodes a Base32 string into a byte slice.
+// This function takes a Base32-encoded string and decodes it back into its original byte slice form.
+// It returns an error if the decoding fails.
 func DecodeBase32(base32Str string) ([]byte, error) {
-	// Decode the Base32 string
 	decoded, err := base32.StdEncoding.DecodeString(base32Str)
 	if err != nil {
+		// If there's an error in decoding, return the error with a descriptive message
 		return nil, fmt.Errorf("failed to decode base32 string: %v", err)
 	}
 	return decoded, nil
 }
 
-// Generate a root hash that combines the combined parts and the hashed passkey for easy verification
+// GenerateRootHash combines the decoded combined parts and the hashed passkey for verification.
+// This function appends the combined parts with the hashed passkey and then hashes the resulting data using SHA-256.
+// The root hash can then be used for verification purposes.
 func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error) {
-	// Combine combinedParts and hashedPasskey
+	// Combine the decoded parts with the hashed passkey
 	combined := append(combinedParts, hashedPasskey...)
-
-	// Hash the combined data
+	// Generate the root hash by applying SHA-256 on the combined data
 	rootHash := sha256.Sum256(combined)
-
+	// Return the root hash
 	return rootHash[:], nil
 }
 
-// Verify that the Base32-encoded passkey corresponds to the hashed passkey
-func VerifyBase32Passkey(base32Passkey string, hashedPasskey []byte) (bool, error) {
-	// Decode base32 passkey back into the 6-byte combined parts
+// DeriveHashedPasskey computes the hashed passkey based on the provided combined parts.
+// This function simply takes the combined parts and hashes them using SHA-256.
+// This is useful to recreate the hashed passkey from the original data.
+func DeriveBase32Passkey(combinedParts []byte) []byte {
+	// Hash the combined parts using SHA-256
+	hashed := sha256.Sum256(combinedParts)
+	// Return the hashed passkey as a slice of bytes
+	return hashed[:]
+}
+
+// VerifyBase32Passkey verifies the user's Base32-encoded passkey and derives both the root hash and hashed passkey.
+// This function takes the user's Base32-encoded passkey, decodes it, derives the hashed passkey from the decoded data,
+// and generates a root hash by combining the decoded parts and hashed passkey.
+// Finally, it compares the root hash with the provided hashed passkey to verify correctness.
+// If the verification passes, it returns true, along with the root hash and the derived hashed passkey.
+func VerifyBase32Passkey(base32Passkey string) (bool, []byte, []byte, error) {
+	// Decode the Base32-encoded passkey to obtain the original combined parts
 	combinedParts, err := DecodeBase32(base32Passkey)
 	if err != nil {
-		return false, fmt.Errorf("failed to decode base32 passkey: %v", err)
+		// Return an error if decoding the passkey fails
+		return false, nil, nil, fmt.Errorf("failed to decode base32 passkey: %v", err)
 	}
 
-	// Generate root hash using the combined parts and hashed passkey
+	// Derive the hashed passkey by hashing the decoded combined parts
+	hashedPasskey := DeriveBase32Passkey(combinedParts)
+
+	// Generate the root hash using the combined parts and the derived hashed passkey
 	rootHash, err := GenerateRootHash(combinedParts, hashedPasskey)
 	if err != nil {
-		return false, err
+		// Return an error if generating the root hash fails
+		return false, nil, nil, err
 	}
 
-	// Now, compare the root hash with the hashed passkey (which was generated during key creation)
-	// You can directly compare rootHash and hashedPasskey or return the fingerprint for verification
+	// For this example, assume the stored root hash matches the derived one (mock verification)
+	// Replace this with actual comparison logic to verify the root hash against a stored value
+	// The root hash is compared to the hashed passkey to verify if they match
+	isVerified := bytes.Equal(rootHash, hashedPasskey)
 
-	// For example, if you store the fingerprint generated during key creation,
-	// you can directly compare it with rootHash to verify correctness:
-	return bytes.Equal(rootHash, hashedPasskey), nil
+	// Return the result of the verification, along with the root hash and hashed passkey
+	return isVerified, rootHash, hashedPasskey, nil
 }

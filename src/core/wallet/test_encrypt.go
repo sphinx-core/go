@@ -28,8 +28,8 @@ import (
 
 	seed "github.com/sphinx-core/go/src/accounts/phrase"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
-	config "github.com/sphinx-core/go/src/core/wallet/config"
 	"github.com/sphinx-core/go/src/core/wallet/crypter"
+	config "github.com/sphinx-core/go/src/core/wallet/utils"
 )
 
 func main() {
