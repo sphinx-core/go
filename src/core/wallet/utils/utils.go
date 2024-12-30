@@ -55,9 +55,9 @@ func DecodeBase32(base32Str string) ([]byte, error) {
 // The root hash can then be used for verification purposes.
 func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error) {
 	// Combine the decoded parts with the hashed passkey
-	combined := append(combinedParts, hashedPasskey...)
+	material := append(combinedParts, hashedPasskey...)
 	// Generate the root hash by applying SHA-256 on the combined data
-	rootHash := sha256.Sum256(combined)
+	rootHash := sha256.Sum256(material)
 	// Ensure the length is 32 bytes (256 bits)
 	if len(rootHash) != 32 {
 		return nil, fmt.Errorf("root hash is not 256 bits (32 bytes)")
@@ -69,9 +69,9 @@ func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error
 // DeriveHashedPasskey computes the hashed passkey based on the provided combined parts.
 // This function simply takes the combined parts and hashes them using SHA-256.
 // This is useful to recreate the hashed passkey from the original data.
-func DeriveBase32Passkey(combinedParts []byte) []byte {
+func DeriveBase32Passkey(material []byte) []byte {
 	// Hash the combined parts using SHA-256
-	hashed := sha256.Sum256(combinedParts)
+	hashed := sha256.Sum256(material)
 	// Return the hashed passkey as a slice of bytes
 	return hashed[:]
 }
