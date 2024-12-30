@@ -58,18 +58,15 @@ func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error
 	fmt.Printf("Combined Key Material: %x\n", KeyMaterial)
 
 	// Generate the root hash by applying SHA-256 on the fingerprint (combined data)
-	rootHash := sha256.Sum256(KeyMaterial)
-
-	// Print the root hash (after SHA-256) for debugging purposes
-	fmt.Printf("RootHash = FingerPrint (combinedParts and hashedPasskey): %x\n", rootHash)
+	fingerprint := sha256.Sum256(KeyMaterial)
 
 	// Ensure the length is 32 bytes (256 bits)
-	if len(rootHash) != 32 {
+	if len(fingerprint) != 32 {
 		return nil, fmt.Errorf("root hash is not 256 bits (32 bytes)")
 	}
 
 	// Return the root hash (256 bits = 32 bytes)
-	return rootHash[:], nil
+	return fingerprint[:], nil
 }
 
 // DeriveRootHash computes the hashed passkey based on the provided combined parts.

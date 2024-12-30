@@ -39,13 +39,13 @@ func main() {
 	fmt.Println("Passphrase: ", passphrase)
 	fmt.Println("Passkey: ", base32Passkey)
 	fmt.Printf("HashedPasskey: %x\n", hashedPasskey)
-	fmt.Printf("RootHash = FingerPrint (combinedParts and hashedPasskey): %x\n", fingerprint)
+	fmt.Printf("Fingerprint: %x\n", fingerprint)
 
 	// Verify the passkey
 	isValid, rootHash, derivedFingerprint, err := utils.VerifyBase32Passkey(base32Passkey)
 	if err != nil {
 		fmt.Printf("Verification failed: %v\n", err)
 	} else {
-		fmt.Printf("Verification result: %t\nRootHash of FingerPrint: %x\nDerivedFingerprint: %x\n", isValid, rootHash, derivedFingerprint)
+		fmt.Printf("Verification result: %t\nRootHash of Fingerprint: %x\nDerivedFingerprint: %x\n", isValid, rootHash, derivedFingerprint)
 	}
 }

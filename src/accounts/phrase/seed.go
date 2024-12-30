@@ -274,9 +274,6 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		return "", "", nil, nil, fmt.Errorf("failed to generate root hash: %v", err)
 	}
 
-	// Print the raw Fingerprint length (in bytes) and its hex representation
-	fmt.Printf("RootHash = FingerPrint (combinedParts and hashedPasskey): %x\n", fingerprint)
-
 	// Return the generated passphrase, Base32-encoded passkey, hashed passkey, and fingerprint
 	return passphrase, base32Passkey, hashedPasskey, fingerprint, nil
 }
