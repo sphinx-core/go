@@ -46,6 +46,6 @@ func main() {
 	if err != nil {
 		fmt.Printf("Verification failed: %v\n", err)
 	} else {
-		fmt.Printf("Verification result: %t\nRootHash: %x\nDerivedHashedPasskey: %x\n", isValid, rootHash, derivedHashedPasskey)
+		fmt.Printf("Verification result: %t\nRootHash of FingerPrint: %x\nDerivedHashedPasskey: %x\n", isValid, rootHash, derivedHashedPasskey)
 	}
 }

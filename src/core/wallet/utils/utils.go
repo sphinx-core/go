@@ -98,7 +98,7 @@ func VerifyBase32Passkey(base32Passkey string) (bool, []byte, []byte, error) {
 	}
 
 	// Print debug information
-	fmt.Printf("RootHash: %x\nDerivedHashedPasskey: %x\n", rootHash, derivedHashedPasskey)
+	fmt.Printf("RootHash of FingerPrint: %x\nDerivedHashedPasskey: %x\n", rootHash, derivedHashedPasskey)
 
 	// Return true if everything was processed correctly
 	return true, rootHash, derivedHashedPasskey, nil
