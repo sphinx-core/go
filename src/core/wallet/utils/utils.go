@@ -94,6 +94,9 @@ func VerifyBase32Passkey(base32Passkey string) (bool, []byte, []byte, error) {
 	// Recalculate hash using DeriveBase32Passkey
 	derivedFingerprint := DeriveRootHash(decodedPasskey)
 
+	// Print the expected hashed passkey (which is the derived fingerprint)
+	fmt.Printf("Expected Hashed Passkey: %x\n", derivedFingerprint)
+
 	// Generate root hash by combining decoded passkey and hashed passkey
 	rootHash, err := GenerateRootHash(decodedPasskey, derivedFingerprint)
 	if err != nil {
