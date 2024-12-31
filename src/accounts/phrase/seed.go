@@ -257,13 +257,20 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		selectedParts[i] = hashedPasskey[start : start+2]
 	}
 
-	// Combine the selected 2-byte segments.
-	combinedParts := bytes.Join(selectedParts, nil)
+	// Step 6: Generate a nonce for added randomness.
+	nonce := make([]byte, 4) // Example: 4-byte nonce
+	_, err = rand.Read(nonce)
+	if err != nil {
+		return "", "", nil, nil, fmt.Errorf("failed to generate nonce: %v", err)
+	}
 
-	// Step 6: Encode the combined parts in Base32.
+	// Combine the selected 2-byte segments and the nonce.
+	combinedParts := bytes.Join(append(selectedParts, nonce), nil)
+
+	// Step 7: Encode the combined parts in Base32.
 	base32Passkey = EncodeBase32(combinedParts)
 
-	// Step 7: Generate a fingerprint using the hashed passkey and combined parts.
+	// Step 8: Generate a fingerprint using the hashed passkey and combined parts.
 	fingerprint, err = utils.GenerateRootHash(combinedParts, hashedPasskey)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
