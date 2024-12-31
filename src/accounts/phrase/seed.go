@@ -23,6 +23,7 @@
 package seed
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base32"
@@ -129,151 +130,145 @@ func GeneratePassphrase(entropy []byte) (string, error) {
 }
 
 // GeneratePasskey generates a passkey using Argon2 with the given passphrase and an optional public key as input material.
-// If no public key is provided, a new one will be generated.
+// If no public key (pk) is provided, a new one will be generated.
 func GeneratePasskey(passphrase string, pk []byte) ([]byte, error) {
-	// Step 1: Validate the passphrase encoding (UTF-8 validation)
+	// Step 1: Validate the passphrase encoding (UTF-8 validation).
 	if !utf8.Valid([]byte(passphrase)) {
 		return nil, errors.New("invalid UTF-8 encoding in passphrase")
 	}
 
-	// Step 2: Check if pk is empty, and generate a new one if necessary.
+	// Step 2: Check if the public key (pk) is empty, and generate a new one if necessary.
 	if len(pk) == 0 {
-		keyManager, err := key.NewKeyManager() // Initialize the KeyManager
+		// Initialize the KeyManager for key generation.
+		keyManager, err := key.NewKeyManager()
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize KeyManager: %v", err)
 		}
 
-		_, generatedPk, err := keyManager.GenerateKey() // Generate a new key pair
+		// Generate a new key pair.
+		_, generatedPk, err := keyManager.GenerateKey()
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate new public key: %v", err)
 		}
 
-		pk, err = generatedPk.SerializePK() // Serialize the generated public key to bytes
+		// Serialize the generated public key to bytes.
+		pk, err = generatedPk.SerializePK()
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize new public key: %v", err)
 		}
 	}
 
-	// Step 3: Convert the passphrase to bytes
+	// Step 3: Convert the passphrase to bytes for processing.
 	passphraseBytes := []byte(passphrase)
 
-	// Step 4: Perform double sphinx hash hashing on the public key
-	firstHash := common.SpxHash(pk)                // First sphinx hash of the public key
-	doubleHashedPk := common.SpxHash(firstHash[:]) // Second sphinx hash (double hash) of the public key
+	// Step 4: Perform double hashing on the public key using a custom Sphinx hash.
+	firstHash := common.SpxHash(pk)                // First Sphinx hash of the public key.
+	doubleHashedPk := common.SpxHash(firstHash[:]) // Double Sphinx hash of the public key.
 
-	// Step 5: Combine passphrase and double-hashed public key for key material
+	// Step 5: Combine the passphrase and double-hashed public key as input key material (IKM).
 	ikmHashInput := append(passphraseBytes, doubleHashedPk[:]...)
-	ikm := sha256.Sum256(ikmHashInput) // Using SHA-256 to derive initial key material (IKM)
+	ikm := sha256.Sum256(ikmHashInput) // Derive the initial key material using SHA-256.
 
-	// Step 6: Generate salt by combining the hashed public key and passphrase
+	// Step 6: Create a salt string using the double-hashed public key and passphrase.
 	salt := "passphrase" + string(doubleHashedPk)
 
-	// Step 7: Convert salt to bytes
+	// Step 7: Convert the salt string to bytes.
 	saltBytes := []byte(salt)
 
-	// Step 8: Generate a random nonce
+	// Step 8: Generate a random nonce to enhance the salt uniqueness.
 	nonce, err := GenerateNonce()
 	if err != nil {
 		return nil, fmt.Errorf("error generating nonce: %v", err)
 	}
 
-	// Step 9: Combine the salt and nonce to create a unique salt for Argon2
-	combinedSaltandNonce := append(saltBytes, nonce...)
+	// Step 9: Combine the salt and nonce for the final Argon2 salt.
+	combinedSaltAndNonce := append(saltBytes, nonce...)
 
-	// Step 10: Derive the passkey using Argon2 with IKM and combined salt
-	passkey := argon2.IDKey(ikm[:], combinedSaltandNonce, iterations, memory, parallelism, PasskeySize)
+	// Step 10: Use Argon2 to derive the passkey using the IKM and the combined salt.
+	passkey := argon2.IDKey(ikm[:], combinedSaltAndNonce, iterations, memory, parallelism, PasskeySize)
+
+	// Return the derived passkey.
 	return passkey, nil
 }
 
+// HashPasskey hashes the given passkey using SHA3-512 (Keccak-512).
 func HashPasskey(passkey []byte) ([]byte, error) {
-	// Use SHA3-512 (Keccak-512) to hash the passkey
-	hash := sha3.NewLegacyKeccak512() // Create the Keccak-512 hasher
+	// Initialize the SHA3-512 hasher.
+	hash := sha3.NewLegacyKeccak512()
+
+	// Write the passkey to the hasher.
 	if _, err := hash.Write(passkey); err != nil {
 		return nil, fmt.Errorf("error hashing with SHA3-512: %v", err)
 	}
 
-	// Return the final hashed output
+	// Return the final hash as bytes.
 	return hash.Sum(nil), nil
 }
 
-// EncodeBase32 encodes the data in Base32 without padding.
+// EncodeBase32 encodes the input data into Base32 format without padding.
 func EncodeBase32(data []byte) string {
-	// Encode the data in Base32 format without any padding
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(data)
 }
 
-// GenerateKeys generates a passphrase and a hashed, Base32-encoded passkey.
+// GenerateKeys generates a passphrase, a hashed Base32-encoded passkey, and its fingerprint.
 func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, fingerprint []byte, err error) {
-	// Generate entropy for the mnemonic
+	// Step 1: Generate entropy for the mnemonic (passphrase generation).
 	entropy, err := GenerateEntropy()
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate entropy: %v", err)
 	}
 
-	// Generate passphrase from entropy
+	// Step 2: Derive the passphrase from the entropy.
 	passphrase, err = GeneratePassphrase(entropy)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate passphrase: %v", err)
 	}
 
-	// Generate passkey from the passphrase
+	// Step 3: Generate the passkey from the passphrase.
 	passkey, err := GeneratePasskey(passphrase, nil)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate passkey: %v", err)
 	}
 
-	// Hash the generated passkey
+	// Step 4: Hash the passkey using SHA3-512.
 	hashedPasskey, err = HashPasskey(passkey)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to hash passkey: %v", err)
 	}
 
-	// Ensure hashedPasskey is long enough
-	hashLen := len(hashedPasskey)
-	if hashLen < 6 {
-		return "", "", nil, nil, fmt.Errorf("hashed passkey is too short to truncate")
-	}
-
-	// Randomly select 2-byte segments from the hash without overlap
-	selectedParts := make([][]byte, 3)    // To store the 3 selected parts
-	selectedIndices := make(map[int]bool) // To track used indices and prevent overlap
+	// Step 5: Select 6 random bytes from the hashed passkey for further processing.
+	selectedParts := make([][]byte, 3)
+	selectedIndices := make(map[int]bool)
 
 	for i := 0; i < 3; i++ {
 		var start int
 		for {
-			// Randomly select a start index ensuring space for 2 bytes
-			startIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(hashLen-2))) // Ensure space for 2 bytes
+			// Randomly select an index for a 2-byte segment.
+			startIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(len(hashedPasskey)-2)))
 			start = int(startIndex.Int64())
 
-			// Ensure the selected segment does not overlap with previously selected segments
+			// Ensure no overlap with previously selected indices.
 			if !selectedIndices[start] && !selectedIndices[start+1] {
-				// Mark the indices as used
 				selectedIndices[start] = true
 				selectedIndices[start+1] = true
 				break
 			}
 		}
-
-		// Extract the 2-byte segment starting from the random index
 		selectedParts[i] = hashedPasskey[start : start+2]
 	}
 
-	// Combine the selected parts
-	combinedParts := append(selectedParts[0], selectedParts[1]...)
-	combinedParts = append(combinedParts, selectedParts[2]...)
+	// Combine the selected 2-byte segments.
+	combinedParts := bytes.Join(selectedParts, nil)
 
-	// Print combinedParts in hexadecimal format for better readability
-	fmt.Printf("CombinedParts (6 bytes, selected segments from hashedPasskey): %x\n", combinedParts)
-
-	// Encode the combinedParts (6 bytes) in Base32
+	// Step 6: Encode the combined parts in Base32.
 	base32Passkey = EncodeBase32(combinedParts)
 
-	// Generate fingerprint (root hash of combined parts and hashed passkey)
+	// Step 7: Generate a fingerprint using the hashed passkey and combined parts.
 	fingerprint, err = utils.GenerateRootHash(combinedParts, hashedPasskey)
 	if err != nil {
-		return "", "", nil, nil, fmt.Errorf("failed to generate root hash: %v", err)
+		return "", "", nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
 	}
 
-	// Return the generated passphrase, Base32-encoded passkey, hashed passkey, and fingerprint
+	// Return all generated components.
 	return passphrase, base32Passkey, hashedPasskey, fingerprint, nil
 }
