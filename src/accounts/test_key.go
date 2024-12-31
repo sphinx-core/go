@@ -31,21 +31,35 @@ import (
 )
 
 func main() {
+	// Step 1: Generate the keys (passphrase, Base32-encoded passkey, hashed passkey, and fingerprint)
+	// `GenerateKeys` is expected to return:
+	// - passphrase: The original mnemonic phrase or seed phrase.
+	// - base32Passkey: The passkey encoded in Base32 for storage or transmission.
+	// - hashedPasskey: A hash derived from the passkey for verification purposes.
+	// - fingerprint: A unique identifier derived from the hashed passkey.
 	passphrase, base32Passkey, hashedPasskey, fingerprint, err := seed.GenerateKeys()
 	if err != nil {
+		// Log the error and terminate the program if key generation fails
 		log.Fatalf("Error generating keys: %v", err)
 	}
 
-	fmt.Println("Passphrase: ", passphrase)
-	fmt.Println("Passkey: ", base32Passkey)
-	fmt.Printf("HashedPasskey: %x\n", hashedPasskey)
-	fmt.Printf("Fingerprint: %x\n", fingerprint)
+	// Step 2: Display the generated keys for debugging or information purposes
+	fmt.Println("Passphrase: ", passphrase)          // Display the original mnemonic phrase
+	fmt.Println("Passkey: ", base32Passkey)          // Display the Base32-encoded passkey
+	fmt.Printf("HashedPasskey: %x\n", hashedPasskey) // Display the hashed passkey in hexadecimal format
+	fmt.Printf("Fingerprint: %x\n", fingerprint)     // Display the fingerprint in hexadecimal format
 
-	// Verify the passkey
+	// Step 3: Verify the Base32 passkey
+	// The `VerifyBase32Passkey` function decodes the Base32-encoded passkey, derives the hashed passkey and root hash,
+	// and checks if the root hash matches the expected fingerprint or derived values.
 	isValid, rootHash, derivedFingerprint, err := utils.VerifyBase32Passkey(base32Passkey)
 	if err != nil {
+		// If verification fails, print an error message
 		fmt.Printf("Verification failed: %v\n", err)
 	} else {
-		fmt.Printf("Verification result: %t\nRootHash of Fingerprint: %x\nDerivedFingerprint: %x\n", isValid, rootHash, derivedFingerprint)
+		// If verification succeeds, display the results
+		fmt.Printf("Verification result: %t\n", isValid)           // Indicate whether the passkey is valid
+		fmt.Printf("RootHash of Fingerprint: %x\n", rootHash)      // Display the computed root hash
+		fmt.Printf("DerivedFingerprint: %x\n", derivedFingerprint) // Display the derived fingerprint
 	}
 }
