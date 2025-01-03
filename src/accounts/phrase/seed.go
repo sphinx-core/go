@@ -28,7 +28,6 @@ import (
 	"encoding/base32"
 	"errors"
 	"fmt"
-	"math/big"
 	"unicode/utf8"
 
 	sips3 "github.com/sphinx-core/go/src/accounts/mnemonic"
@@ -196,75 +195,61 @@ func EncodeBase32(data []byte) string {
 }
 
 // GenerateKeys generates a passphrase, a hashed Base32-encoded passkey, and its fingerprint.
+// This function creates a secure cryptographic key structure using entropy, hashing, and encoding.
 func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, fingerprint []byte, err error) {
-	// Step 1: Generate entropy for the mnemonic (passphrase generation).
+	// Step 1: Generate entropy for mnemonic generation.
+	// Entropy is a cryptographically secure random byte sequence used to generate the mnemonic.
 	entropy, err := GenerateEntropy()
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate entropy: %v", err)
 	}
 
-	// Step 2: Derive the passphrase from the entropy.
+	// Step 2: Derive the passphrase (mnemonic) from the entropy.
+	// The passphrase is a human-readable representation of the entropy, typically used for seed derivation.
 	passphrase, err = GeneratePassphrase(entropy)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate passphrase: %v", err)
 	}
 
 	// Step 3: Generate the passkey from the passphrase.
+	// This step applies additional transformations to the passphrase to create the passkey.
 	passkey, err := GeneratePasskey(passphrase, nil)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate passkey: %v", err)
 	}
 
-	// Step 4: Hash the passkey using SHA3-512.
+	// Step 4: Hash the passkey using a secure cryptographic hash function (e.g., SHA3-512).
+	// The hashed passkey ensures a fixed-size output and is resistant to preimage and collision attacks.
 	hashedPasskey, err = HashPasskey(passkey)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to hash passkey: %v", err)
 	}
 
-	// Step 5: Select **6 characters** from the hashed passkey.
-	selectedParts := make([]byte, 3)
-	selectedIndices := make(map[int]bool)
-
-	for i := 0; i < 3; i++ {
-		var index int
-		for {
-			// Randomly select an index for a character.
-			selectedIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(len(hashedPasskey))))
-			index = int(selectedIndex.Int64())
-
-			// Ensure no overlap with previously selected indices.
-			if !selectedIndices[index] {
-				selectedIndices[index] = true
-				break
-			}
-		}
-		selectedParts[i] = hashedPasskey[index]
-	}
-
-	// Step 6: Generate a nonce that has **4 bytes** (so the total length becomes 8 bytes).
-	nonce := make([]byte, 4) // Generates 4 bytes to complete the total length of 8 bytes
+	// Step 5: Generate a nonce to use in the combined parts.
+	// A nonce (Number Used Once) is an 8-byte random value ensuring unique output per invocation.
+	nonce := make([]byte, 8)
 	_, err = rand.Read(nonce)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate nonce: %v", err)
 	}
 
-	// Step 7: Combine the selected 6 characters and the 2-byte nonce (total size 8 bytes).
-	combinedParts := append(selectedParts, nonce...)
+	// Step 6: Use the nonce as the input for Base32 encoding.
+	// The combined parts here only include the nonce to simplify encoding while ensuring randomness.
+	combinedParts := nonce
 
-	// Ensure combinedParts has exactly 8 bytes.
-	if len(combinedParts) != 7 {
-		return "", "", nil, nil, fmt.Errorf("combined parts length is not 8 bytes, found: %d bytes", len(combinedParts))
-	}
+	// Step 7: Encode the combined parts into a Base32 string with a fixed 12-character output.
+	// Base32 encoding is used to convert binary data into a readable alphanumeric string.
+	// This ensures compatibility across systems while maintaining security.
+	base32Passkey = EncodeBase32(combinedParts)
 
-	// Step 8: Encode the combined parts in Base32.
-	base32Passkey = EncodeBase32(combinedParts) // This should result in exactly 10 characters.
-
-	// Step 9: Generate a fingerprint using the hashed passkey and combined parts.
+	// Step 8: Generate a fingerprint to uniquely identify the combined parts.
+	// The fingerprint is a secure hash combining the nonce (combinedParts) and hashedPasskey.
+	// It can be used for identity verification or integrity checking.
 	fingerprint, err = utils.GenerateRootHash(combinedParts, hashedPasskey)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
 	}
 
-	// Return all generated components.
+	// Return the mnemonic passphrase, Base32-encoded passkey, hashed passkey, and fingerprint.
 	return passphrase, base32Passkey, hashedPasskey, fingerprint, nil
 }
