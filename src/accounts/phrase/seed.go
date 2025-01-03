@@ -23,6 +23,7 @@
 package seed
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base32"
@@ -222,22 +223,29 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	}
 
 	// Step 5: Select **6 characters** from the hashed passkey.
-	selectedParts := make([]byte, 6)
-	selectedIndices := make(map[int]bool)
+	selectedParts := make([]byte, 6)      // Create an array to store the 6 selected characters (bytes)
+	selectedIndices := make(map[int]bool) // A map to track the indices that have already been selected
 
+	// Loop to select 6 unique indices (for 6 characters) from the hashed passkey
 	for i := 0; i < 6; i++ {
-		var index int
+		var index int // Variable to store the random index for the current selection
+
 		for {
-			// Randomly select an index for a character.
+			// Randomly select an index within the range of the hashed passkey length.
+			// `rand.Int(rand.Reader, big.NewInt(int64(len(hashedPasskey))))` generates a random number
+			// between 0 and len(hashedPasskey)-1, inclusive.
 			selectedIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(len(hashedPasskey))))
-			index = int(selectedIndex.Int64())
+			index = int(selectedIndex.Int64()) // Convert the selected random number to an integer
 
 			// Ensure no overlap with previously selected indices.
+			// This is done by checking if the `index` has already been selected.
 			if !selectedIndices[index] {
-				selectedIndices[index] = true
-				break
+				selectedIndices[index] = true // Mark this index as selected
+				break                         // Exit the loop once a unique index is found
 			}
 		}
+
+		// Once a unique index is selected, retrieve the corresponding byte from the hashed passkey.
 		selectedParts[i] = hashedPasskey[index]
 	}
 
@@ -249,7 +257,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	}
 
 	// Step 7: Combine the selected 6 characters and the nonce.
-	combinedParts := append(selectedParts, nonce...)
+	combinedParts := bytes.Join([][]byte{selectedParts, nonce}, []byte{})
 
 	// Step 8: Encode the combined parts in Base32.
 	base32Encoded := EncodeBase32(combinedParts)
