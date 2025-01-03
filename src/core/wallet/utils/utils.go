@@ -23,9 +23,10 @@
 package utils
 
 import (
-	"crypto/sha256"
 	"encoding/base32"
 	"fmt"
+
+	"github.com/sphinx-core/go/src/common"
 )
 
 // EncodeBase32 encodes a byte slice into a Base32 string.
@@ -58,7 +59,7 @@ func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error
 	fmt.Printf("Combined Key Material: %x\n", KeyMaterial)
 
 	// Generate the root hash by applying SHA-256 on the fingerprint (combined data)
-	fingerprint := sha256.Sum256(KeyMaterial)
+	fingerprint := common.SpxHash(KeyMaterial)
 
 	// Ensure the length is 32 bytes (256 bits)
 	if len(fingerprint) != 32 {
@@ -74,7 +75,7 @@ func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error
 // This is useful to recreate the hashed passkey from the original data.
 func DeriveRootHash(fingerprint []byte) []byte {
 	// Hash the combined parts using SHA-256
-	hashed := sha256.Sum256(fingerprint)
+	hashed := common.SpxHash(fingerprint)
 	// Return the hashed passkey as a slice of bytes
 	return hashed[:]
 }
