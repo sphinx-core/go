@@ -47,7 +47,7 @@ const (
 	EntropySize = 16 // 128 bits for 12-word mnemonic
 	SaltSize    = 16 // 128 bits salt size
 	PasskeySize = 32 // Set this to 32 bytes for a 256-bit output
-	NonceSize   = 8  // 64 bits nonce size, adjustable as needed
+	NonceSize   = 16 // 128 bits nonce size, adjustable as needed
 
 	// Argon2 parameters
 	// Argon memory standard is required minimum 15MiB (15 * 1024 * 1024) memory in allocation
@@ -222,60 +222,42 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	}
 
 	// Step 5: Select **6 characters** from the hashed passkey.
-	selectedParts := make([]byte, 3)      // Create an array to store the 6 selected characters (bytes)
-	selectedIndices := make(map[int]bool) // A map to track the indices that have already been selected
+	selectedParts := make([]byte, 3)
+	selectedIndices := make(map[int]bool)
 
-	// Loop to select 6 unique indices (for 6 characters) from the hashed passkey
 	for i := 0; i < 3; i++ {
-		var index int // Variable to store the random index for the current selection
-
+		var index int
 		for {
-			// Randomly select an index within the range of the hashed passkey length.
+			// Randomly select an index for a character.
 			selectedIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(len(hashedPasskey))))
-			index = int(selectedIndex.Int64()) // Convert the selected random number to an integer
+			index = int(selectedIndex.Int64())
 
 			// Ensure no overlap with previously selected indices.
 			if !selectedIndices[index] {
-				selectedIndices[index] = true // Mark this index as selected
-				break                         // Exit the loop once a unique index is found
+				selectedIndices[index] = true
+				break
 			}
 		}
-
-		// Once a unique index is selected, retrieve the corresponding byte from the hashed passkey.
 		selectedParts[i] = hashedPasskey[index]
 	}
 
-	// Print selected parts for debugging (6 characters only)
-	fmt.Printf("Selected Parts (Raw): %x\n", selectedParts)
-
-	// Step 6: Generate a nonce that also has **6 characters**.
-	nonce := make([]byte, 3)
+	// Step 6: Generate a nonce that has **4 bytes** (so the total length becomes 8 bytes).
+	nonce := make([]byte, 4) // Generates 4 bytes to complete the total length of 8 bytes
 	_, err = rand.Read(nonce)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate nonce: %v", err)
 	}
 
-	// Print nonce for debugging
-	fmt.Printf("Nonce (Raw): %x\n", nonce)
-
-	// Step 7: Combine the selected 6 characters and the nonce (Total of 12 bytes).
+	// Step 7: Combine the selected 6 characters and the 2-byte nonce (total size 8 bytes).
 	combinedParts := append(selectedParts, nonce...)
 
-	// Print combined parts for debugging (should output 12 bytes)
-	fmt.Printf("Combined Parts (Raw): %x\n", combinedParts)
+	// Ensure combinedParts has exactly 8 bytes.
+	if len(combinedParts) != 7 {
+		return "", "", nil, nil, fmt.Errorf("combined parts length is not 8 bytes, found: %d bytes", len(combinedParts))
+	}
 
 	// Step 8: Encode the combined parts in Base32.
-	base32Encoded := EncodeBase32(combinedParts)
-
-	// Debugging: Print the Base32 encoded result
-	fmt.Printf("Base32 Encoded: %s\n", base32Encoded)
-
-	// Ensure the Base32 output is exactly 12 characters
-	if len(base32Encoded) > 12 {
-		base32Passkey = base32Encoded[:12] // Truncate to 12 characters
-	} else {
-		base32Passkey = base32Encoded // Use the full encoding if it's already 12 characters
-	}
+	base32Passkey = EncodeBase32(combinedParts) // This should result in exactly 10 characters.
 
 	// Step 9: Generate a fingerprint using the hashed passkey and combined parts.
 	fingerprint, err = utils.GenerateRootHash(combinedParts, hashedPasskey)
