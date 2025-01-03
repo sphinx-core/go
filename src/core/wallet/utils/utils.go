@@ -33,6 +33,7 @@ import (
 // This is useful when you need to convert binary data into a human-readable format.
 // The function encodes the data using Base32 without any padding, ensuring compatibility with systems that require padding-free Base32 encoding.
 func EncodeBase32(data []byte) string {
+	// Base32 encoding is performed here without padding
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(data)
 }
 
@@ -40,6 +41,7 @@ func EncodeBase32(data []byte) string {
 // This function takes a Base32-encoded string and decodes it back into its original byte slice form.
 // It returns an error if the decoding fails, ensuring that invalid Base32 input is handled appropriately.
 func DecodeBase32(base32Str string) ([]byte, error) {
+	// Attempt to decode the Base32 string into the original byte slice
 	decoded, err := base32.StdEncoding.DecodeString(base32Str)
 	if err != nil {
 		// Return a descriptive error if Base32 decoding fails
@@ -52,13 +54,13 @@ func DecodeBase32(base32Str string) ([]byte, error) {
 // It first appends the decoded combined parts with the hashed passkey, then hashes the resulting data using spxhash.
 // The generated root hash can be used for verification purposes, ensuring that the input data matches the expected result.
 func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error) {
-	// Combine the decoded parts with the hashed passkey to generate the key material
+	// Combine the decoded combined parts and the hashed passkey to generate the key material
 	KeyMaterial := append(combinedParts, hashedPasskey...)
 
 	// Print the combined key material for debugging purposes
 	fmt.Printf("Combined Key Material: %x\n", KeyMaterial)
 
-	// Generate the root hash by hashing the combined key material
+	// Hash the combined key material to generate the root hash
 	fingerprint := common.SpxHash(KeyMaterial)
 
 	// Ensure the generated fingerprint is 256 bits (32 bytes) in length
@@ -66,18 +68,18 @@ func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error
 		return nil, fmt.Errorf("root hash is not 256 bits (32 bytes)")
 	}
 
-	// Return the root hash (first 32 bytes)
+	// Return the root hash, which is the first 32 bytes of the fingerprint
 	return fingerprint[:], nil
 }
 
 // DeriveRootHash computes the hashed passkey based on the provided fingerprint (combined parts).
-// This function simply recalculates the hash of the fingerprint, which is useful for recreating the hashed passkey
+// This function recalculates the hash of the fingerprint, which is useful for recreating the hashed passkey
 // from the original combined data.
 func DeriveRootHash(fingerprint []byte) []byte {
-	// Hash the fingerprint (combined parts)
+	// Hash the fingerprint (combined parts) to derive the hashed passkey
 	hashed := common.SpxHash(fingerprint)
 
-	// Return the hashed passkey (a slice of 32 bytes)
+	// Return the hashed passkey as a slice of 32 bytes
 	return hashed[:]
 }
 
@@ -86,12 +88,13 @@ func DeriveRootHash(fingerprint []byte) []byte {
 // generates the root hash by combining the decoded parts with the hashed passkey,
 // and then compares the root hash with the provided hashed passkey for verification.
 func VerifyBase32Passkey(base32Passkey string) (bool, []byte, []byte, error) {
-	// Decode the Base32 passkey
+	// Decode the Base32 passkey into its original byte slice form
 	decodedPasskey, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(base32Passkey)
 	if err != nil {
 		// Return a descriptive error if Base32 passkey decoding fails
 		return false, nil, nil, fmt.Errorf("failed to decode base32 passkey: %v", err)
 	}
+
 	// Print the decoded passkey for debugging
 	fmt.Printf("Decoded Passkey: %x\n", decodedPasskey)
 
