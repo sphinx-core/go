@@ -23,6 +23,7 @@
 package spxhash
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"io"
@@ -291,7 +292,7 @@ func (s *SphinxHash) sphinxHash(hash1, hash2 []byte, primeConstant uint64) []byt
 
 	// Step 2: Combine the two hashed results into one hash.
 	// This concatenates (H|(x) = H0(x)|H1(x)) the results of the two SHA-256 hashes, which will be used for further processing.
-	combinedHash := append(chainHash1[:], chainHash2[:]...) // Concatenate the two chained hashes.
+	combinedHash := bytes.Join([][]byte{chainHash1[:], chainHash2[:]}, nil)
 
 	// Step 3: Hash the combined result to generate a final chained hash.
 	// By applying SHA-256 again on the combined hashes, we ensure that the final result has better security.
