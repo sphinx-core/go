@@ -23,7 +23,6 @@
 package seed
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base32"
@@ -223,22 +222,19 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	}
 
 	// Step 5: Select **6 characters** from the hashed passkey.
-	selectedParts := make([]byte, 6)      // Create an array to store the 6 selected characters (bytes)
+	selectedParts := make([]byte, 3)      // Create an array to store the 6 selected characters (bytes)
 	selectedIndices := make(map[int]bool) // A map to track the indices that have already been selected
 
 	// Loop to select 6 unique indices (for 6 characters) from the hashed passkey
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 3; i++ {
 		var index int // Variable to store the random index for the current selection
 
 		for {
 			// Randomly select an index within the range of the hashed passkey length.
-			// `rand.Int(rand.Reader, big.NewInt(int64(len(hashedPasskey))))` generates a random number
-			// between 0 and len(hashedPasskey)-1, inclusive.
 			selectedIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(len(hashedPasskey))))
 			index = int(selectedIndex.Int64()) // Convert the selected random number to an integer
 
 			// Ensure no overlap with previously selected indices.
-			// This is done by checking if the `index` has already been selected.
 			if !selectedIndices[index] {
 				selectedIndices[index] = true // Mark this index as selected
 				break                         // Exit the loop once a unique index is found
@@ -249,18 +245,30 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		selectedParts[i] = hashedPasskey[index]
 	}
 
+	// Print selected parts for debugging (6 characters only)
+	fmt.Printf("Selected Parts (Raw): %x\n", selectedParts)
+
 	// Step 6: Generate a nonce that also has **6 characters**.
-	nonce := make([]byte, 6)
+	nonce := make([]byte, 3)
 	_, err = rand.Read(nonce)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate nonce: %v", err)
 	}
 
-	// Step 7: Combine the selected 6 characters and the nonce.
-	combinedParts := bytes.Join([][]byte{selectedParts, nonce}, []byte{})
+	// Print nonce for debugging
+	fmt.Printf("Nonce (Raw): %x\n", nonce)
+
+	// Step 7: Combine the selected 6 characters and the nonce (Total of 12 bytes).
+	combinedParts := append(selectedParts, nonce...)
+
+	// Print combined parts for debugging (should output 12 bytes)
+	fmt.Printf("Combined Parts (Raw): %x\n", combinedParts)
 
 	// Step 8: Encode the combined parts in Base32.
 	base32Encoded := EncodeBase32(combinedParts)
+
+	// Debugging: Print the Base32 encoded result
+	fmt.Printf("Base32 Encoded: %s\n", base32Encoded)
 
 	// Ensure the Base32 output is exactly 12 characters
 	if len(base32Encoded) > 12 {
