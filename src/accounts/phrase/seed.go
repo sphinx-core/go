@@ -23,7 +23,6 @@
 package seed
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base32"
@@ -41,20 +40,6 @@ import (
 )
 
 // SIPS-0004 https://github.com/sphinx-core/sips/wiki/SIPS0004
-
-// Example of Login Flow
-// Here's a simplified approach to a login process:
-
-// During Registration:
-// Generate a random salt and nonce.
-// Use the passphrase to generate the passkey.
-// Store the salt, nonce, and Base32-encoded truncated passkey.
-
-// During Login:
-// Retrieve the stored salt and nonce.
-// Use the entered passphrase, stored salt, and nonce to regenerate the passkey.
-// Truncate the regenerated hash (if you decide to keep truncation).
-// Compare the truncated hash to the stored truncated hash.
 
 // Define constants for the sizes used in the seed generation process
 const (
@@ -236,41 +221,47 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		return "", "", nil, nil, fmt.Errorf("failed to hash passkey: %v", err)
 	}
 
-	// Step 5: Select 6 random bytes from the hashed passkey for further processing.
-	selectedParts := make([][]byte, 3)
+	// Step 5: Select **6 characters** from the hashed passkey.
+	selectedParts := make([]byte, 6)
 	selectedIndices := make(map[int]bool)
 
-	for i := 0; i < 3; i++ {
-		var start int
+	for i := 0; i < 6; i++ {
+		var index int
 		for {
-			// Randomly select an index for a 2-byte segment.
-			startIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(len(hashedPasskey)-2)))
-			start = int(startIndex.Int64())
+			// Randomly select an index for a character.
+			selectedIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(len(hashedPasskey))))
+			index = int(selectedIndex.Int64())
 
 			// Ensure no overlap with previously selected indices.
-			if !selectedIndices[start] && !selectedIndices[start+1] {
-				selectedIndices[start] = true
-				selectedIndices[start+1] = true
+			if !selectedIndices[index] {
+				selectedIndices[index] = true
 				break
 			}
 		}
-		selectedParts[i] = hashedPasskey[start : start+2]
+		selectedParts[i] = hashedPasskey[index]
 	}
 
-	// Step 6: Generate a nonce for added randomness.
-	nonce := make([]byte, 4) // Example: 4-byte nonce
+	// Step 6: Generate a nonce that also has **6 characters**.
+	nonce := make([]byte, 6)
 	_, err = rand.Read(nonce)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate nonce: %v", err)
 	}
 
-	// Combine the selected 2-byte segments and the nonce.
-	combinedParts := bytes.Join(append(selectedParts, nonce), nil)
+	// Step 7: Combine the selected 6 characters and the nonce.
+	combinedParts := append(selectedParts, nonce...)
 
-	// Step 7: Encode the combined parts in Base32.
-	base32Passkey = EncodeBase32(combinedParts)
+	// Step 8: Encode the combined parts in Base32.
+	base32Encoded := EncodeBase32(combinedParts)
 
-	// Step 8: Generate a fingerprint using the hashed passkey and combined parts.
+	// Ensure the Base32 output is exactly 12 characters
+	if len(base32Encoded) > 12 {
+		base32Passkey = base32Encoded[:12] // Truncate to 12 characters
+	} else {
+		base32Passkey = base32Encoded // Use the full encoding if it's already 12 characters
+	}
+
+	// Step 9: Generate a fingerprint using the hashed passkey and combined parts.
 	fingerprint, err = utils.GenerateRootHash(combinedParts, hashedPasskey)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
