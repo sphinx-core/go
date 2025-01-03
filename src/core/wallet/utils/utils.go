@@ -58,7 +58,7 @@ func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error
 	// Print the fingerprint (key material) for debugging purposes
 	fmt.Printf("Combined Key Material: %x\n", KeyMaterial)
 
-	// Generate the root hash by applying SHA-256 on the fingerprint (combined data)
+	// Generate the root hash by applying hash on the fingerprint (combined data)
 	fingerprint := common.SpxHash(KeyMaterial)
 
 	// Ensure the length is 32 bytes (256 bits)
@@ -71,10 +71,10 @@ func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error
 }
 
 // DeriveRootHash computes the hashed passkey based on the provided combined parts.
-// This function simply takes the combined parts and hashes them using SHA-256.
+// This function simply recalculating the hashed passkey.
 // This is useful to recreate the hashed passkey from the original data.
 func DeriveRootHash(fingerprint []byte) []byte {
-	// Hash the combined parts using SHA-256
+	// Hash the combined parts
 	hashed := common.SpxHash(fingerprint)
 	// Return the hashed passkey as a slice of bytes
 	return hashed[:]
