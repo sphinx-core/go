@@ -221,8 +221,8 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		return "", "", nil, nil, fmt.Errorf("failed to hash passkey: %v", err)
 	}
 
-	// Truncate the hashed passkey to 224 bits (28 bytes).
-	selectedParts := hashedPasskey[:28] // Take the first 28 bytes (224 bits)
+	// Truncate the hashed passkey to 256 bits (32 bytes).
+	selectedParts := hashedPasskey[:32]
 
 	// Print Selected Parts (Raw)
 	fmt.Printf("Selected Parts (Raw): %x\n", selectedParts)
