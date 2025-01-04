@@ -198,28 +198,24 @@ func EncodeBase32(data []byte) string {
 // GenerateKeys generates a passphrase, a hashed Base32-encoded passkey, and its fingerprint.
 func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, fingerprint []byte, err error) {
 	// Step 1: Generate entropy for the mnemonic (passphrase generation).
-	// Entropy refers to a random set of data that will be used as input to derive a passphrase.
 	entropy, err := GenerateEntropy()
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate entropy: %v", err)
 	}
 
 	// Step 2: Derive the passphrase from the entropy.
-	// Convert the random entropy into a human-readable mnemonic (passphrase).
 	passphrase, err = GeneratePassphrase(entropy)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate passphrase: %v", err)
 	}
 
 	// Step 3: Generate the passkey from the passphrase.
-	// Convert the passphrase into a key that will be used for further cryptographic operations.
 	passkey, err := GeneratePasskey(passphrase, nil)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate passkey: %v", err)
 	}
 
 	// Step 4: Hash the passkey using SHA3-512.
-	// The passkey is hashed using SHA3-512 to create a unique, fixed-length representation.
 	hashedPasskey, err = HashPasskey(passkey)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to hash passkey: %v", err)
@@ -228,70 +224,68 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	// Apply XOR for every 4-byte group to reduce the size to 128-bits (16 bytes)
 	selectedParts := make([]byte, 0) // Create a new slice to store the XOR results
 
-	// Process each 4-byte group of the original hashedPasskey
-	for i := 0; i+3 < len(hashedPasskey); i += 2 { // Process each 4-byte group
+	// Process the hashed passkey in 4-byte chunks.
+	for i := 0; i+3 < len(hashedPasskey); i += 4 { // Process each 4-byte group
 		a := hashedPasskey[i]   // First byte of the group
 		b := hashedPasskey[i+1] // Second byte of the group
+		c := hashedPasskey[i+2] // Third byte of the group
+		d := hashedPasskey[i+3] // Fourth byte of the group
 
-		// XOR all bytes in the 4-byte group
-		xorResult := a ^ b
+		// XOR the bytes in the group to reduce the size.
+		xorResult := a ^ b ^ c ^ d
 
-		// Convert xorResult to a byte slice and join with selectedParts
+		// Add the XOR result to the selectedParts slice using bytes.Join
 		selectedParts = bytes.Join([][]byte{selectedParts, {xorResult}}, []byte{})
 	}
 
-	// Print the selectedParts (Raw) for debugging
+	// Print Selected Parts (Raw)
 	fmt.Printf("Selected Parts (Raw): %x\n", selectedParts)
 
 	// Step 6: Generate a nonce (12 bytes).
-	// A nonce is a random, one-time-use value to ensure uniqueness in cryptographic operations.
 	nonce := make([]byte, 12)
 	_, err = rand.Read(nonce)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate nonce: %v", err)
 	}
 
-	fmt.Printf("Nonce (Raw): %x\n", nonce) // Debugging output.
+	// Print Nonce (Raw)
+	fmt.Printf("Nonce (Raw): %x\n", nonce)
 
-	// Step 7: Combine the selected parts and the nonce to form a single byte array.
-	// This step concatenates the XOR-reduced passkey and the nonce for further processing.
+	// Step 7: Combine the selected parts and the nonce using bytes.Join.
 	combinedParts := bytes.Join([][]byte{selectedParts, nonce}, []byte{})
-	fmt.Printf("Combined Parts (Raw): %x\n", combinedParts) // Debugging output.
 
-	// Step 8: Apply XOR for every 8-byte group over multiple iterations to further reduce size.
-	reducedParts := make([]byte, 0) // Initialize a slice for reduced results.
-	iterations := 5000              // Number of XOR iterations.
+	// Print Combined Parts (Raw)
+	fmt.Printf("Combined Parts (Raw): %x\n", combinedParts)
+
+	// Step 8: Apply XOR for every 8-byte group over multiple iterations.
+	reducedParts := make([]byte, 0)
+	iterations := 5000
 
 	for round := 0; round < iterations; round++ {
-		for i := 0; i+7 < len(combinedParts); i += 8 { // Process each 8-byte group.
+		for i := 0; i+7 < len(combinedParts); i += 4 { // Process each 8-byte group.
 			a := combinedParts[i]
 			b := combinedParts[i+1]
 			c := combinedParts[i+2]
 			d := combinedParts[i+3]
-			e := combinedParts[i+4]
-			f := combinedParts[i+5]
-			g := combinedParts[i+6]
-			h := combinedParts[i+7]
 
-			// XOR all bytes in the group to produce a single byte result.
-			xorResult := []byte{a ^ b ^ c ^ d ^ e ^ f ^ g ^ h}
+			// XOR all bytes in the 8-byte group.
+			xorResult := a ^ b ^ c ^ d
 
-			// Append the XOR result to the reducedParts slice.
-			reducedParts = bytes.Join([][]byte{reducedParts, xorResult}, []byte{})
+			// Append the XOR result to the reducedParts slice using bytes.Join.
+			reducedParts = bytes.Join([][]byte{reducedParts, {xorResult}}, []byte{})
 		}
 
-		// Update combinedParts with the reduced results after each round.
+		// After completing one round, update combinedParts with the reduced result.
 		combinedParts = reducedParts
 	}
 
-	fmt.Printf("Reduced Combined Parts (XOR Result after %d iterations): %x\n", iterations, combinedParts) // Debugging output.
+	// Print Reduced Combined Parts (XOR Result after 5000 iterations)
+	fmt.Printf("Reduced Combined Parts (XOR Result after 5000 iterations): %x\n", reducedParts)
 
-	// Step 9: Encode the reduced parts in Base32 for human-readable representation.
+	// Step 9: Encode the reduced parts in Base32.
 	base32Encoded := EncodeBase32(combinedParts)
-	fmt.Printf("Base32 Encoded: %s\n", base32Encoded) // Debugging output.
 
 	// Step 10: Generate a fingerprint using the hashed passkey and reduced parts.
-	// The fingerprint is a unique identifier generated using cryptographic hashing.
 	fingerprint, err = utils.GenerateRootHash(combinedParts, hashedPasskey)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
