@@ -259,10 +259,10 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 			h := combinedParts[i+7]
 
 			// XOR all bytes in the 8-byte group.
-			xorResult := a ^ b ^ c ^ d ^ e ^ f ^ g ^ h
+			xorResult := []byte{a ^ b ^ c ^ d ^ e ^ f ^ g ^ h}
 
-			// Append the XOR result to the reducedParts slice using bytes.Join.
-			reducedParts = append(reducedParts, xorResult)
+			// Join the XOR result with the accumulated reducedParts
+			reducedParts = bytes.Join([][]byte{reducedParts, xorResult}, []byte{})
 		}
 
 		// After completing one round, update combinedParts with the reduced result.
