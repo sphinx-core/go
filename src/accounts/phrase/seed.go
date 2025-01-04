@@ -198,57 +198,86 @@ func EncodeBase32(data []byte) string {
 // GenerateKeys generates a passphrase, a hashed Base32-encoded passkey, and its fingerprint.
 func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, fingerprint []byte, err error) {
 	// Step 1: Generate entropy for the mnemonic (passphrase generation).
+	// We call GenerateEntropy to obtain random data that can be used as the basis for the passphrase.
 	entropy, err := GenerateEntropy()
 	if err != nil {
+		// If there is an error during entropy generation, we return an empty result and the error.
 		return "", "", nil, nil, fmt.Errorf("failed to generate entropy: %v", err)
 	}
 
 	// Step 2: Derive the passphrase from the entropy.
+	// Using the entropy generated in Step 1, we generate the passphrase using the GeneratePassphrase function.
 	passphrase, err = GeneratePassphrase(entropy)
 	if err != nil {
+		// If there is an error during passphrase generation, return an empty result and the error.
 		return "", "", nil, nil, fmt.Errorf("failed to generate passphrase: %v", err)
 	}
 
 	// Step 3: Generate the passkey from the passphrase.
+	// The passphrase is used to derive a passkey (usually through some hashing or key derivation process).
 	passkey, err := GeneratePasskey(passphrase, nil)
 	if err != nil {
+		// If there is an error during passkey generation, return an empty result and the error.
 		return "", "", nil, nil, fmt.Errorf("failed to generate passkey: %v", err)
 	}
 
 	// Step 4: Hash the passkey using SHA3-512.
+	// The passkey is hashed using SHA3-512 to create a fixed-size hash value.
 	hashedPasskey, err = HashPasskey(passkey)
 	if err != nil {
+		// If there is an error during hashing, return an empty result and the error.
 		return "", "", nil, nil, fmt.Errorf("failed to hash passkey: %v", err)
 	}
 
 	// Truncate the hashed passkey to 256 bits (32 bytes).
+	// We take the first 32 bytes of the SHA3-512 hash to use in further steps.
 	selectedParts := hashedPasskey[:32]
 
 	// Print Selected Parts (Raw)
+	// We print the first 32 bytes of the hashed passkey for debugging purposes.
 	fmt.Printf("Selected Parts (Raw): %x\n", selectedParts)
 
 	// Step 6: Generate a nonce (12 bytes).
+	// A nonce is a random value used only once, typically to prevent replay attacks. Here, we generate it using `rand.Read`.
 	nonce := make([]byte, 12)
 	_, err = rand.Read(nonce)
 	if err != nil {
+		// If there is an error generating the nonce, return an empty result and the error.
 		return "", "", nil, nil, fmt.Errorf("failed to generate nonce: %v", err)
 	}
 
 	// Print Nonce (Raw)
+	// We print the generated nonce (random 12-byte value) for debugging purposes.
 	fmt.Printf("Nonce (Raw): %x\n", nonce)
 
 	// Step 7: Combine the selected parts and the nonce using bytes.Join.
+	// We join the selected 32-byte hash and the 12-byte nonce together to create a combined data set.
 	combinedParts := bytes.Join([][]byte{selectedParts, nonce}, []byte{})
 
 	// Print Combined Parts (Raw)
+	// We print the combined parts (selected parts + nonce) for debugging purposes.
 	fmt.Printf("Combined Parts (Raw): %x\n", combinedParts)
 
-	// Step 8: Apply XOR for every 8-byte group over multiple iterations.
-	reducedParts := make([]byte, 0)
-	iterations := 5000
+	// Step 8: Create salt by combining "Base32Passkey" with the selected parts of the hashed passkey.
+	// We concatenate the string "Base32Passkey" with the first 32 bytes of the hashed passkey to create a salt.
+	salt := "Base32Passkey" + string(hashedPasskey[:32])
+	saltBytes := []byte(salt)
 
+	// Print Salt (Raw)
+	// We print the generated salt in hexadecimal format for debugging purposes.
+	fmt.Printf("Salt (Raw): %x\n", saltBytes)
+
+	// Step 9: Apply XOR for every 8-byte group over multiple iterations.
+	// We use the XOR operation over groups of 8 bytes (64 bits) multiple times to further obfuscate the data and increase complexity.
+	reducedParts := make([]byte, 0)
+	iterations := 10000 // Number of iterations to increase complexity
+
+	// Iterate multiple times to increase complexity and reduce predictability.
 	for round := 0; round < iterations; round++ {
-		for i := 0; i+7 < len(combinedParts); i += 8 { // Process each 8-byte group (adjusted to 8-byte).
+		// Process each 8-byte group.
+		// The for loop processes the `combinedParts` in chunks of 8 bytes at a time.
+		for i := 0; i+7 < len(combinedParts); i += 8 {
+			// Extract the 8 bytes in the current group.
 			a := combinedParts[i]
 			b := combinedParts[i+1]
 			c := combinedParts[i+2]
@@ -259,28 +288,42 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 			h := combinedParts[i+7]
 
 			// XOR all bytes in the 8-byte group.
+			// We XOR all 8 bytes together to get a single byte result.
 			xorResult := []byte{a ^ b ^ c ^ d ^ e ^ f ^ g ^ h}
 
-			// Join the XOR result with the accumulated reducedParts
+			// Optionally, apply additional salt to further obfuscate the results.
+			// For each byte in the salt, we apply an XOR with the xorResult to add more entropy.
+			for j := 0; j < len(saltBytes); j++ {
+				// XOR with salt (cycling through salt bytes).
+				xorResult[0] ^= saltBytes[j%len(saltBytes)]
+			}
+
+			// Join the XOR result with the accumulated reducedParts.
+			// We concatenate the current XOR result to the reducedParts byte slice.
 			reducedParts = bytes.Join([][]byte{reducedParts, xorResult}, []byte{})
 		}
 
-		// After completing one round, update combinedParts with the reduced result.
+		// After completing one round of XORing, update combinedParts with the reduced result.
 		combinedParts = reducedParts
 	}
 
-	// Print Reduced Combined Parts (XOR Result after 5000 iterations)
+	// Print Reduced Combined Parts (XOR Result after 5000 iterations).
+	// We print the final reduced result after 5000 iterations of XOR to see the obfuscated data.
 	fmt.Printf("Reduced Combined Parts (XOR Result after 5000 iterations): %x\n", reducedParts)
 
-	// Step 9: Encode the reduced parts in Base32.
+	// Step 10: Encode the reduced parts in Base32.
+	// We encode the final reduced data (after XOR operations) in Base32 format for easy storage and use.
 	base32Encoded := EncodeBase32(combinedParts)
 
-	// Step 10: Generate a fingerprint using the hashed passkey and reduced parts.
+	// Step 11: Generate a fingerprint using the hashed passkey and reduced parts.
+	// The fingerprint is generated by hashing the combined parts and the original hashed passkey using GenerateRootHash.
 	fingerprint, err = utils.GenerateRootHash(combinedParts, hashedPasskey)
 	if err != nil {
+		// If there is an error during fingerprint generation, return an empty result and the error.
 		return "", "", nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
 	}
 
 	// Return the generated passphrase, encoded passkey, hashed passkey, and fingerprint.
+	// All of the generated values (passphrase, encoded passkey, hashed passkey, fingerprint) are returned to the caller.
 	return passphrase, base32Encoded, hashedPasskey, fingerprint, nil
 }
