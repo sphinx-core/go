@@ -198,80 +198,92 @@ func EncodeBase32(data []byte) string {
 // GenerateKeys generates a passphrase, a hashed Base32-encoded passkey, and its fingerprint.
 func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, fingerprint []byte, err error) {
 	// Step 1: Generate entropy for the mnemonic (passphrase generation).
+	// Entropy refers to a random set of data that will be used as input to derive a passphrase.
 	entropy, err := GenerateEntropy()
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate entropy: %v", err)
 	}
 
 	// Step 2: Derive the passphrase from the entropy.
+	// The entropy generated in step 1 is used to create a passphrase.
 	passphrase, err = GeneratePassphrase(entropy)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate passphrase: %v", err)
 	}
 
 	// Step 3: Generate the passkey from the passphrase.
+	// The passphrase generated in the previous step is used to generate a passkey.
 	passkey, err := GeneratePasskey(passphrase, nil)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate passkey: %v", err)
 	}
 
 	// Step 4: Hash the passkey using SHA3-512.
+	// The passkey is hashed using SHA3-512 to create a unique, fixed-length representation.
 	hashedPasskey, err = HashPasskey(passkey)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to hash passkey: %v", err)
 	}
 
-	// Step 5: Select 32 characters from the hashed passkey.
-	selectedParts := make([]byte, 32)     // Create an array to store the 32 selected characters (bytes)
+	// Step 5: Select 16 characters from the hashed passkey.
+	// We are selecting a smaller subset (16 bytes) from the hashed passkey for further processing.
+	// We use a map to ensure that the selected indices are unique (no duplicates).
+	selectedParts := make([]byte, 16)     // Create an array to store the 16 selected characters (bytes)
 	selectedIndices := make(map[int]bool) // A map to track the indices that have already been selected
 
-	for i := 0; i < 32; i++ {
+	for i := 0; i < 16; i++ { // Loop through to select 16 unique indices from the hashed passkey
 		var index int
-		for {
+		for { // Infinite loop until we find a unique index
 			selectedIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(len(hashedPasskey))))
-			index = int(selectedIndex.Int64())
-			if !selectedIndices[index] {
-				selectedIndices[index] = true
-				break
+			index = int(selectedIndex.Int64()) // Randomly generate an index within the bounds of hashedPasskey
+			if !selectedIndices[index] {       // If the index has not been selected before
+				selectedIndices[index] = true // Mark the index as selected
+				break                         // Exit the loop once a unique index is found
 			}
 		}
-		selectedParts[i] = hashedPasskey[index]
+		selectedParts[i] = hashedPasskey[index] // Store the selected byte from hashedPasskey
 	}
 
-	fmt.Printf("Selected Parts (Raw): %x\n", selectedParts)
+	fmt.Printf("Selected Parts (Raw): %x\n", selectedParts) // Print the selected parts for debugging
 
 	// Step 6: Generate a nonce (12 bytes).
+	// A nonce is a random value that is used once and is combined with the selected parts to ensure uniqueness.
 	nonce := make([]byte, 12)
-	_, err = rand.Read(nonce)
+	_, err = rand.Read(nonce) // Generate the nonce using a cryptographically secure random number generator
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate nonce: %v", err)
 	}
 
-	fmt.Printf("Nonce (Raw): %x\n", nonce)
+	fmt.Printf("Nonce (Raw): %x\n", nonce) // Print the nonce for debugging
 
-	// Step 7: Combine the selected 32 characters and the nonce (Total of 44 bytes).
+	// Step 7: Combine the selected 16 characters and the nonce (Total of 28 bytes).
+	// The selected parts and nonce are concatenated to create a combined byte slice.
 	combinedParts := append(selectedParts, nonce...)
-	fmt.Printf("Combined Parts (Raw): %x\n", combinedParts)
+	fmt.Printf("Combined Parts (Raw): %x\n", combinedParts) // Print the combined parts before XOR for debugging
 
 	// Step 8: Apply XOR for every 4-byte group.
-	reducedParts := make([]byte, 0)
-	for i := 0; i < len(combinedParts); i += 4 {
-		a := combinedParts[i]
-		b := combinedParts[i+1]
-		c := combinedParts[i+2]
-		d := combinedParts[i+3]
-		reducedParts = append(reducedParts, a^b^c^d)
+	// XOR (exclusive OR) is applied to each 4-byte group. The result of XOR-ing multiple bytes is a new byte.
+	// This step reduces the size of the combined parts by grouping every 4 bytes and applying XOR.
+	reducedParts := make([]byte, 0)              // Create a new slice to store the XOR results
+	for i := 0; i < len(combinedParts); i += 4 { // Process each 4-byte group
+		a := combinedParts[i]                        // First byte of the group
+		b := combinedParts[i+1]                      // Second byte of the group
+		c := combinedParts[i+2]                      // Third byte of the group
+		d := combinedParts[i+3]                      // Fourth byte of the group
+		reducedParts = append(reducedParts, a^b^c^d) // XOR the 4 bytes and append the result to reducedParts
 	}
 
 	// Replace combinedParts with reducedParts for encoding.
-	combinedParts = reducedParts
-	fmt.Printf("Reduced Combined Parts (XOR Result): %x\n", combinedParts)
+	combinedParts = reducedParts                                           // Update the combined parts with the XOR results
+	fmt.Printf("Reduced Combined Parts (XOR Result): %x\n", combinedParts) // Print the XORed result for debugging
 
 	// Step 9: Encode the reduced parts in Base32.
+	// The reduced parts (after XOR) are encoded into Base32 format for human-readable output.
 	base32Encoded := EncodeBase32(combinedParts)
-	fmt.Printf("Base32 Encoded: %s\n", base32Encoded)
+	fmt.Printf("Base32 Encoded: %s\n", base32Encoded) // Print the Base32 encoded result for debugging
 
 	// Step 10: Generate a fingerprint using the hashed passkey and reduced parts.
+	// The fingerprint is a unique identifier generated from the combined result (reduced parts) and the hashed passkey.
 	fingerprint, err = utils.GenerateRootHash(combinedParts, hashedPasskey)
 	if err != nil {
 		return "", "", nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
