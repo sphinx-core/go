@@ -274,11 +274,8 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 
 	// Iterate multiple times to increase complexity and reduce predictability.
 	for round := 0; round < iterations; round++ {
-		// Reset reducedParts at the start of each iteration.
-		reducedParts = make([]byte, 0)
-
 		// Process each 8-byte group.
-		// The for loop processes the `combinedParts` in chunks of 8 bytes at a time.
+		// The for loop processes the combinedParts in chunks of 8 bytes at a time.
 		for i := 0; i+7 < len(combinedParts); i += 8 {
 			// Extract the 8 bytes in the current group.
 			a := combinedParts[i]
