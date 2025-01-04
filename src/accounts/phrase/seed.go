@@ -221,22 +221,8 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		return "", "", nil, nil, fmt.Errorf("failed to hash passkey: %v", err)
 	}
 
-	// Apply XOR for every 4-byte group to reduce the size to 128-bits (16 bytes)
-	selectedParts := make([]byte, 0) // Create a new slice to store the XOR results
-
-	// Process the hashed passkey in 4-byte chunks.
-	for i := 0; i+3 < len(hashedPasskey); i += 4 { // Process each 4-byte group
-		a := hashedPasskey[i]   // First byte of the group
-		b := hashedPasskey[i+1] // Second byte of the group
-		c := hashedPasskey[i+2] // Third byte of the group
-		d := hashedPasskey[i+3] // Fourth byte of the group
-
-		// XOR the bytes in the group to reduce the size.
-		xorResult := a ^ b ^ c ^ d
-
-		// Add the XOR result to the selectedParts slice using bytes.Join
-		selectedParts = bytes.Join([][]byte{selectedParts, {xorResult}}, []byte{})
-	}
+	// Truncate the hashed passkey to 224 bits (28 bytes).
+	selectedParts := hashedPasskey[:28] // Take the first 28 bytes (224 bits)
 
 	// Print Selected Parts (Raw)
 	fmt.Printf("Selected Parts (Raw): %x\n", selectedParts)
@@ -262,17 +248,21 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	iterations := 5000
 
 	for round := 0; round < iterations; round++ {
-		for i := 0; i+7 < len(combinedParts); i += 4 { // Process each 8-byte group.
+		for i := 0; i+7 < len(combinedParts); i += 8 { // Process each 8-byte group (adjusted to 8-byte).
 			a := combinedParts[i]
 			b := combinedParts[i+1]
 			c := combinedParts[i+2]
 			d := combinedParts[i+3]
+			e := combinedParts[i+4]
+			f := combinedParts[i+5]
+			g := combinedParts[i+6]
+			h := combinedParts[i+7]
 
 			// XOR all bytes in the 8-byte group.
-			xorResult := a ^ b ^ c ^ d
+			xorResult := a ^ b ^ c ^ d ^ e ^ f ^ g ^ h
 
 			// Append the XOR result to the reducedParts slice using bytes.Join.
-			reducedParts = bytes.Join([][]byte{reducedParts, {xorResult}}, []byte{})
+			reducedParts = append(reducedParts, xorResult)
 		}
 
 		// After completing one round, update combinedParts with the reduced result.
