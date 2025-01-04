@@ -229,10 +229,10 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	// Step 5: Select 16 characters from the hashed passkey.
 	// We are selecting a smaller subset (16 bytes) from the hashed passkey for further processing.
 	// We use a map to ensure that the selected indices are unique (no duplicates).
-	selectedParts := make([]byte, 16)     // Create an array to store the 16 selected characters (bytes)
+	selectedParts := make([]byte, 20)     // Create an array to store the 16 selected characters (bytes)
 	selectedIndices := make(map[int]bool) // A map to track the indices that have already been selected
 	// Loop through to select 16 unique indices from the hashed passkey
-	for i := 0; i < 16; i++ {
+	for i := 0; i < 20; i++ {
 		var index int
 		for { // Infinite loop until we find a unique index
 			selectedIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(len(hashedPasskey))))
@@ -263,19 +263,22 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	fmt.Printf("Combined Parts (Raw): %x\n", combinedParts) // Print the combined parts before XOR for debugging
 
 	// Step 8: Apply XOR for every 4-byte group.
-	// XOR (exclusive OR) is applied to each 4-byte group. The result of XOR-ing multiple bytes is a new byte.
+	// XOR (exclusive OR) is applied to each 8-byte group. The result of XOR-ing multiple bytes is a new byte.
 	// This step reduces the size of the combined parts by grouping every 4 bytes and applying XOR.
-	// Step 8: Apply XOR for every 4-byte group and join the results using bytes.Join.
 	reducedParts := make([]byte, 0) // Create a new slice to store the XOR results
 
-	for i := 0; i < len(combinedParts); i += 4 { // Process each 4-byte group
+	for i := 0; i+7 < len(combinedParts); i += 8 { // Process each 8-byte group
 		a := combinedParts[i]   // First byte of the group
 		b := combinedParts[i+1] // Second byte of the group
 		c := combinedParts[i+2] // Third byte of the group
 		d := combinedParts[i+3] // Fourth byte of the group
+		e := combinedParts[i+4] // Fifth byte of the group
+		f := combinedParts[i+5] // Sixth byte of the group
+		g := combinedParts[i+6] // Seventh byte of the group
+		h := combinedParts[i+7] // Eighth byte of the group
 
 		// Create a slice with the XOR result
-		xorResult := []byte{a ^ b ^ c ^ d}
+		xorResult := []byte{a ^ b ^ c ^ d ^ e ^ f ^ g ^ h}
 
 		// Join the XOR result with the accumulated reducedParts
 		reducedParts = bytes.Join([][]byte{reducedParts, xorResult}, []byte{})
