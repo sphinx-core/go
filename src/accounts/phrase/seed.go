@@ -23,6 +23,7 @@
 package seed
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base32"
@@ -264,13 +265,20 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	// Step 8: Apply XOR for every 4-byte group.
 	// XOR (exclusive OR) is applied to each 4-byte group. The result of XOR-ing multiple bytes is a new byte.
 	// This step reduces the size of the combined parts by grouping every 4 bytes and applying XOR.
-	reducedParts := make([]byte, 0)              // Create a new slice to store the XOR results
+	// Step 8: Apply XOR for every 4-byte group and join the results using bytes.Join.
+	reducedParts := make([]byte, 0) // Create a new slice to store the XOR results
+
 	for i := 0; i < len(combinedParts); i += 4 { // Process each 4-byte group
-		a := combinedParts[i]                        // First byte of the group
-		b := combinedParts[i+1]                      // Second byte of the group
-		c := combinedParts[i+2]                      // Third byte of the group
-		d := combinedParts[i+3]                      // Fourth byte of the group
-		reducedParts = append(reducedParts, a^b^c^d) // XOR the 4 bytes and append the result to reducedParts
+		a := combinedParts[i]   // First byte of the group
+		b := combinedParts[i+1] // Second byte of the group
+		c := combinedParts[i+2] // Third byte of the group
+		d := combinedParts[i+3] // Fourth byte of the group
+
+		// Create a slice with the XOR result
+		xorResult := []byte{a ^ b ^ c ^ d}
+
+		// Join the XOR result with the accumulated reducedParts
+		reducedParts = bytes.Join([][]byte{reducedParts, xorResult}, []byte{})
 	}
 
 	// Replace combinedParts with reducedParts for encoding.
