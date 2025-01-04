@@ -230,8 +230,8 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	// We use a map to ensure that the selected indices are unique (no duplicates).
 	selectedParts := make([]byte, 16)     // Create an array to store the 16 selected characters (bytes)
 	selectedIndices := make(map[int]bool) // A map to track the indices that have already been selected
-
-	for i := 0; i < 16; i++ { // Loop through to select 16 unique indices from the hashed passkey
+	// Loop through to select 16 unique indices from the hashed passkey
+	for i := 0; i < 16; i++ {
 		var index int
 		for { // Infinite loop until we find a unique index
 			selectedIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(len(hashedPasskey))))
