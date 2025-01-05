@@ -44,7 +44,7 @@ type Note struct {
 }
 
 // NewNote creates a new Note instance and computes the MAC for the note.
-func NewNote(to, from string, fee float64, storage string) (*Note, error) {
+func NewNote(to, from string, fee float64, storage, key string) (*Note, error) {
 	// Step 1: Validate the sender's and receiver's wallet addresses to ensure they are correctly formatted.
 	if err := validateAddress(to); err != nil {
 		// If the 'to' address is invalid, return an error
@@ -66,7 +66,7 @@ func NewNote(to, from string, fee float64, storage string) (*Note, error) {
 	}
 
 	// Step 3: Generate a Message Authentication Code (MAC) for the note to ensure data integrity and authenticity.
-	mac, err := generateMAC(note)
+	mac, err := generateMAC(note, key)
 	if err != nil {
 		// If an error occurs while generating the MAC, return the error
 		return nil, err
@@ -79,34 +79,50 @@ func NewNote(to, from string, fee float64, storage string) (*Note, error) {
 	return note, nil
 }
 
-// generateMAC generates a Message Authentication Code (MAC) using SphinxHash for the given Note.
-func generateMAC(note *Note) (string, error) {
-	// Step 1: Combine the relevant fields of the note to form a string that will be hashed (excluding the MAC itself).
-	message := note.To + note.From + fmt.Sprintf("%f", note.Fee) + note.Storage + fmt.Sprintf("%d", note.Timestamp)
+// generateMAC generates a Message Authentication Code (MAC) for a given Note using a secret key.
+// The MAC ensures the integrity and authenticity of the Note's data.
+func generateMAC(note *Note, key string) (string, error) {
+	// Step 1: Construct a message string by concatenating the key with the Note's fields.
+	// The message format: key + To + From + Fee + Storage + Timestamp.
+	message := key +
+		note.To + // Recipient's address
+		note.From + // Sender's address
+		fmt.Sprintf("%f", note.Fee) + // Fee (converted to a string)
+		note.Storage + // Storage metadata
+		fmt.Sprintf("%d", note.Timestamp) // Timestamp (converted to a string)
 
-	// Step 2: Convert the message to a byte slice (required by the SpxHash function).
+	// Step 2: Convert the constructed message into a byte slice.
 	messageBytes := []byte(message)
 
-	// Step 3: Use the SphinxHash algorithm to generate the hash.
+	// Step 3: Compute the hash of the message using the SphinxHash function.
 	hash := common.SpxHash(messageBytes)
 
-	// Step 4: Convert the hash to a hexadecimal string.
+	// Step 4: Encode the hash into a hexadecimal string to make it human-readable.
 	mac := hex.EncodeToString(hash)
 
 	// Step 5: Return the generated MAC.
 	return mac, nil
 }
 
-// validateAddress checks if the address follows a valid format: it should be alphanumeric, have a length between 26 and 62, and start with 'x'.
+// validateAddress validates a wallet address to ensure it adheres to specific rules.
 func validateAddress(address string) error {
-	// Step 1: Check that the address length is between 26 and 62 characters and starts with the character 'x'.
-	if len(address) >= 26 && len(address) <= 62 && strings.HasPrefix(address, "x") && isAlphanumeric(address[1:]) {
-		// If the address is valid, return nil (no error).
-		return nil
+	// Step 1: Check if the address length is within the valid range (26 to 62 characters).
+	if len(address) < 26 || len(address) > 62 {
+		return errors.New("address length must be between 26 and 62 characters")
 	}
 
-	// Step 2: If the address doesn't meet the criteria, return an error explaining the problem.
-	return errors.New("invalid address format. Must be an alphanumeric address with 26-62 characters, starting with 'x'")
+	// Step 2: Ensure the address starts with the prefix 'x'.
+	if !strings.HasPrefix(address, "x") {
+		return errors.New("address must start with 'x'")
+	}
+
+	// Step 3: Verify that the remainder of the address contains only alphanumeric characters.
+	if !isAlphanumeric(address[1:]) {
+		return errors.New("address contains invalid characters")
+	}
+
+	// Step 4: Return nil if all validations pass.
+	return nil
 }
 
 // isAlphanumeric checks if the provided string consists solely of alphanumeric characters.

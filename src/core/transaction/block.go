@@ -142,9 +142,9 @@ func (b *Block) AddTxs(tx *Transaction) {
 }
 
 // Example of a function to create a transaction
-func NewTxs(to, from string, fee float64, storage string, nonce uint64, gasLimit, gasPrice *big.Int, block *Block) error {
+func NewTxs(to, from string, fee float64, storage string, nonce uint64, gasLimit, gasPrice *big.Int, block *Block, key string) error {
 	// Create a new Note
-	note, err := NewNote(to, from, fee, storage)
+	note, err := NewNote(to, from, fee, storage, key)
 	if err != nil {
 		return err
 	}
