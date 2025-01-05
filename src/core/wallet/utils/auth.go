@@ -24,30 +24,39 @@ package utils
 
 import (
 	"crypto/hmac"
-	"crypto/sha256"
 	"fmt"
+
+	"golang.org/x/crypto/sha3"
 )
 
-// GenerateHMAC generates a keyed-hash message authentication code (HMAC) using SHA-256.
+// GenerateHMAC generates a keyed-hash message authentication code (HMAC) using SHA3-256.
 func GenerateHMAC(data []byte, key string) ([]byte, error) {
-	h := hmac.New(sha256.New, []byte(key))
+	// Initialize a new HMAC hash object with SHA3-256 (Keccak-256) and the provided key
+	h := hmac.New(sha3.NewLegacyKeccak256, []byte(key))
 	_, err := h.Write(data)
 	if err != nil {
+		// Return an error if the data couldn't be written to the HMAC object
 		return nil, fmt.Errorf("failed to write data to HMAC: %v", err)
 	}
+	// Return the HMAC result (sum of the data)
 	return h.Sum(nil), nil
 }
 
 // VerifyHMAC verifies whether the HMAC of the given data matches the expected HMAC value.
 func VerifyHMAC(data []byte, key string, expectedHMAC []byte) (bool, error) {
+	// Generate the actual HMAC for the given data and key
 	actualHMAC, err := GenerateHMAC(data, key)
 	if err != nil {
+		// Return false and an error message if HMAC generation fails
 		return false, fmt.Errorf("failed to generate HMAC: %v", err)
 	}
 
+	// Compare the generated HMAC with the expected one using hmac.Equal (constant-time comparison)
 	if !hmac.Equal(actualHMAC, expectedHMAC) {
+		// Return false if the HMACs do not match
 		return false, nil
 	}
 
+	// Return true if the HMACs match
 	return true, nil
 }

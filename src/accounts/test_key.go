@@ -48,7 +48,7 @@ func main() {
 	fmt.Println("Passkey: ", base32Passkey)          // Display the Base32-encoded passkey
 	fmt.Printf("HashedPasskey: %x\n", hashedPasskey) // Display the hashed passkey in hexadecimal format
 	fmt.Printf("Fingerprint: %x\n", fingerprint)     // Display the fingerprint in hexadecimal format
-	fmt.Printf("Fingerprint: %x\n", hmacKey)         // Display the fingerprint in hexadecimal format
+	fmt.Printf("HmacKey: %x\n", hmacKey)             // Display the fingerprint in hexadecimal format
 
 	// Step 3: Verify the Base32 passkey
 	// The `VerifyBase32Passkey` function decodes the Base32-encoded passkey, derives the hashed passkey and root hash,
