@@ -37,6 +37,7 @@ func main() {
 	// - base32Passkey: The passkey encoded in Base32 for storage or transmission.
 	// - hashedPasskey: A hash derived from the passkey for verification purposes.
 	// - fingerprint: A unique identifier derived from the hashed passkey.
+	// - hmacKey: The HMAC key generated for verification
 	passphrase, base32Passkey, hashedPasskey, fingerprint, hmacKey, err := seed.GenerateKeys()
 	if err != nil {
 		// Log the error and terminate the program if key generation fails
@@ -50,7 +51,21 @@ func main() {
 	fmt.Printf("Fingerprint: %x\n", fingerprint)     // Display the fingerprint in hexadecimal format
 	fmt.Printf("HmacKey: %x\n", hmacKey)             // Display the fingerprint in hexadecimal format
 
-	// Step 3: Verify the Base32 passkey
+	// Step 3: Verify the HMAC key
+	// We are verifying the HMAC for the passphrase and base32 passkey using the hmacKey generated from GenerateKeys
+	isValidHMAC, err := utils.VerifyHMAC([]byte(passphrase+base32Passkey), string(hmacKey), hmacKey)
+	if err != nil {
+		// If verification fails, print an error message
+		fmt.Printf("HMAC verification failed: %v\n", err)
+	} else if !isValidHMAC {
+		// If HMAC does not match, inform the user
+		fmt.Println("HMAC verification failed: HMACs do not match")
+	} else {
+		// If verification succeeds, indicate the success
+		fmt.Println("HMAC verification successful: HMACs match")
+	}
+
+	// Step 4: Verify the Base32 passkey
 	// The `VerifyBase32Passkey` function decodes the Base32-encoded passkey, derives the hashed passkey and root hash,
 	// and checks if the root hash matches the expected fingerprint or derived values.
 	isValid, rootHash, derivedFingerprint, err := utils.VerifyBase32Passkey(base32Passkey)
