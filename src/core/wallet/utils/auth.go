@@ -33,14 +33,11 @@ import (
 
 // GenerateHMAC generates a keyed-hash message authentication code (HMAC) using SHA3-512 (Keccak-512).
 func GenerateHMAC(data []byte, key []byte) ([]byte, error) {
-	// Initialize a new HMAC hash object with SHA3-512 (Keccak-512) and the provided key
 	h := hmac.New(sha3.NewLegacyKeccak512, key)
 	_, err := h.Write(data)
 	if err != nil {
-		// Return an error if the data couldn't be written to the HMAC object
 		return nil, fmt.Errorf("failed to write data to HMAC: %v", err)
 	}
-	// Return the HMAC result (sum of the data)
 	return h.Sum(nil), nil
 }
 
@@ -102,11 +99,24 @@ func isHex(s string) bool {
 	return err == nil
 }
 
-// CombineParts combines data and generates a reduced part for HMAC key generation.
-func CombineParts(parts [][]byte) []byte {
-	var combined []byte
-	for _, part := range parts {
-		combined = append(combined, part...)
+// Function to verify the user during login
+func VerifyLogin(userInputBase32, Passphrase string, storedRootHash []byte) (bool, error) {
+	// Step 1: Decode the Base32 encoded passkey from the user's input.
+	decodedPasskey, err := base32.StdEncoding.DecodeString(userInputBase32)
+	if err != nil {
+		return false, fmt.Errorf("failed to decode Base32 passkey: %v", err)
 	}
-	return combined
+
+	// Step 2: Hash the combination of the decoded passkey and the passphrase (HMAC)
+	actualRootHash, err := GenerateHMAC(decodedPasskey, []byte(Passphrase))
+	if err != nil {
+		return false, fmt.Errorf("failed to generate root hash: %v", err)
+	}
+
+	// Step 3: Compare the generated root hash with the stored root hash (fingerprint)
+	if !hmac.Equal(actualRootHash, storedRootHash) {
+		return false, nil // HMACs don't match
+	}
+
+	return true, nil // Login successful
 }
