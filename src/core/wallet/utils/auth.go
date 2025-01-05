@@ -32,7 +32,7 @@ import (
 // GenerateHMAC generates a keyed-hash message authentication code (HMAC) using SHA3-256.
 func GenerateHMAC(data []byte, key string) ([]byte, error) {
 	// Initialize a new HMAC hash object with SHA3-256 (Keccak-256) and the provided key
-	h := hmac.New(sha3.NewLegacyKeccak256, []byte(key))
+	h := hmac.New(sha3.NewLegacyKeccak512, []byte(key))
 	_, err := h.Write(data)
 	if err != nil {
 		// Return an error if the data couldn't be written to the HMAC object
