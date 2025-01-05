@@ -57,11 +57,11 @@ func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error
 	// Combine the decoded combined parts and the hashed passkey to generate the key material
 	KeyMaterial := append(combinedParts, hashedPasskey...)
 
-	// Print the combined key material for debugging purposes
-	fmt.Printf("Combined Key Material: %x\n", KeyMaterial)
-
 	// Hash the combined key material to generate the root hash
 	fingerprint := common.SpxHash(KeyMaterial)
+
+	// Print the fingerprint for debugging (in hexadecimal format)
+	fmt.Printf("Fingerprint (intermediated): %x\n", fingerprint)
 
 	// Ensure the generated fingerprint is 256 bits (32 bytes) in length
 	if len(fingerprint) != 32 {
@@ -78,6 +78,9 @@ func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error
 func DeriveRootHash(fingerprint []byte) []byte {
 	// Hash the fingerprint (combined parts) to derive a new fingerprint
 	DerivedFingerprint := common.SpxHash(fingerprint)
+
+	// Print the derived fingerprint for debugging
+	fmt.Printf("Derived Fingerprint (intermediated): %x\n", DerivedFingerprint)
 
 	// Return the derived fingerprint (a slice of 32 bytes)
 	return DerivedFingerprint[:]
@@ -99,9 +102,6 @@ func VerifyBase32Passkey(base32Passkey string) (bool, []byte, []byte, error) {
 
 	// Recalculate the fingerprint from the decoded passkey
 	DerivedFingerprint := DeriveRootHash(decodedPasskey)
-
-	// Print the expected derived fingerprint
-	fmt.Printf("Expected DerivedFingerprint: %x\n", DerivedFingerprint)
 
 	// Generate the root hash by combining the decoded passkey and the derived fingerprint
 	rootHash, err := GenerateRootHash(decodedPasskey, DerivedFingerprint)
