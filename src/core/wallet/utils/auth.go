@@ -32,9 +32,9 @@ import (
 )
 
 // GenerateHMAC generates a keyed-hash message authentication code (HMAC) using SHA3-512 (Keccak-512).
-func GenerateHMAC(data []byte, key string) ([]byte, error) {
+func GenerateHMAC(data []byte, key []byte) ([]byte, error) {
 	// Initialize a new HMAC hash object with SHA3-512 (Keccak-512) and the provided key
-	h := hmac.New(sha3.NewLegacyKeccak512, []byte(key))
+	h := hmac.New(sha3.NewLegacyKeccak512, key)
 	_, err := h.Write(data)
 	if err != nil {
 		// Return an error if the data couldn't be written to the HMAC object
@@ -46,31 +46,15 @@ func GenerateHMAC(data []byte, key string) ([]byte, error) {
 
 // VerifyHMAC verifies whether the HMAC of the given data matches the expected HMAC value.
 func VerifyHMAC(data []byte, key string, expectedHMAC []byte) (bool, error) {
-	// Attempt to decode the key from Base32 if it is Base32 encoded
-	decodedKey, err := base32.StdEncoding.DecodeString(key)
-	if err == nil {
-		// If Base32 decoding works, use the decoded key for HMAC
-		actualHMAC, err := GenerateHMAC(data, string(decodedKey))
-		if err != nil {
-			return false, fmt.Errorf("failed to generate HMAC with Base32 decoded key: %v", err)
-		}
-
-		// Compare the actual HMAC with the expected one using constant-time comparison
-		if !hmac.Equal(actualHMAC, expectedHMAC) {
-			return false, nil // HMACs don't match
-		}
-		return true, nil // HMACs match
-	}
-
-	// If Base32 decoding fails, try to decode the key from hex if it is in hex format
-	var keyBytes []byte
+	// Check if the key is in hex format
 	if isHex(key) {
-		keyBytes, err = hex.DecodeString(key)
+		keyBytes, err := hex.DecodeString(key)
 		if err != nil {
 			return false, fmt.Errorf("failed to decode hex key: %v", err)
 		}
+
 		// Generate HMAC with the decoded hex key
-		actualHMAC, err := GenerateHMAC(data, string(keyBytes))
+		actualHMAC, err := GenerateHMAC(data, keyBytes)
 		if err != nil {
 			return false, fmt.Errorf("failed to generate HMAC with hex decoded key: %v", err)
 		}
@@ -82,8 +66,24 @@ func VerifyHMAC(data []byte, key string, expectedHMAC []byte) (bool, error) {
 		return true, nil // HMACs match
 	}
 
-	// If the key is neither Base32 nor hex, proceed with the raw key as it is
-	actualHMAC, err := GenerateHMAC(data, key)
+	// If the key is not in hex format, attempt to decode from Base32
+	decodedKey, err := base32.StdEncoding.DecodeString(key)
+	if err == nil {
+		// Generate HMAC with the decoded Base32 key
+		actualHMAC, err := GenerateHMAC(data, decodedKey)
+		if err != nil {
+			return false, fmt.Errorf("failed to generate HMAC with Base32 decoded key: %v", err)
+		}
+
+		// Compare the actual HMAC with the expected one
+		if !hmac.Equal(actualHMAC, expectedHMAC) {
+			return false, nil // HMACs don't match
+		}
+		return true, nil // HMACs match
+	}
+
+	// If the key is neither Base32 nor hex, use the raw key
+	actualHMAC, err := GenerateHMAC(data, []byte(key))
 	if err != nil {
 		return false, fmt.Errorf("failed to generate HMAC with raw key: %v", err)
 	}
@@ -100,4 +100,13 @@ func VerifyHMAC(data []byte, key string, expectedHMAC []byte) (bool, error) {
 func isHex(s string) bool {
 	_, err := hex.DecodeString(s)
 	return err == nil
+}
+
+// CombineParts combines data and generates a reduced part for HMAC key generation.
+func CombineParts(parts [][]byte) []byte {
+	var combined []byte
+	for _, part := range parts {
+		combined = append(combined, part...)
+	}
+	return combined
 }
