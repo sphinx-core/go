@@ -32,11 +32,6 @@ import (
 
 func main() {
 	// Step 1: Generate the keys (passphrase, Base32-encoded passkey, hashed passkey, and fingerprint)
-	// `GenerateKeys` is expected to return:
-	// - passphrase: The original mnemonic phrase or seed phrase.
-	// - base32Passkey: The passkey encoded in Base32 for storage or transmission.
-	// - hashedPasskey: A hash derived from the passkey for verification purposes.
-	// - fingerprint: A unique identifier derived from the hashed passkey.
 	passphrase, base32Passkey, hashedPasskey, fingerprint, err := seed.GenerateKeys()
 	if err != nil {
 		// Log the error and terminate the program if key generation fails
