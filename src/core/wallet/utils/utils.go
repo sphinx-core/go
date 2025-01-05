@@ -76,11 +76,11 @@ func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error
 // This function generates a new hash from the fingerprint (or combined parts),
 // which is used for integrity verification and ensuring consistency with the original input data.
 func DeriveRootHash(fingerprint []byte) []byte {
-	// Hash the fingerprint (combined parts) to derive a new fingerprint (hashed passkey)
-	hashed := common.SpxHash(fingerprint)
+	// Hash the fingerprint (combined parts) to derive a new fingerprint
+	DerivedFingerprint := common.SpxHash(fingerprint)
 
-	// Return the hashed fingerprint (a slice of 32 bytes)
-	return hashed[:]
+	// Return the derived fingerprint (a slice of 32 bytes)
+	return DerivedFingerprint[:]
 }
 
 // VerifyBase32Passkey verifies the user's Base32-encoded passkey by decoding it,
@@ -98,18 +98,18 @@ func VerifyBase32Passkey(base32Passkey string) (bool, []byte, []byte, error) {
 	fmt.Printf("Decoded Passkey: %x\n", decodedPasskey)
 
 	// Recalculate the fingerprint from the decoded passkey
-	derivedFingerprint := DeriveRootHash(decodedPasskey)
+	DerivedFingerprint := DeriveRootHash(decodedPasskey)
 
-	// Print the expected hashed passkey (which is the derived fingerprint)
-	fmt.Printf("Expected Roothash: %x\n", derivedFingerprint)
+	// Print the expected derived fingerprint
+	fmt.Printf("Expected DerivedFingerprint: %x\n", DerivedFingerprint)
 
 	// Generate the root hash by combining the decoded passkey and the derived fingerprint
-	rootHash, err := GenerateRootHash(decodedPasskey, derivedFingerprint)
+	rootHash, err := GenerateRootHash(decodedPasskey, DerivedFingerprint)
 	if err != nil {
 		// Return a descriptive error if generating the root hash fails
 		return false, nil, nil, fmt.Errorf("failed to generate root hash: %v", err)
 	}
 
 	// Return true if everything was processed correctly, along with the root hash and derived fingerprint
-	return true, rootHash, derivedFingerprint, nil
+	return true, rootHash, DerivedFingerprint, nil
 }

@@ -58,8 +58,8 @@ func main() {
 		fmt.Printf("Verification failed: %v\n", err)
 	} else {
 		// If verification succeeds, display the results
-		fmt.Printf("Verification result: %t\n", isValid)           // Indicate whether the passkey is valid
-		fmt.Printf("RootHash of Fingerprint: %x\n", rootHash)      // Display the computed root hash
-		fmt.Printf("DerivedFingerprint: %x\n", derivedFingerprint) // Display the derived fingerprint
+		fmt.Printf("Verification result: %t\n", isValid)                    // Indicate whether the passkey is valid
+		fmt.Printf("RootHash: %x\n", rootHash)                              // Display the computed root hash
+		fmt.Printf("Expected DerivedFingerprint: %x\n", derivedFingerprint) // Display the derived fingerprint
 	}
 }
