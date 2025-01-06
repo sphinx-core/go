@@ -207,9 +207,38 @@ func GeneratePassphrase(words []string, wordCount int) (string, string, error) {
 	return passphraseStr, stretchedHashStr, nil // Return the generated passphrase and stretched hash
 }
 
+// isValidEntropy checks if the entropy is a valid multiple of 32 bits and within the allowed range.
+func isValidEntropy(entropy int) bool {
+	validEntropies := []int{128, 160, 192, 224, 256}
+	for _, e := range validEntropies {
+		if entropy == e {
+			return true
+		}
+	}
+	return false
+}
+
 // NewMnemonic generates a mnemonic from any .txt file in the directory
 func NewMnemonic(entropy int) (string, string, error) {
-	wordCount := (entropy + 10) / 11 // Calculates the required number of words based on entropy
+	// Validate the entropy
+	if !isValidEntropy(entropy) {
+		return "", "", errors.New("invalid entropy: must be one of 128, 160, 192, 224, or 256")
+	}
+
+	// Adjust word count to 12, 15, 18, 21, or 24 based on entropy and checksum
+	var wordCount int
+	switch entropy {
+	case 128:
+		wordCount = 12
+	case 160:
+		wordCount = 15
+	case 192:
+		wordCount = 18
+	case 224:
+		wordCount = 21
+	case 256:
+		wordCount = 24
+	}
 
 	words, err := SelectAndLoadTxtFile(baseURL) // Loads the word list from the repository
 	if err != nil {

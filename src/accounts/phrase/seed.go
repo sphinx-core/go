@@ -44,14 +44,13 @@ import (
 // Define constants for the sizes used in the seed generation process
 const (
 	// EntropySize determines the length of entropy to be generated
-	EntropySize = 16 // 128 bits for 12-word mnemonic
-	SaltSize    = 16 // 128 bits salt size
-	PasskeySize = 32 // Set this to 32 bytes for a 256-bit output
-	NonceSize   = 16 // 128 bits nonce size, adjustable as needed
+	EntropySize = 128 // Set default entropy size to 128 bits for 12-word mnemonic
+	SaltSize    = 16  // 128 bits salt size
+	PasskeySize = 32  // Set this to 32 bytes for a 256-bit output
+	NonceSize   = 16  // 128 bits nonce size, adjustable as needed
 
 	// Argon2 parameters
-	// Argon memory standard is required minimum 15MiB (15 * 1024 * 1024) memory in allocation
-	memory      = 64 * 1024 // Memory cost set to 64 KiB (64 * 1024 bytes) is for demonstration purpose
+	memory      = 64 * 1024 // Memory cost set to 64 KiB (64 * 1024 bytes) for demonstration purpose
 	iterations  = 2         // Number of iterations for Argon2id set to 2
 	parallelism = 1         // Degree of parallelism set to 1
 	tagSize     = 32        // Tag size set to 256 bits (32 bytes)
@@ -88,13 +87,19 @@ func GenerateNonce() ([]byte, error) {
 // GenerateEntropy generates secure random entropy for private key generation.
 func GenerateEntropy() ([]byte, error) {
 	// Create a byte slice for entropy
-	entropy := make([]byte, EntropySize)
+	entropy := make([]byte, EntropySize/8) // Ensure entropy is in byte units (EntropySize in bits)
 	// Fill the slice with random bytes
 	_, err := rand.Read(entropy)
 	if err != nil {
 		// Return an error if entropy generation fails
 		return nil, fmt.Errorf("error generating entropy: %v", err)
 	}
+
+	// Check if the entropy size is valid
+	if EntropySize != 128 && EntropySize != 160 && EntropySize != 192 && EntropySize != 224 && EntropySize != 256 {
+		return nil, fmt.Errorf("invalid entropy size: %d, must be one of 128, 160, 192, 224, or 256 bits", EntropySize)
+	}
+
 	// Return the raw entropy for sips3
 	return entropy, nil
 }
