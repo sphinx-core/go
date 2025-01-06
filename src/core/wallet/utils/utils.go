@@ -64,7 +64,7 @@ func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error
 	fingerprint := common.SpxHash(KeyMaterial)
 
 	// Print the fingerprint for debugging (in hexadecimal format)
-	fmt.Printf("Fingerprint (intermediated n1): %x\n", fingerprint)
+	fmt.Printf("Fingerprint (intermediated n): %x\n", fingerprint)
 
 	// Ensure the generated fingerprint is 256 bits (32 bytes) in length
 	if len(fingerprint) != 32 {

@@ -270,7 +270,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	// Step 9: Apply XOR for every 8-byte group over multiple iterations.
 	// We use the XOR operation over groups of 8 bytes (64 bits) multiple times to further obfuscate the data and increase complexity.
 	reducedParts := make([]byte, 0)
-	iterations := 10000 // Number of iterations to increase complexity
+	iterations := 1000000 // Number of iterations to increase complexity
 
 	// Iterate multiple times to increase complexity and reduce predictability.
 	for round := 0; round < iterations; round++ {
@@ -309,7 +309,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 
 	// Print Reduced Combined Parts (XOR Result after 5000 iterations).
 	// We print the final reduced result after 5000 iterations of XOR to see the obfuscated data.
-	fmt.Printf("Reduced Combined Parts (XOR Result after 5000 iterations): %x\n", reducedParts)
+	fmt.Printf("Reduced Combined Parts (XOR Result after iterations): %x\n", reducedParts)
 
 	// Step 10: Encode the reduced parts in Base32.
 	// We encode the final reduced data (after XOR operations) in Base32 format for easy storage and use.
