@@ -57,11 +57,14 @@ func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error
 	// Combine the decoded combined parts and the hashed passkey to generate the key material
 	KeyMaterial := append(combinedParts, hashedPasskey...)
 
+	// Print the key material to ensure it's consistent
+	fmt.Printf("Final Key Material: %x\n", KeyMaterial)
+
 	// Hash the combined key material to generate the root hash
 	fingerprint := common.SpxHash(KeyMaterial)
 
 	// Print the fingerprint for debugging (in hexadecimal format)
-	fmt.Printf("Fingerprint (intermediated): %x\n", fingerprint)
+	fmt.Printf("Fingerprint (intermediated n1): %x\n", fingerprint)
 
 	// Ensure the generated fingerprint is 256 bits (32 bytes) in length
 	if len(fingerprint) != 32 {
