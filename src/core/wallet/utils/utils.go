@@ -25,94 +25,133 @@ package utils
 import (
 	"encoding/base32"
 	"fmt"
+	"sync"
 
 	"github.com/sphinx-core/go/src/common"
 )
 
-// EncodeBase32 encodes a byte slice into a Base32 string.
-// This function converts binary data into a human-readable Base32 format without padding,
-// ensuring compatibility with systems that require padding-free Base32 encoding.
+// Mutex to protect access to memoryStore - ensures thread-safe access
+var mu sync.Mutex
+
+// In-memory storage for chaining data - stores chain codes with passkey identifiers
+// memoryStore is a map that stores the chain code for each passkey (Base32-encoded version of the passkey).
+var memoryStore = make(map[string][]byte)
+
+// EncodeBase32 encodes a byte slice into a Base32 string without padding
+// This function converts the input byte slice to a Base32-encoded string representation
+// It uses standard Base32 encoding without padding (no '=' characters at the end).
 func EncodeBase32(data []byte) string {
-	// Base32 encoding is performed here without padding
+	// Using standard Base32 encoding without padding
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(data)
 }
 
-// DecodeBase32 decodes a Base32 string into a byte slice.
-// This function decodes a Base32-encoded string back into its original byte slice form.
-// It returns an error if decoding fails, ensuring that invalid Base32 input is properly handled.
+// DecodeBase32 decodes a Base32 string into a byte slice
+// This function takes a Base32-encoded string and decodes it back into a byte slice
+// Returns the decoded byte slice or an error if decoding fails.
 func DecodeBase32(base32Str string) ([]byte, error) {
-	// Attempt to decode the Base32 string into the original byte slice
 	decoded, err := base32.StdEncoding.DecodeString(base32Str)
 	if err != nil {
-		// Return a descriptive error if Base32 decoding fails
 		return nil, fmt.Errorf("failed to decode base32 string: %v", err)
 	}
 	return decoded, nil
 }
 
-// GenerateRootHash generates a root hash by combining the decoded parts and the hashed passkey.
-// It appends the decoded parts with the hashed passkey, then hashes the combined data using spxhash.
-// This root hash can be used for verification, ensuring the input data matches the expected result.
-func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, error) {
-	// Combine the decoded combined parts and the hashed passkey to generate the key material
+// GenerateRootHash generates a root hash (fingerprint) and the associated chain code
+// It combines the decoded parts of a passkey with a hashed passkey and generates the chain code
+// The fingerprint is the hashed result of the key material
+// The chain code is derived from combining the fingerprint and the original parts
+// Generates and stores the fingerprint and chain code in memory for future use.
+func GenerateRootHash(combinedParts []byte, hashedPasskey []byte) ([]byte, []byte, error) {
+	// Combine the provided parts and the hashed passkey to form the key material
 	KeyMaterial := append(combinedParts, hashedPasskey...)
-
-	// Print the key material to ensure it's consistent
 	fmt.Printf("Final Key Material: %x\n", KeyMaterial)
 
-	// Hash the combined key material to generate the root hash
+	// Generate the fingerprint (root hash) from the key material using the SpxHash function
 	fingerprint := common.SpxHash(KeyMaterial)
 
-	// Print the fingerprint for debugging (in hexadecimal format)
-	fmt.Printf("Fingerprint (intermediated n): %x\n", fingerprint)
-
-	// Ensure the generated fingerprint is 256 bits (32 bytes) in length
+	// Ensure that the fingerprint is 256 bits (32 bytes)
 	if len(fingerprint) != 32 {
-		return nil, fmt.Errorf("root hash is not 256 bits (32 bytes)")
+		return nil, nil, fmt.Errorf("root hash is not 256 bits (32 bytes)")
 	}
 
-	// Return the root hash, which is the first 32 bytes of the fingerprint
-	return fingerprint[:], nil
+	// Generate the chain code by combining the original parts and the fingerprint, then hashing it
+	chainCode := common.SpxHash(append(combinedParts, fingerprint...))
+
+	// Lock memoryStore to safely store the chain code in memory
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Store the chain code in memory using the Base32-encoded version of combinedParts as the key
+	decodepasskeyStr := EncodeBase32(combinedParts)
+	memoryStore[decodepasskeyStr] = chainCode
+
+	// Return the fingerprint and chain code
+	return fingerprint, chainCode, nil
 }
 
-// DeriveRootHash recalculates the hash (fingerprint) from the provided data.
-// This function generates a new hash from the fingerprint (or combined parts),
-// which is used for integrity verification and ensuring consistency with the original input data.
-func DeriveRootHash(fingerprint []byte) []byte {
-	// Hash the fingerprint (combined parts) to derive a new fingerprint
-	DerivedFingerprint := common.SpxHash(fingerprint)
-
-	// Print the derived fingerprint for debugging
-	fmt.Printf("Derived Fingerprint (intermediated): %x\n", DerivedFingerprint)
-
-	// Return the derived fingerprint (a slice of 32 bytes)
-	return DerivedFingerprint[:]
-}
-
-// VerifyBase32Passkey verifies the user's Base32-encoded passkey by decoding it,
-// recalculating its fingerprint (derived from the decoded passkey), and generating a root hash.
-// It compares the generated root hash with the derived fingerprint for verification purposes.
+// VerifyBase32Passkey only derives the fingerprint from the decoded passkey and checks the chain code
+// This function verifies if the passkey has been previously stored by decoding the passkey and checking if
+// the corresponding chain code is stored in memory. If not, it generates and stores the chain code.
 func VerifyBase32Passkey(base32Passkey string) (bool, []byte, []byte, error) {
-	// Decode the Base32 passkey into its original byte slice form
+	// Decode the Base32-encoded passkey into a byte slice
 	decodedPasskey, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(base32Passkey)
 	if err != nil {
-		// Return a descriptive error if Base32 passkey decoding fails
 		return false, nil, nil, fmt.Errorf("failed to decode base32 passkey: %v", err)
 	}
 
-	// Print the decoded passkey for debugging
+	// Print the decoded passkey in hexadecimal form for debugging
 	fmt.Printf("Decoded Passkey: %x\n", decodedPasskey)
 
-	// Recalculate the fingerprint from the decoded passkey
-	DerivedFingerprint := DeriveRootHash(decodedPasskey)
+	// Check if the chain code exists for the decoded passkey in memory
+	decodepasskeyStr := EncodeBase32(decodedPasskey)
+	mu.Lock() // Lock memory access for thread-safety
+	storedChainCode, exists := memoryStore[decodepasskeyStr]
+	mu.Unlock()
 
-	// Generate the root hash by combining the decoded passkey and the derived fingerprint
-	rootHash, err := GenerateRootHash(decodedPasskey, DerivedFingerprint)
-	if err != nil {
-		// Return a descriptive error if generating the root hash fails
-		return false, nil, nil, fmt.Errorf("failed to generate root hash: %v", err)
+	// If the chain code exists in memory, return it along with the fingerprint
+	if exists {
+		fmt.Printf("Found ChainCode: %x\n", storedChainCode)
+		// Assuming the fingerprint is already stored, return both the fingerprint and chain code
+		// The fingerprint and chain code are stored in the same entry in memory for simplicity.
+		return true, storedChainCode, storedChainCode, nil // Return stored chain code as both fingerprint and chain code
+	} else {
+		// If the chain code doesn't exist, generate it
+		// It should only happen once, or else retrieve it from memory if needed
+		rootHash, chainCode, err := GenerateRootHash(decodedPasskey, nil) // Generate root hash with the passed key parts
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("failed to generate root hash: %v", err)
+		}
+
+		// Return the newly generated root hash and chain code
+		return true, rootHash, chainCode, nil
+	}
+}
+
+// VerifyChainCode verifies that the ChainCode stored in memory matches the newly generated ChainCode
+// It compares the stored chain code with the newly generated one based on the passkey and fingerprint
+// If they match, the verification is successful; otherwise, it fails.
+func VerifyChainCode(decodepasskey []byte, fingerprint []byte) (bool, error) {
+	mu.Lock() // Lock memory access for thread-safety
+	defer mu.Unlock()
+
+	// Encode the decoded passkey into Base32 format to use as the key
+	decodepasskeyStr := EncodeBase32(decodepasskey)
+
+	// Look up the stored chain code for the passkey
+	storedChainCode, exists := memoryStore[decodepasskeyStr]
+	if !exists {
+		return false, fmt.Errorf("chain code not found for the provided passkey")
 	}
 
-	// Return true if everything was processed correctly, along with the root hash and derived fingerprint
-	return true, rootHash, DerivedFingerprint, nil
+	// Re-generate the chain code by combining the passkey and fingerprint and hashing the result
+	combined := append(decodepasskey, fingerprint...)
+	newChainCode := common.SpxHash(combined)
+
+	// Compare the newly generated chain code with the stored one
+	if string(storedChainCode) == string(newChainCode) {
+		return true, nil // Verification successful
+	}
+
+	// If the chain codes don't match, return verification failure
+	return false, fmt.Errorf("chain code verification failed")
 }

@@ -32,7 +32,7 @@ import (
 
 func main() {
 	// Step 1: Generate the keys (passphrase, Base32-encoded passkey, hashed passkey, and fingerprint)
-	passphrase, base32Passkey, hashedPasskey, fingerprint, err := seed.GenerateKeys()
+	passphrase, base32Passkey, hashedPasskey, fingerprint, chainCode, err := seed.GenerateKeys()
 	if err != nil {
 		// Log the error and terminate the program if key generation fails
 		log.Fatalf("Error generating keys: %v", err)
@@ -43,18 +43,19 @@ func main() {
 	fmt.Println("Passkey: ", base32Passkey)          // Display the Base32-encoded passkey
 	fmt.Printf("HashedPasskey: %x\n", hashedPasskey) // Display the hashed passkey in hexadecimal format
 	fmt.Printf("Fingerprint: %x\n", fingerprint)     // Display the fingerprint in hexadecimal format
+	fmt.Printf("Chain code: %x\n", chainCode)        // Display the fingerprint in hexadecimal format
 
 	// Step 3: Verify the Base32 passkey
 	// The `VerifyBase32Passkey` function decodes the Base32-encoded passkey, derives the hashed passkey and root hash,
 	// and checks if the root hash matches the expected fingerprint or derived values.
-	isValid, rootHash, derivedFingerprint, err := utils.VerifyBase32Passkey(base32Passkey)
+	isValid, rootHash, derivedChainCode, err := utils.VerifyBase32Passkey(base32Passkey)
 	if err != nil {
 		// If verification fails, print an error message
 		fmt.Printf("Verification failed: %v\n", err)
 	} else {
 		// If verification succeeds, display the results
-		fmt.Printf("Verification result: %t\n", isValid)                    // Indicate whether the passkey is valid
-		fmt.Printf("RootHash: %x\n", rootHash)                              // Display the computed root hash
-		fmt.Printf("Expected DerivedFingerprint: %x\n", derivedFingerprint) // Display the derived fingerprint
+		fmt.Printf("Verification result: %t\n", isValid)          // Indicate whether the passkey is valid
+		fmt.Printf("RootHash: %x\n", rootHash)                    // Display the computed root hash
+		fmt.Printf("Expected Chain code: %x\n", derivedChainCode) // Display the derived chain code
 	}
 }
