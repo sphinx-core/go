@@ -259,7 +259,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 
 	// Step 9: Apply Sponge Construction (SHA-3) for every 8-byte group over multiple iterations.
 	reducedParts := make([]byte, 0) // Initialize an empty slice to hold the reduced data after operations.
-	iterations := 1000000           // Define the number of iterations to perform operations across the data.
+	iterations := 1                 // Define the number of iterations to perform operations across the data.
 
 	// Initialize a state (e.g., SHA3-256) with a specific padding size.
 	stateSize := 256 / 8             // SHA3-256 uses 256-bit state (32 bytes).
@@ -279,7 +279,6 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 			h := combinedParts[i+7] // Eighth byte of the group
 
 			// Combine bytes into a single 64-bit value to feed into SHA-3
-			// This can be done by using binary encoding or direct bit manipulation.
 			dataBlock := make([]byte, 8)
 			binary.BigEndian.PutUint64(dataBlock, uint64(a)^uint64(b)<<8^uint64(c)<<16^uint64(d)<<24^uint64(e)<<32^uint64(f)<<40^uint64(g)<<48^uint64(h)<<56)
 
@@ -289,22 +288,37 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 			hash.Write(dataBlock) // Absorb the current data block
 			state = hash.Sum(nil) // Update the state with the new hash output
 
-			// Squeeze the current state to produce the final mixed result
-			// In a real sponge, you'd continue to squeeze and extract bits as necessary
-			mixedResult := state[0] ^ state[1] ^ state[2] ^ state[3] // Example extraction, adjust as needed
+			// Squeeze: Continue to extract bits after each round.
+			// Adjust the number of bits to extract depending on how many bits you need.
+			for i := 0; i < len(state); i++ {
+				// Take bits from the state and XOR with the result to mix it.
+				mixedResult := state[i] ^ saltBytes[i%len(saltBytes)] // Apply salt on the state.
 
-			// Iterate through the saltBytes slice and XOR each byte with the result.
-			for j := 0; j < len(saltBytes); j++ {
-				mixedResult ^= saltBytes[j%len(saltBytes)] // XOR the current result with the corresponding salt byte.
+				// Append the mixed result to the reducedParts slice.
+				reducedParts = append(reducedParts, mixedResult) // Append mixedResult directly.
 			}
 
-			// Append the mixed result to the reducedParts slice. This will accumulate the reduced data.
-			reducedParts = append(reducedParts, mixedResult) // Append mixedResult directly.
+			// Additional squeeze operation to ensure more entropy is squeezed from the state
+			additionalBits := len(state) // This depends on how many bits you want to extract from each round.
+			for i := 0; i < additionalBits; i++ {
+				// Continue to squeeze bits from the state, adjusting as needed.
+				reducedParts = append(reducedParts, state[i]) // Extract additional bits to the reducedParts.
+			}
+
+			// After completing the squeeze and extracting, mix again by XORing with salt for added randomness.
+			for j := 0; j < len(saltBytes); j++ {
+				reducedParts[len(reducedParts)-1] ^= saltBytes[j%len(saltBytes)] // XOR the result with the salt
+			}
 		}
 
 		// After completing the inner loop, update combinedParts to the reducedParts.
-		// This ensures that the next iteration of operations is applied to the modified data.
 		combinedParts = reducedParts
+	}
+
+	// Now, trim the result to the desired output length
+	outputLength := 8 // Define the length of the output here (can be dynamic as needed).
+	if len(combinedParts) > outputLength {
+		combinedParts = combinedParts[:outputLength] // Trim to the desired length
 	}
 
 	// Step 10: Encode the reduced parts in Base32.
