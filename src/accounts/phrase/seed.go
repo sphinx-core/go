@@ -259,7 +259,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 
 	// Step 9: Apply Sponge Construction (SHA-3) for every 8-byte group over multiple iterations.
 	reducedParts := make([]byte, 0) // Initialize an empty slice to hold the reduced data after operations.
-	iterations := 1                 // Define the number of iterations to perform operations across the data.
+	iterations := 5                 // Define the number of iterations to perform operations across the data.
 
 	// Initialize a state (e.g., SHA3-256) with a specific padding size.
 	stateSize := 256 / 8             // SHA3-256 uses 256-bit state (32 bytes).
