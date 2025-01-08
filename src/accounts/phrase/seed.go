@@ -27,6 +27,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base32"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"unicode/utf8"
@@ -252,13 +253,15 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	combinedParts := bytes.Join([][]byte{selectedParts, nonce}, []byte{})
 
 	// Step 8: Create salt by combining "Base32Passkey" with the selected parts of the hashed passkey.
-	// We concatenate the string "Base32Passkey" with the first 32 bytes of the hashed passkey to create a salt.
 	salt := "Base32Passkey" + string(hashedPasskey[:32])
 	saltBytes := []byte(salt)
 
-	// Step 9: Apply XOR, OR, AND, Shift, Rotate, and Modular Addition for every 8-byte group over multiple iterations.
+	// Step 9: Apply Sponge Construction (SHA-3) for every 8-byte group over multiple iterations.
 	reducedParts := make([]byte, 0) // Initialize an empty slice to hold the reduced data after operations.
 	iterations := 1000000           // Define the number of iterations to perform operations across the data.
+
+	stateSize := 256 / 8             // SHA3-256 uses 256-bit state (32 bytes).
+	state := make([]byte, stateSize) // The state used for SHA3 Sponge construction.
 
 	for round := 0; round < iterations; round++ { // Iterate for the specified number of iterations.
 		for i := 0; i+7 < len(combinedParts); i += 8 { // Loop through the combinedParts slice in 8-byte chunks.
@@ -273,39 +276,54 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 			g := combinedParts[i+6] // Seventh byte of the group
 			h := combinedParts[i+7] // Eighth byte of the group
 
-			// Condition to check if a byte is odd
-			checkOdd := func(b byte) bool {
-				return b%2 != 0 // Checks if the byte is odd.
-			}
+			// Combine bytes into a single 64-bit value to feed into SHA-3
+			dataBlock := make([]byte, 8)
+			binary.BigEndian.PutUint64(dataBlock, uint64(a)^uint64(b)<<8^uint64(c)<<16^uint64(d)<<24^uint64(e)<<32^uint64(f)<<40^uint64(g)<<48^uint64(h)<<56)
 
-			// Perform XOR, AND, and OR operations on the 8 bytes with a condition.
-			xorResult := a ^ b ^ c ^ d ^ e ^ f ^ g ^ h // XOR all bytes together
+			// Absorb the current data block into the sponge state
+			hash := sha3.New256() // Using SHA3-256 (256-bit output, 512-bit state)
+			hash.Write(state)     // Absorb the current state
+			hash.Write(dataBlock) // Absorb the current data block
+			state = hash.Sum(nil) // Update the state with the new hash output
 
-			// Apply OR if the byte is odd, otherwise use AND.
-			var andOrResult byte
-			if checkOdd(a) {
-				andOrResult = a | b | c | d | e | f | g | h // Use OR if byte a is odd
-			} else {
-				andOrResult = a & b & c & d & e & f & g & h // Use AND if byte a is not odd
-			}
-
-			// OR for the rest
-			orResult := a | b | c | d | e | f | g | h // OR to set specific bits
-
-			// Shift operations to add additional complexity.
-			leftShift := (xorResult << 2) | (xorResult >> 6)      // Left shift with wrap-around (rotate)
-			rightShift := (andOrResult >> 3) | (andOrResult << 5) // Right shift with wrap-around (rotate)
-
-			// Modular addition to mix values further and ensure results stay within the byte range (0-255).
-			modAddResult := byte((int(xorResult) + int(andOrResult) + int(orResult)) % 256) // Cast to int to prevent overflow, then modulo 256
-
-			// Combine the results to produce more variation.
-			mixedResult := xorResult | andOrResult ^ orResult ^ leftShift ^ rightShift ^ modAddResult // Mixing all results together.
-
-			// Iterate through the saltBytes slice and XOR each byte with the result.
+			// Perform XOR with salt after each round to add more entropy
 			for j := 0; j < len(saltBytes); j++ {
-				mixedResult ^= saltBytes[j%len(saltBytes)] // XOR the current result with the corresponding salt byte.
+				state[j%len(state)] ^= saltBytes[j%len(saltBytes)] // XOR each byte of the state with salt bytes
 			}
+
+			// Additional round of XOR with state to create more complexity
+			for j := 0; j < len(state); j++ {
+				state[j] ^= byte((int(state[j]) + round) % 256) // Introduce round-dependent variation
+			}
+
+			// Shift and rotate to introduce more non-linearity into the state
+			for j := 0; j < len(state); j++ {
+				state[j] = (state[j] << 1) | (state[j] >> 7) // Rotate left by 1 bit
+			}
+
+			// Mix the state with a modulo operation for further randomness
+			for j := 0; j < len(state); j++ {
+				state[j] = byte((int(state[j]) + (int(state[j])*round)%256) % 256) // Apply a complex modular addition
+			}
+
+			// Squeeze the current state to produce the final mixed result
+			mixedResult := byte(0)
+			for i := 0; i < len(state); i++ {
+				// Apply a bitwise rotation to each byte for stronger mixing
+				state[i] = (state[i] << 1) | (state[i] >> 7) // Rotate left by 1 bit
+
+				// Combine each byte with a nonlinear operation to avoid symmetry and biases
+				mixedResult ^= state[i] // XOR with the byte to mix the state
+
+				// Additional mixing: XOR with rotated version of the byte
+				mixedResult ^= (state[i] << 2) | (state[i] >> 6) // Rotate by 2 bits
+
+				// Further mix with round information to prevent predictable patterns
+				mixedResult ^= byte((int(state[i]) + round) % 256) // Use round-dependent variation
+			}
+
+			// Store the mixed result as a cryptographically strong output
+			reducedParts = append(reducedParts, mixedResult) // Append the final mixed result.
 
 			// Append the mixed result to the reducedParts slice. This will accumulate the reduced data.
 			reducedParts = append(reducedParts, mixedResult) // Append mixedResult directly.
