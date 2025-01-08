@@ -316,13 +316,22 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	}
 
 	// Step 10: Now, trim the result to the desired output length
-	outputLength := 8 // Define the length of the output here (can be dynamic as needed).
+	outputLength := 8 // Define the length of the output in bytes (not characters).
 	if len(combinedParts) > outputLength {
-		combinedParts = combinedParts[:outputLength] // Trim to the desired length
+		combinedParts = combinedParts[:outputLength] // Trim combinedParts to the desired number of bytes.
 	}
 
 	// Step 11: Encode the reduced parts in Base32.
-	base32Encoded := EncodeBase32(combinedParts)
+	// Base32 encoding converts the binary data (bytes) into a human-readable string format.
+	// Each 5 bits of input data produces 1 Base32 character.
+	// For 8 bytes (64 bits), Base32 encoding results in 16 characters.
+
+	// At this point:
+	// - `combinedParts` has exactly 8 bytes (64 bits).
+	// - The Base32 encoded string `base32Encoded` is 16 characters long.
+	// This is because Base32 uses padding to ensure the output length is a multiple of 8 characters.
+
+	base32Encoded := EncodeBase32(combinedParts) // Base32 encodes the 8-byte output.
 
 	// Step 12: Generate a fingerprint using the hashed passkey and reduced parts.
 	fingerprint, chainCode, err = utils.GenerateRootHash(combinedParts, hashedPasskey)
