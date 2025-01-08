@@ -32,7 +32,7 @@ import (
 
 func main() {
 	// Step 1: Generate the keys (passphrase, Base32-encoded passkey, hashed passkey, and fingerprint)
-	passphrase, base32Passkey, hashedPasskey, fingerprint, chainCode, err := seed.GenerateKeys()
+	passphrase, base32Passkey, hashedPasskey, fingerprint, chainCode, hmacKey, err := seed.GenerateKeys()
 	if err != nil {
 		// Log the error and terminate the program if key generation fails
 		log.Fatalf("Error generating keys: %v", err)
@@ -43,7 +43,8 @@ func main() {
 	fmt.Println("Passkey: ", base32Passkey)          // Display the Base32-encoded passkey
 	fmt.Printf("HashedPasskey: %x\n", hashedPasskey) // Display the hashed passkey in hexadecimal format
 	fmt.Printf("Fingerprint: %x\n", fingerprint)     // Display the fingerprint in hexadecimal format
-	fmt.Printf("Chain code: %x\n", chainCode)        // Display the fingerprint in hexadecimal format
+	fmt.Printf("Chain code: %x\n", chainCode)        // Display the Chain code in hexadecimal format
+	fmt.Printf("Hmac key: %x\n", hmacKey)            // Display the hmac key in hexadecimal format
 
 	// Step 3: Verify the Base32 passkey
 	// The `VerifyBase32Passkey` function decodes the Base32-encoded passkey, derives the hashed passkey and root hash,

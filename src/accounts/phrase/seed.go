@@ -201,13 +201,13 @@ func EncodeBase32(data []byte) string {
 }
 
 // GenerateKeys generates a passphrase, a hashed Base32-encoded passkey, and its fingerprint.
-func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, fingerprint []byte, chainCode []byte, err error) {
+func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, fingerprint []byte, chainCode []byte, hmacKey []byte, err error) {
 	// Step 1: Generate entropy for the mnemonic (passphrase generation).
 	// We call GenerateEntropy to obtain random data that can be used as the basis for the passphrase.
 	entropy, err := GenerateEntropy()
 	if err != nil {
 		// If there is an error during entropy generation, we return an empty result and the error.
-		return "", "", nil, nil, nil, fmt.Errorf("failed to generate entropy: %v", err)
+		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate entropy: %v", err)
 	}
 
 	// Step 2: Derive the passphrase from the entropy.
@@ -215,7 +215,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	passphrase, err = GeneratePassphrase(entropy)
 	if err != nil {
 		// If there is an error during passphrase generation, return an empty result and the error.
-		return "", "", nil, nil, nil, fmt.Errorf("failed to generate passphrase: %v", err)
+		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate passphrase: %v", err)
 	}
 
 	// Step 3: Generate the passkey from the passphrase.
@@ -223,7 +223,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	passkey, err := GeneratePasskey(passphrase, nil)
 	if err != nil {
 		// If there is an error during passkey generation, return an empty result and the error.
-		return "", "", nil, nil, nil, fmt.Errorf("failed to generate passkey: %v", err)
+		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate passkey: %v", err)
 	}
 
 	// Step 4: Hash the passkey using SHA3-512.
@@ -231,7 +231,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	hashedPasskey, err = HashPasskey(passkey)
 	if err != nil {
 		// If there is an error during hashing, return an empty result and the error.
-		return "", "", nil, nil, nil, fmt.Errorf("failed to hash passkey: %v", err)
+		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to hash passkey: %v", err)
 	}
 
 	// Truncate the hashed passkey to 256 bits (32 bytes).
@@ -244,11 +244,11 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	_, err = rand.Read(nonce)
 	if err != nil {
 		// If there is an error generating the nonce, return an empty result and the error.
-		return "", "", nil, nil, nil, fmt.Errorf("failed to generate nonce: %v", err)
+		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate nonce: %v", err)
 	}
 
 	// Step 7: Combine the selected parts and the nonce using bytes.Join.
-	// We join the selected 32-byte hash and the 12-byte nonce together to create a combined data set.
+	// We join the selected 32-byte hash and the 16-byte nonce together to create a combined data set.
 	combinedParts := bytes.Join([][]byte{selectedParts, nonce}, []byte{})
 
 	// Step 8: Create salt by combining "Base32Passkey" with the selected parts of the hashed passkey.
@@ -298,9 +298,15 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	// Step 11: Generate a fingerprint using the hashed passkey and reduced parts.
 	fingerprint, chainCode, err = utils.GenerateRootHash(combinedParts, hashedPasskey)
 	if err != nil {
-		return "", "", nil, nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
+		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
+	}
+
+	// Step 12: GenerateHmacKey to generate the HMAC key (chain code) using passphrase and reduced parts.
+	hmacKey, err = utils.GenerateHmacKey(passphrase, combinedParts)
+	if err != nil {
+		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate HMAC key: %v", err)
 	}
 
 	// Return the generated passphrase, encoded passkey, hashed passkey, and fingerprint.
-	return passphrase, base32Encoded, hashedPasskey, fingerprint, chainCode, nil
+	return passphrase, base32Encoded, hashedPasskey, fingerprint, chainCode, hmacKey, nil
 }

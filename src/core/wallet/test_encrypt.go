@@ -70,7 +70,7 @@ func main() {
 
 	// Generate passphrase, base32 passkey, and hashed passkey from a seed
 	// Generate passphrase, base32 passkey, hashed passkey, and fingerprint from a seed
-	passphrase, base32Passkey, hashedPasskey, FingerPrint, chainCode, err := seed.GenerateKeys()
+	passphrase, base32Passkey, hashedPasskey, FingerPrint, chainCode, hmacKey, err := seed.GenerateKeys()
 	if err != nil {
 		log.Fatalf("Failed to generate keys from seed: %v", err) // Log and exit if key generation from seed fails
 	}
@@ -80,7 +80,8 @@ func main() {
 	fmt.Printf("Base32Passkey: %s\n", base32Passkey)
 	fmt.Printf("Hashed Passkey (hex): %x\n", hashedPasskey)
 	fmt.Printf("Fingerprint: %s\n", FingerPrint) // Use the FingerPrint variable
-	fmt.Printf("Chain code: %s\n", chainCode)    // Use the FingerPrint variable
+	fmt.Printf("Chain code: %s\n", chainCode)    // Use the Chain code variable
+	fmt.Printf("Hmac key: %s\n", hmacKey)        // Use the FingerPrint variable
 
 	// Initialize crypter for encryption/decryption
 	crypt := &crypter.CCrypter{}
