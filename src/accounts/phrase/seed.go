@@ -346,7 +346,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	base32Encoded := EncodeBase32(combinedParts) // Base32 encodes the 8-byte output.
 
 	// Step 12: Generate a fingerprint using the hashed passkey and reduced parts.
-	fingerprint, chainCode, err = utils.GenerateRootHash(combinedParts, hashedPasskey)
+	fingerprint, chainCode, err = utils.GenerateChainCode(combinedParts, hashedPasskey)
 	if err != nil {
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
 	}

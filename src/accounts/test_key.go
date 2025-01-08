@@ -31,7 +31,7 @@ import (
 )
 
 func main() {
-	// Step 1: Generate the keys (passphrase, Base32-encoded passkey, hashed passkey, and fingerprint)
+	// Step 1: Generate the keys (passphrase, Base32-encoded passkey, hashed passkey, fingerprint, chain code, and hmac key)
 	passphrase, base32Passkey, hashedPasskey, fingerprint, chainCode, hmacKey, err := seed.GenerateKeys()
 	if err != nil {
 		// Log the error and terminate the program if key generation fails
@@ -47,16 +47,13 @@ func main() {
 	fmt.Printf("Hmac key: %x\n", hmacKey)            // Display the hmac key in hexadecimal format
 
 	// Step 3: Verify the Base32 passkey
-	// The `VerifyBase32Passkey` function decodes the Base32-encoded passkey, derives the hashed passkey and root hash,
-	// and checks if the root hash matches the expected fingerprint or derived values.
-	isValid, rootHash, derivedChainCode, err := utils.VerifyBase32Passkey(base32Passkey)
+	// Now using the `VerifyBase32Passkey` function from `utils`, which no longer generates a root hash.
+	isValid, _, _, err := utils.VerifyBase32Passkey(base32Passkey)
 	if err != nil {
 		// If verification fails, print an error message
 		fmt.Printf("Verification failed: %v\n", err)
 	} else {
 		// If verification succeeds, display the results
-		fmt.Printf("Verification result: %t\n", isValid)          // Indicate whether the passkey is valid
-		fmt.Printf("RootHash: %x\n", rootHash)                    // Display the computed root hash
-		fmt.Printf("Expected Chain code: %x\n", derivedChainCode) // Display the derived chain code
+		fmt.Printf("Verification result: %t\n", isValid) // Indicate whether the passkey is valid
 	}
 }
