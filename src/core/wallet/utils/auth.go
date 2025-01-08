@@ -23,11 +23,11 @@
 package utils
 
 import (
-	"crypto/hmac"  // Import the hmac package for keyed-hash message authentication code (HMAC) generation.
-	"encoding/hex" // Import the hex package for decoding and encoding data in hexadecimal format.
-	"fmt"          // Import the fmt package for formatted I/O, used for error handling and printing.
+	"crypto/hmac"
+	"encoding/hex"
+	"fmt"
 
-	"golang.org/x/crypto/sha3" // Import SHA3 package from Go's extended crypto library, specifically using SHA3-512 (Keccak-512).
+	"golang.org/x/crypto/sha3"
 )
 
 // GenerateHMAC generates a keyed-hash message authentication code (HMAC) using SHA3-512 (Keccak-512).
