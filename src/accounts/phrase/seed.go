@@ -235,9 +235,9 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to hash passkey: %v", err)
 	}
 
-	// Truncate the hashed passkey to 256 bits (32 bytes).
+	// Truncate the hashed passkey to 384 bits (64 bytes).
 	// We take the first 32 bytes of the SHA3-512 hash to use in further steps.
-	selectedParts := hashedPasskey[:32]
+	selectedParts := hashedPasskey[:64]
 
 	// Step 6: Generate a nonce (16 bytes).
 	// A nonce is a random value used only once, typically to prevent replay attacks. Here, we generate it using `rand.Read`.
@@ -253,13 +253,13 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	combinedParts := bytes.Join([][]byte{selectedParts, nonce}, []byte{})
 
 	// Step 8: Create salt by combining "Base32Passkey" with the selected parts of the hashed passkey.
-	// We concatenate the string "Base32Passkey" with the first 32 bytes of the hashed passkey to create a salt.
-	salt := "Base32Passkey" + string(hashedPasskey[:32])
+	// We concatenate the string "Base32Passkey" with the first 64 bytes of the hashed passkey to create a salt.
+	salt := "Base32Passkey" + string(hashedPasskey[:64])
 	saltBytes := []byte(salt)
 
 	// Step 9: Apply Sponge Construction (SHA-3) for every 8-byte group over multiple iterations.
 	reducedParts := make([]byte, 0) // Initialize an empty slice to hold the reduced data after operations.
-	iterations := 5                 // Define the number of iterations to perform operations across the data.
+	iterations := 6                 // Define the number of iterations to perform operations across the data.
 
 	// Initialize a state (e.g., SHA3-256) with a specific padding size.
 	stateSize := 256 / 8             // SHA3-256 uses 256-bit state (32 bytes).
