@@ -256,9 +256,9 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	salt := "Base32Passkey" + string(hashedPasskey[:32])
 	saltBytes := []byte(salt)
 
-	// Step 9: Apply XOR for every 8-byte group over multiple iterations.
-	reducedParts := make([]byte, 0) // Initialize an empty slice to hold the reduced data after XOR operations.
-	iterations := 1000000           // Define the number of iterations to perform XOR across the data.
+	// Step 9: Apply XOR, OR, AND, Shift, Rotate, and Modular Addition for every 8-byte group over multiple iterations.
+	reducedParts := make([]byte, 0) // Initialize an empty slice to hold the reduced data after operations.
+	iterations := 1000000           // Define the number of iterations to perform operations across the data.
 
 	for round := 0; round < iterations; round++ { // Iterate for the specified number of iterations.
 		for i := 0; i+7 < len(combinedParts); i += 8 { // Loop through the combinedParts slice in 8-byte chunks.
@@ -273,22 +273,46 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 			g := combinedParts[i+6] // Seventh byte of the group
 			h := combinedParts[i+7] // Eighth byte of the group
 
-			// Perform an XOR operation on all 8 bytes in the group.
-			// XOR all bytes together to reduce them into a single byte.
-			xorResult := []byte{a ^ b ^ c ^ d ^ e ^ f ^ g ^ h}
-
-			// Iterate through the saltBytes slice and XOR each byte with the result.
-			// The modulo operation ensures that we loop back through the saltBytes if it's shorter than the XOR result.
-			for j := 0; j < len(saltBytes); j++ {
-				xorResult[0] ^= saltBytes[j%len(saltBytes)] // XOR the current result with the corresponding salt byte.
+			// Condition to check if a byte is odd
+			checkOdd := func(b byte) bool {
+				return b%2 != 0 // Checks if the byte is odd.
 			}
 
-			// Append the XOR result to the reducedParts slice. This will accumulate the reduced data.
-			reducedParts = bytes.Join([][]byte{reducedParts, xorResult}, []byte{})
+			// Perform XOR, AND, and OR operations on the 8 bytes with a condition.
+			xorResult := a ^ b ^ c ^ d ^ e ^ f ^ g ^ h // XOR all bytes together
+
+			// Apply OR if the byte is odd, otherwise use AND.
+			var andOrResult byte
+			if checkOdd(a) {
+				andOrResult = a | b | c | d | e | f | g | h // Use OR if byte a is odd
+			} else {
+				andOrResult = a & b & c & d & e & f & g & h // Use AND if byte a is not odd
+			}
+
+			// OR for the rest
+			orResult := a | b | c | d | e | f | g | h // OR to set specific bits
+
+			// Shift operations to add additional complexity.
+			leftShift := (xorResult << 2) | (xorResult >> 6)      // Left shift with wrap-around (rotate)
+			rightShift := (andOrResult >> 3) | (andOrResult << 5) // Right shift with wrap-around (rotate)
+
+			// Modular addition to mix values further and ensure results stay within the byte range (0-255).
+			modAddResult := byte((int(xorResult) + int(andOrResult) + int(orResult)) % 256) // Cast to int to prevent overflow, then modulo 256
+
+			// Combine the results to produce more variation.
+			mixedResult := xorResult | andOrResult ^ orResult ^ leftShift ^ rightShift ^ modAddResult // Mixing all results together.
+
+			// Iterate through the saltBytes slice and XOR each byte with the result.
+			for j := 0; j < len(saltBytes); j++ {
+				mixedResult ^= saltBytes[j%len(saltBytes)] // XOR the current result with the corresponding salt byte.
+			}
+
+			// Append the mixed result to the reducedParts slice. This will accumulate the reduced data.
+			reducedParts = append(reducedParts, mixedResult) // Append mixedResult directly.
 		}
 
 		// After completing the inner loop, update combinedParts to the reducedParts.
-		// This ensures that the next iteration of XOR operations is applied to the modified data.
+		// This ensures that the next iteration of operations is applied to the modified data.
 		combinedParts = reducedParts
 	}
 
