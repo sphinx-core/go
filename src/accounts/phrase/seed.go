@@ -343,7 +343,6 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	// - `combinedParts` has exactly 8 bytes (64 bits).
 	// - The Base32 encoded string `base32Encoded` is 16 characters long.
 	// This is because Base32 uses padding to ensure the output length is a multiple of 8 characters.
-
 	base32Encoded := EncodeBase32(combinedParts) // Base32 encodes the 8-byte output.
 
 	// Step 12: Generate a fingerprint using the hashed passkey and reduced parts.
