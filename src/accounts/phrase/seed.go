@@ -315,22 +315,22 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		combinedParts = reducedParts
 	}
 
-	// Now, trim the result to the desired output length
+	// Step 10: Now, trim the result to the desired output length
 	outputLength := 8 // Define the length of the output here (can be dynamic as needed).
 	if len(combinedParts) > outputLength {
 		combinedParts = combinedParts[:outputLength] // Trim to the desired length
 	}
 
-	// Step 10: Encode the reduced parts in Base32.
+	// Step 11: Encode the reduced parts in Base32.
 	base32Encoded := EncodeBase32(combinedParts)
 
-	// Step 11: Generate a fingerprint using the hashed passkey and reduced parts.
+	// Step 12: Generate a fingerprint using the hashed passkey and reduced parts.
 	fingerprint, chainCode, err = utils.GenerateRootHash(combinedParts, hashedPasskey)
 	if err != nil {
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
 	}
 
-	// Step 12: GenerateHmacKey to generate the HMAC key (chain code) using passphrase and reduced parts.
+	// Step 13: GenerateHmacKey to generate the HMAC key (chain code) using passphrase and reduced parts.
 	hmacKey, err = utils.GenerateHmacKey(passphrase, combinedParts)
 	if err != nil {
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate HMAC key: %v", err)
