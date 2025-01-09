@@ -261,7 +261,6 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	reducedParts := make([]byte, 0) // Initialize an empty slice to hold the reduced data after operations.
 	iterations := 6                 // Define the number of iterations to perform operations across the data.
 
-	// Initialize a state (e.g., SHA3-256) with a specific padding size.
 	stateSize := 256 / 8             // SHA3-256 uses 256-bit state (32 bytes).
 	state := make([]byte, stateSize) // The state used for SHA3 Sponge construction.
 
@@ -281,18 +280,9 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 			// Combine bytes into a single 64-bit value to feed into SHA-3
 			dataBlock := make([]byte, 8) // Create an 8-byte slice to hold the 64-bit value.
 
-			// Explanation of the operation below:
-			// 1. `uint64(a)` converts the first byte (`a`) into a 64-bit unsigned integer.
-			// 2. `uint64(b) << 8` shifts the second byte (`b`) 8 bits to the left (1 byte) to place it in the second position of the 64-bit value.
-			// 3. Similarly, `uint64(c) << 16` shifts the third byte (`c`) 16 bits to the left, placing it in the third byte position.
-			// 4. This pattern continues for all 8 bytes (a, b, c, d, e, f, g, h), with each byte shifted to its corresponding position in the 64-bit value.
-			// 5. The `^` operator (bitwise XOR) combines all the shifted bytes into a single 64-bit integer. XOR ensures mixing of bits, adding an extra layer of entropy and randomness.
-
-			// Additional details on why Big Endian is used:
-			// - Big Endian format stores the most significant byte (MSB) at the smallest memory address (first in the byte slice).
-			// - This ensures consistency with most cryptographic algorithms (like SHA-3), which expect data to be in Big Endian format.
+			// Create a 64-bit value from the 8 bytes using bitwise operations
 			binary.BigEndian.PutUint64(
-				dataBlock, // Write the resulting 64-bit value into the `dataBlock` slice in Big Endian format.
+				dataBlock, // Write the resulting 64-bit value into the dataBlock slice in Big Endian format.
 				uint64(a)^uint64(b)<<8^uint64(c)<<16^uint64(d)<<24^uint64(e)<<32^uint64(f)<<40^uint64(g)<<48^uint64(h)<<56,
 			)
 
