@@ -31,8 +31,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
-	"time"
 	"unicode/utf8"
 
 	sips3 "github.com/sphinx-core/go/src/accounts/mnemonic"
@@ -285,15 +283,21 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 
 			// Create a 64-bit value from the 8 bytes using bitwise operations
 			binary.BigEndian.PutUint64(
-				dataBlock, // Write the resulting 64-bit value into the dataBlock slice in Big Endian format.
-				uint64(a)^uint64(b)<<8^uint64(c)<<16^uint64(d)<<24^uint64(e)<<32^uint64(f)<<40^uint64(g)<<48^uint64(h)<<56,
+				dataBlock,
+				uint64(a)<<56|uint64(b)<<48|uint64(c)<<40|uint64(d)<<32|
+					uint64(e)<<24|uint64(f)<<16|uint64(g)<<8|uint64(h),
 			)
 
 			// Absorb the current data block into the sponge state
-			hash := sha3.New256() // Using SHA3-256 (256-bit output, 512-bit state)
-			hash.Write(state)     // Absorb the current state
-			hash.Write(dataBlock) // Absorb the current data block
-			state = hash.Sum(nil) // Update the state with the new hash output
+			hash := sha3.New256()
+			hash.Write(state)
+			hash.Write(saltBytes)
+			state = hash.Sum(nil)
+
+			// New mixing operation as per the requested formula
+			for i := 0; i < len(state); i++ {
+				state[i] = (state[i] + saltBytes[i%len(saltBytes)]) ^ (state[(i+1)%len(state)] << 1)
+			}
 
 			// Squeeze: Continue to extract bits after each round.
 			// Adjust the number of bits to extract depending on how many bits you need.
@@ -317,56 +321,19 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 				reducedParts[len(reducedParts)-1] ^= saltBytes[j%len(saltBytes)] // XOR the result with the salt
 			}
 		}
-
 		// After completing the inner loop, update combinedParts to the reducedParts.
 		combinedParts = reducedParts
 
-		// Convert reducedParts to hex string for readability.
-		hexString := hex.EncodeToString(reducedParts)
-
 		// Print the hexString and size of reducedParts to observe the result of each iteration
+		hexString := hex.EncodeToString(combinedParts)
 		fmt.Println("Iteration", round+1, "Hex String:", hexString)
-		fmt.Println("Size of reducedParts in bytes:", len(reducedParts)) // Print the size in bytes
+		fmt.Println("Size of combinedParts in bytes:", len(combinedParts)) // Print the size in bytes
 	}
 
-	// Now, trim the result to the desired output length with random selection
+	// Now, trim the result to the desired output length
 	outputLength := 8 // Define the length of the output in bytes (not characters).
 	if len(combinedParts) > outputLength {
-		selectedIndices := make(map[int]struct{}) // To store unique random indices
-		for len(selectedIndices) < outputLength {
-			// Combine multiple entropy sources: time, process ID, and crypto/rand
-			currentTime := time.Now().UnixNano() // High precision time (nanoseconds)
-			processID := os.Getpid()             // Process ID
-			randomBytes := make([]byte, 4)       // Generate 4 bytes of random data
-
-			// Read random bytes from crypto/rand
-			_, err := rand.Read(randomBytes)
-			if err != nil {
-				// Handle error if random bytes cannot be generated
-				continue
-			}
-
-			// Combine entropy sources into one seed
-			seed := int64(currentTime ^ int64(processID))
-			combinedEntropy := seed ^ int64(binary.BigEndian.Uint32(randomBytes))
-
-			// Generate random index based on the combined entropy
-			randomIndex := int(combinedEntropy % int64(len(combinedParts)))
-
-			// Ensure we don't have duplicate indices
-			if _, exists := selectedIndices[randomIndex]; !exists {
-				selectedIndices[randomIndex] = struct{}{} // Mark this index as selected
-			}
-		}
-
-		// Create a new slice to hold the randomly selected bytes from combinedParts
-		var randomResult []byte
-		for index := range selectedIndices {
-			randomResult = append(randomResult, combinedParts[index]) // Select from combinedParts only
-		}
-
-		// Now, randomResult contains a random selection of bytes from combinedParts
-		combinedParts = randomResult
+		combinedParts = combinedParts[:outputLength] // Trim combinedParts to the desired number of bytes.
 	}
 
 	// Step 11: Encode the reduced parts in Base32.
