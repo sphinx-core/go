@@ -318,7 +318,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		combinedParts = reducedParts
 	}
 
-	// Step 10: Now, trim the result to the desired output length
+	// Now, trim the result to the desired output length
 	outputLength := 8 // Define the length of the output in bytes (not characters).
 	if len(combinedParts) > outputLength {
 		combinedParts = combinedParts[:outputLength] // Trim combinedParts to the desired number of bytes.

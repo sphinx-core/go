@@ -58,7 +58,6 @@ func DecodeBase32(base32Str string) ([]byte, error) {
 func GenerateChainCode(combinedParts []byte, hashedPasskey []byte) ([]byte, []byte, error) {
 	// Combine the provided parts and the hashed passkey to form the key material
 	KeyMaterial := append(combinedParts, hashedPasskey...)
-	fmt.Printf("Final Key Material: %x\n", KeyMaterial)
 
 	// Generate the fingerprint (root hash) from the key material using the SpxHash function
 	fingerprint := common.SpxHash(KeyMaterial)
