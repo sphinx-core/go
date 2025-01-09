@@ -281,22 +281,49 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 			// Combine bytes into a single 64-bit value to feed into SHA-3
 			dataBlock := make([]byte, 8) // Create an 8-byte slice to hold the 64-bit value.
 
-			// Create a 64-bit value from the 8 bytes using bitwise operations
+			// Create a 64-bit value from the 8 bytes (a, b, c, d, e, f, g, h) using bitwise operations.
+			// Each of the 8 bytes (a, b, c, d, e, f, g, h) will be shifted to their respective position
+			// and then combined into a single 64-bit value. The shifting positions are chosen so that
+			// the most significant byte (a) occupies the highest bits of the 64-bit integer (starting at bit 56),
+			// and the least significant byte (h) occupies the lowest bits (ending at bit 0).
+
 			binary.BigEndian.PutUint64(
-				dataBlock,
-				uint64(a)<<56|uint64(b)<<48|uint64(c)<<40|uint64(d)<<32|
-					uint64(e)<<24|uint64(f)<<16|uint64(g)<<8|uint64(h),
+				dataBlock, // The destination where the 64-bit value will be stored.
+				uint64(a)<<56| // Shift the byte 'a' 56 bits to the left (to occupy the highest 8 bits)
+					uint64(b)<<48| // Shift the byte 'b' 48 bits to the left (to occupy the second highest 8 bits)
+					uint64(c)<<40| // Shift the byte 'c' 40 bits to the left
+					uint64(d)<<32| // Shift the byte 'd' 32 bits to the left
+					uint64(e)<<24| // Shift the byte 'e' 24 bits to the left
+					uint64(f)<<16| // Shift the byte 'f' 16 bits to the left
+					uint64(g)<<8| // Shift the byte 'g' 8 bits to the left
+					uint64(h), // No shift required for byte 'h', it occupies the lowest 8 bits of the 64-bit value
 			)
 
 			// Absorb the current data block into the sponge state
-			hash := sha3.New256()
-			hash.Write(state)
-			hash.Write(saltBytes)
-			state = hash.Sum(nil)
+			// This step processes the current state using the SHA3-256 hash function.
+			// The SHA-3 sponge construction involves absorbing data into a state.
+			// The state will be updated by applying the SHA3-256 hash function
+			// using the current `state` and `saltBytes` as inputs.
+
+			hash := sha3.New256() // Initialize a new SHA3-256 hash function.
+			hash.Write(state)     // Absorb the current state into the hash function.
+			hash.Write(saltBytes) // Absorb the saltBytes into the hash function to mix the salt with the state.
+			state = hash.Sum(nil) // Finalize the hash and return the updated state. This updated state is now ready for further operations.
 
 			// New mixing operation as per the requested formula
-			for i := 0; i < len(state); i++ {
+			// This operation performs additional mixing on the current state.
+			// The state is iterated over, and each byte is modified using a combination of:
+			// 1. Adding the corresponding byte from the `saltBytes` (using modulo to wrap around if necessary),
+			// 2. XORing with a shifted version of the next byte in the state (to introduce further randomness).
+			// This helps improve the diffusion and avalanche effect of the data.
+
+			for i := 0; i < len(state); i++ { // Iterate over each byte in the `state` array.
+				// Mix the current byte with the corresponding byte in the salt and a shifted version of the next byte in the state.
 				state[i] = (state[i] + saltBytes[i%len(saltBytes)]) ^ (state[(i+1)%len(state)] << 1)
+				// `(i%len(saltBytes))`: This ensures that we cycle through `saltBytes` if it's shorter than the state.
+				// `(i+1)%len(state)`: This ensures we access the next byte in the state, wrapping around if we reach the end.
+				// `<< 1`: This shifts the byte by 1 position to the left to introduce further bitwise transformation.
+				// The final result is a byte-wise mixed state, enhancing entropy.
 			}
 
 			// Squeeze: Continue to extract bits after each round.
