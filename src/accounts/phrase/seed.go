@@ -262,7 +262,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	reducedParts := make([]byte, 0) // Initialize an empty slice to hold the reduced data after operations.
 	iterations := 6                 // Define the number of iterations to perform operations across the data.
 
-	stateSize := 256 / 8             // SHA3-256 uses 256-bit state (32 bytes).
+	stateSize := 256 / 8             // SHA3-256 uses 512-256 state (32 bytes).
 	state := make([]byte, stateSize) // The state used for SHA3 Sponge construction.
 
 	for round := 0; round < iterations; round++ { // Iterate for the specified number of iterations.
