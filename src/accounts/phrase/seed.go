@@ -350,10 +350,10 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 			}
 		}
 
-		// Create a new slice to hold the randomly selected bytes
+		// Create a new slice to hold the randomly selected bytes from combinedParts
 		var randomResult []byte
 		for index := range selectedIndices {
-			randomResult = append(randomResult, combinedParts[index])
+			randomResult = append(randomResult, combinedParts[index]) // Select from combinedParts only
 		}
 
 		// Now, randomResult contains a random selection of bytes from combinedParts
