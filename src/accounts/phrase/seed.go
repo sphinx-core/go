@@ -28,6 +28,7 @@ import (
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -316,8 +317,16 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 				reducedParts[len(reducedParts)-1] ^= saltBytes[j%len(saltBytes)] // XOR the result with the salt
 			}
 		}
+
 		// After completing the inner loop, update combinedParts to the reducedParts.
 		combinedParts = reducedParts
+
+		// Convert reducedParts to hex string for readability.
+		hexString := hex.EncodeToString(reducedParts)
+
+		// Print the hexString and size of reducedParts to observe the result of each iteration
+		fmt.Println("Iteration", round+1, "Hex String:", hexString)
+		fmt.Println("Size of reducedParts in bytes:", len(reducedParts)) // Print the size in bytes
 	}
 
 	// Now, trim the result to the desired output length with random selection
