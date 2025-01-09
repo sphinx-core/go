@@ -109,7 +109,7 @@ func VerifyBase32Passkey(base32Passkey string) (bool, []byte, []byte, error) {
 	// If the chain code exists in memory, return the fingerprint and chain code
 	if exists {
 		// Print the fingerprint once it's verified
-		fmt.Printf("Verified Fingerprint: %x\n", storedData.Fingerprint)
+		fmt.Printf("Found Fingerprint: %x\n", storedData.Fingerprint)
 		fmt.Printf("Found ChainCode: %x\n", storedData.ChainCode)
 		// Return both the fingerprint and chain code
 		return true, storedData.Fingerprint, storedData.ChainCode, nil

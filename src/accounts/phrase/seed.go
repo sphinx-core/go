@@ -30,6 +30,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
+	"time"
 	"unicode/utf8"
 
 	sips3 "github.com/sphinx-core/go/src/accounts/mnemonic"
@@ -318,10 +320,44 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		combinedParts = reducedParts
 	}
 
-	// Now, trim the result to the desired output length
+	// Now, trim the result to the desired output length with random selection
 	outputLength := 8 // Define the length of the output in bytes (not characters).
 	if len(combinedParts) > outputLength {
-		combinedParts = combinedParts[:outputLength] // Trim combinedParts to the desired number of bytes.
+		selectedIndices := make(map[int]struct{}) // To store unique random indices
+		for len(selectedIndices) < outputLength {
+			// Combine multiple entropy sources: time, process ID, and crypto/rand
+			currentTime := time.Now().UnixNano() // High precision time (nanoseconds)
+			processID := os.Getpid()             // Process ID
+			randomBytes := make([]byte, 4)       // Generate 4 bytes of random data
+
+			// Read random bytes from crypto/rand
+			_, err := rand.Read(randomBytes)
+			if err != nil {
+				// Handle error if random bytes cannot be generated
+				continue
+			}
+
+			// Combine entropy sources into one seed
+			seed := int64(currentTime ^ int64(processID))
+			combinedEntropy := seed ^ int64(binary.BigEndian.Uint32(randomBytes))
+
+			// Generate random index based on the combined entropy
+			randomIndex := int(combinedEntropy % int64(len(combinedParts)))
+
+			// Ensure we don't have duplicate indices
+			if _, exists := selectedIndices[randomIndex]; !exists {
+				selectedIndices[randomIndex] = struct{}{} // Mark this index as selected
+			}
+		}
+
+		// Create a new slice to hold the randomly selected bytes
+		var randomResult []byte
+		for index := range selectedIndices {
+			randomResult = append(randomResult, combinedParts[index])
+		}
+
+		// Now, randomResult contains a random selection of bytes from combinedParts
+		combinedParts = randomResult
 	}
 
 	// Step 11: Encode the reduced parts in Base32.
