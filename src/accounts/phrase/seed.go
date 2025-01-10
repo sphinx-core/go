@@ -374,7 +374,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	// This is because Base32 uses padding to ensure the output length is a multiple of 8 characters.
 	base32Encoded := EncodeBase32(combinedParts) // Base32 encodes the 8-byte output.
 
-	// Step 12: Generate a fingerprint using the hashed passkey and reduced parts.
+	// Step 12: Generate a fingerprint and chain code (a chain of combinedparts and fingerprint) using generated hashed passkey and reduced parts.
 	fingerprint, chainCode, err = utils.GenerateChainCode(combinedParts, hashedPasskey)
 	if err != nil {
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
