@@ -380,7 +380,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
 	}
 
-	// Step 13: GenerateHmacKey to generate the HMAC key (chain code) using passphrase and reduced parts.
+	// Step 13: GenerateHmacKey to chaining generated passphrase and combinedparts.
 	hmacKey, err = utils.GenerateHmacKey(passphrase, combinedParts)
 	if err != nil {
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate HMAC key: %v", err)
