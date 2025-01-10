@@ -31,6 +31,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"unicode/utf8"
 
 	sips3 "github.com/sphinx-core/go/src/accounts/mnemonic"
@@ -202,6 +203,43 @@ func EncodeBase32(data []byte) string {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(data)
 }
 
+// Helper function to generate a random index within a given range
+// randomIndex generates a random index within the range [0, max).
+// It uses a cryptographically secure random number generator (rand.Reader)
+// to generate a random number and ensures the number is within the specified range.
+func randomIndex(max int) (int, error) {
+	// rand.Int generates a random integer in the range [0, max).
+	randNum, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
+	if err != nil {
+		// If an error occurs during random number generation, return an error.
+		return 0, err
+	}
+	// Convert the random number to an integer and return it.
+	return int(randNum.Int64()), nil
+}
+
+// randomRange generates a random number between min and max (inclusive).
+// It ensures that min is less than or equal to max before generating the random number.
+// The function also uses a cryptographically secure random number generator (rand.Reader).
+func randomRange(min, max int) (int, error) {
+	// Ensure that the provided range is valid (min should be <= max).
+	if min > max {
+		// If the range is invalid, return an error indicating the issue.
+		return 0, fmt.Errorf("invalid range: min (%d) > max (%d)", min, max)
+	}
+	// Calculate the size of the range, ensuring that max is inclusive.
+	rangeSize := max - min + 1
+
+	// Generate a random number within the range size.
+	randNum, err := rand.Int(rand.Reader, big.NewInt(int64(rangeSize)))
+	if err != nil {
+		// If an error occurs during random number generation, return an error.
+		return 0, err
+	}
+	// Add the min value to the random number, so the final result is within the range [min, max].
+	return min + int(randNum.Int64()), nil
+}
+
 // GenerateKeys generates a passphrase, a hashed Base32-encoded passkey, and its fingerprint.
 func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, fingerprint []byte, chainCode []byte, hmacKey []byte, err error) {
 	// Step 1: Generate entropy for the mnemonic (passphrase generation).
@@ -259,8 +297,8 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	saltBytes := []byte(salt)
 
 	// Step 9: Apply Sponge Construction (SHA-3) for every 8-byte group over multiple iterations.
-	reducedParts := make([]byte, 0) // Initialize an empty slice to hold the reduced data after operations.
-	iterations := 5                 // Define the number of iterations to perform operations across the data.
+	transformedParts := make([]byte, 0) // Initialize an empty slice to hold the transformed data after operations.
+	iterations := 5                     // Define the number of iterations to perform operations across the data.
 
 	stateSize := 256 / 8             // SHA3-256 uses 512-256 state (32 bytes).
 	state := make([]byte, stateSize) // The state used for SHA3 Sponge construction.
@@ -332,38 +370,88 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 				// Take bits from the state and XOR with the result to mix it.
 				mixedResult := state[i] ^ saltBytes[i%len(saltBytes)] // Apply salt on the state.
 
-				// Append the mixed result to the reducedParts slice.
-				reducedParts = append(reducedParts, mixedResult) // Append mixedResult directly.
+				// Append the mixed result to the transformedParts slice.
+				transformedParts = append(transformedParts, mixedResult) // Append mixedResult directly.
 			}
 
 			// Additional squeeze operation to ensure more entropy is squeezed from the state
 			additionalBits := len(state) // This depends on how many bits you want to extract from each round.
 			for i := 0; i < additionalBits; i++ {
 				// Continue to squeeze bits from the state, adjusting as needed.
-				reducedParts = append(reducedParts, state[i]) // Extract additional bits to the reducedParts.
+				transformedParts = append(transformedParts, state[i]) // Extract additional bits to the transformedParts.
 			}
 
 			// After completing the squeeze and extracting, mix again by XORing with salt for added randomness.
 			for j := 0; j < len(saltBytes); j++ {
-				reducedParts[len(reducedParts)-1] ^= saltBytes[j%len(saltBytes)] // XOR the result with the salt
+				transformedParts[len(transformedParts)-1] ^= saltBytes[j%len(saltBytes)] // XOR the result with the salt
 			}
 		}
-		// After completing the inner loop, update combinedParts to the reducedParts.
-		combinedParts = reducedParts
+		// After completing the inner loop, update combinedParts to the transformedParts.
+		combinedParts = transformedParts
 
-		// Print the hexString and size of reducedParts to observe the result of each iteration
+		// Print the hexString and size of transformedParts to observe the result of each iteration
 		hexString := hex.EncodeToString(combinedParts)
 		fmt.Println("Iteration", round+1, "Hex String:", hexString)
 		fmt.Println("Size of combinedParts in bytes:", len(combinedParts)) // Print the size in bytes
 	}
 
-	// Now, trim the result to the desired output length
-	outputLength := 8 // Define the length of the output in bytes (not characters).
-	if len(combinedParts) > outputLength {
-		combinedParts = combinedParts[:outputLength] // Trim combinedParts to the desired number of bytes.
+	// Initialize the combinedParts slice with sequential byte values (0 to 127)
+	// This slice will contain 128 elements, where each byte is sequentially assigned
+	// values from 0 to 127. These values represent the pool of bytes from which we will
+	// randomly select a subset later.
+	combinedParts = make([]byte, 128)
+	for i := range combinedParts {
+		combinedParts[i] = byte(i) // Assign each element in the slice its respective byte value.
 	}
 
-	// Step 11: Encode the reduced parts in Base32.
+	// Generate a random output length between 8 and 10
+	// The output length determines how many random bytes will be selected from combinedParts.
+	// The randomRange function is used to securely generate a random integer within the range [8, 10].
+	outputLength, err := randomRange(8, 10)
+	if err != nil {
+		panic(err) // If an error occurs during random number generation, terminate the program.
+	}
+
+	// Check if the length of combinedParts is greater than the output length
+	// If true, proceed to randomly select outputLength number of bytes from combinedParts.
+	if len(combinedParts) > outputLength {
+		// Create a slice to hold the randomly selected bytes
+		// This slice will store the final randomly chosen subset of bytes.
+		selectedParts := make([]byte, outputLength)
+
+		// Randomly select indices without duplicates
+		// To ensure that the selected bytes are unique, we use a map to keep track of
+		// the indices that have already been chosen. The map's keys represent the indices
+		// of the selected bytes.
+		selectedIndices := make(map[int]bool)
+		for len(selectedIndices) < outputLength {
+			// Generate a random index within the range of combinedParts' length.
+			index, err := randomIndex(len(combinedParts))
+			if err != nil {
+				panic(err) // If randomIndex fails, terminate the program.
+			}
+			// Add the index to the map only if it hasn't been selected before.
+			if !selectedIndices[index] {
+				selectedIndices[index] = true
+			}
+		}
+
+		// Populate the selectedParts slice with bytes from the randomly selected indices
+		// Iterate through the selected indices map and retrieve the corresponding bytes
+		// from combinedParts. Populate the selectedParts slice sequentially.
+		i := 0
+		for index := range selectedIndices {
+			selectedParts[i] = combinedParts[index]
+			i++ // Move to the next position in the selectedParts slice.
+		}
+
+		// Replace combinedParts with selectedParts
+		// This step ensures that combinedParts now holds only the randomly selected subset
+		// of bytes, reducing its size to the specified output length.
+		combinedParts = selectedParts
+	}
+
+	// Step 11: Encode the transformed parts in Base32.
 	// Base32 encoding converts the binary data (bytes) into a human-readable string format.
 	// Each 5 bits of input data produces 1 Base32 character.
 	// For 8 bytes (64 bits), Base32 encoding results in 16 characters.
