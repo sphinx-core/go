@@ -274,8 +274,8 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to hash passkey: %v", err)
 	}
 
-	// Truncate the hashed passkey to 384 bits (64 bytes).
-	// We take the first 32 bytes of the SHA3-512 hash to use in further steps.
+	// Step 5: Truncate the hashed passkey to 384 bits (64 bytes).
+	// We take the first 64 bytes of the SHA3-512 hash to use in further steps.
 	selectedParts := hashedPasskey[:64]
 
 	// Step 6: Generate a nonce (16 bytes).
@@ -288,7 +288,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	}
 
 	// Step 7: Combine the selected parts and the nonce using bytes.Join.
-	// We join the selected 32-byte hash and the 16-byte nonce together to create a combined data set.
+	// We join the selected 64-byte hash and the 16-byte nonce together to create a combined data set.
 	combinedParts := bytes.Join([][]byte{selectedParts, nonce}, []byte{})
 
 	// Step 8: Create salt by combining "Base32Passkey" with the selected parts of the hashed passkey.
