@@ -320,11 +320,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 			dataBlock := make([]byte, 8) // Create an 8-byte slice to hold the 64-bit value.
 
 			// Create a 64-bit value from the 8 bytes (a, b, c, d, e, f, g, h) using bitwise operations.
-			// Each of the 8 bytes (a, b, c, d, e, f, g, h) will be shifted to their respective position
-			// and then combined into a single 64-bit value. The shifting positions are chosen so that
-			// the most significant byte (a) occupies the highest bits of the 64-bit integer (starting at bit 56),
-			// and the least significant byte (h) occupies the lowest bits (ending at bit 0).
-
+			// Ensure constant-time construction to avoid leaking information via timing attacks.
 			binary.BigEndian.PutUint64(
 				dataBlock, // The destination where the 64-bit value will be stored.
 				uint64(a)<<56| // Shift the byte 'a' 56 bits to the left (to occupy the highest 8 bits)
@@ -356,7 +352,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 			// This helps improve the diffusion and avalanche effect of the data.
 
 			for i := 0; i < len(state); i++ { // Iterate over each byte in the `state` array.
-				// Mix the current byte with the corresponding byte in the salt and a shifted version of the next byte in the state.
+				// Ensure constant-time modification of each byte to mitigate timing attacks.
 				state[i] = (state[i] + saltBytes[i%len(saltBytes)]) ^ (state[(i+1)%len(state)] << 1)
 				// `(i%len(saltBytes))`: This ensures that we cycle through `saltBytes` if it's shorter than the state.
 				// `(i+1)%len(state)`: This ensures we access the next byte in the state, wrapping around if we reach the end.
@@ -367,7 +363,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 			// Squeeze: Continue to extract bits after each round.
 			// Adjust the number of bits to extract depending on how many bits you need.
 			for i := 0; i < len(state); i++ {
-				// Take bits from the state and XOR with the result to mix it.
+				// Ensure constant-time extraction of bits to avoid timing leaks.
 				mixedResult := state[i] ^ saltBytes[i%len(saltBytes)] // Apply salt on the state.
 
 				// Append the mixed result to the transformedParts slice.
@@ -383,6 +379,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 
 			// After completing the squeeze and extracting, mix again by XORing with salt for added randomness.
 			for j := 0; j < len(saltBytes); j++ {
+				// Ensure constant-time mixing with saltBytes to avoid timing attacks.
 				transformedParts[len(transformedParts)-1] ^= saltBytes[j%len(saltBytes)] // XOR the result with the salt
 			}
 		}
