@@ -203,16 +203,19 @@ func EncodeBase32(data []byte) string {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(data)
 }
 
-// Helper function to generate a random index within a given range
 // randomIndex generates a random index within the range [0, max).
 // It uses a cryptographically secure random number generator (rand.Reader)
 // to generate a random number and ensures the number is within the specified range.
 func randomIndex(max int) (int, error) {
+	if max <= 0 {
+		return 0, fmt.Errorf("max must be greater than zero, got: %d", max)
+	}
+
 	// rand.Int generates a random integer in the range [0, max).
 	randNum, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
 	if err != nil {
-		// If an error occurs during random number generation, return an error.
-		return 0, err
+		// Return a more descriptive error on failure
+		return 0, fmt.Errorf("failed to generate random index: %w", err)
 	}
 	// Convert the random number to an integer and return it.
 	return int(randNum.Int64()), nil
@@ -224,17 +227,22 @@ func randomIndex(max int) (int, error) {
 func randomRange(min, max int) (int, error) {
 	// Ensure that the provided range is valid (min should be <= max).
 	if min > max {
-		// If the range is invalid, return an error indicating the issue.
+		// Return an error indicating the invalid range
 		return 0, fmt.Errorf("invalid range: min (%d) > max (%d)", min, max)
 	}
+	if max <= min {
+		// Additional check to ensure min is strictly less than max
+		return 0, fmt.Errorf("invalid range: max (%d) <= min (%d)", max, min)
+	}
+
 	// Calculate the size of the range, ensuring that max is inclusive.
 	rangeSize := max - min + 1
 
 	// Generate a random number within the range size.
 	randNum, err := rand.Int(rand.Reader, big.NewInt(int64(rangeSize)))
 	if err != nil {
-		// If an error occurs during random number generation, return an error.
-		return 0, err
+		// Return a more descriptive error on failure
+		return 0, fmt.Errorf("failed to generate random range: %w", err)
 	}
 	// Add the min value to the random number, so the final result is within the range [min, max].
 	return min + int(randNum.Int64()), nil
