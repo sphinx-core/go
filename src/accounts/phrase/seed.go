@@ -412,7 +412,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	// Generate a random output length between 8 and 10
 	// The output length determines how many random bytes will be selected from combinedParts.
 	// The randomRange function is used to securely generate a random integer within the range [8, 10].
-	outputLength, err := randomRange(8, 10)
+	outputLength, err := randomRange(6, 8)
 	if err != nil {
 		panic(err) // If an error occurs during random number generation, terminate the program.
 	}
