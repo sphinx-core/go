@@ -249,7 +249,7 @@ func randomRange(min, max int) (int, error) {
 }
 
 // GenerateKeys generates a passphrase, a hashed Base32-encoded passkey, and its fingerprint.
-func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, fingerprint []byte, chainCode []byte, hmacKey []byte, err error) {
+func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, macKey []byte, chainCode []byte, fingerprint []byte, err error) {
 	// Step 1: Generate entropy for the mnemonic (passphrase generation).
 	// We call GenerateEntropy to obtain random data that can be used as the basis for the passphrase.
 	entropy, err := GenerateEntropy()
@@ -468,17 +468,17 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	base32Encoded := EncodeBase32(combinedParts) // Base32 encodes the 8-byte output.
 
 	// Step 12: Generate a fingerprint and chain code (a chain of combinedparts and fingerprint) using generated hashed passkey and reduced parts.
-	fingerprint, chainCode, err = utils.GenerateChainCode(combinedParts, hashedPasskey)
+	macKey, chainCode, err = utils.GenerateMacKey(combinedParts, hashedPasskey)
 	if err != nil {
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
 	}
 
 	// Step 13: GenerateHmacKey to chaining generated passphrase and combinedparts.
-	hmacKey, err = utils.GenerateHmacKey(passphrase, combinedParts)
+	fingerprint, err = utils.GenerateChainCode(passphrase, combinedParts, hashedPasskey)
 	if err != nil {
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate HMAC key: %v", err)
 	}
 
 	// Return the generated passphrase, encoded passkey, hashed passkey, and fingerprint.
-	return passphrase, base32Encoded, hashedPasskey, fingerprint, chainCode, hmacKey, nil
+	return passphrase, base32Encoded, hashedPasskey, macKey, chainCode, fingerprint, nil
 }

@@ -33,10 +33,10 @@ import (
 // Mutex to protect access to memoryStore - ensures thread-safe access
 var mu sync.Mutex
 
-// In-memory storage for chaining data - stores both fingerprint and chain code
+// In-memory storage for chaining data - stores both MacKey and chain code
 var memoryStore = make(map[string]struct {
-	Fingerprint []byte
-	ChainCode   []byte
+	MacKey    []byte
+	ChainCode []byte
 })
 
 // EncodeBase32 encodes a byte slice into a Base32 string without padding
@@ -53,43 +53,43 @@ func DecodeBase32(base32Str string) ([]byte, error) {
 	return decoded, nil
 }
 
-// GenerateFingerprintAndChainCode generates the fingerprint (root hash) and chain code
-// It stores both the fingerprint and chain code in memory for future use.
-func GenerateChainCode(combinedParts []byte, hashedPasskey []byte) ([]byte, []byte, error) {
+// GenerateMacKeyAndChainCode generates the MacKey (root hash) and chain code
+// It stores both the MacKey and chain code in memory for future use.
+func GenerateMacKey(combinedParts []byte, hashedPasskey []byte) ([]byte, []byte, error) {
 	// Combine the provided parts and the hashed passkey to form the key material
 	KeyMaterial := append(combinedParts, hashedPasskey...)
 
-	// Generate the fingerprint (root hash) from the key material using the SpxHash function
-	fingerprint := common.SpxHash(KeyMaterial)
+	// Generate the MacKey (root hash) from the key material using the SpxHash function
+	macKey := common.SpxHash(KeyMaterial)
 
-	// Ensure that the fingerprint is 256 bits (32 bytes)
-	if len(fingerprint) != 32 {
-		return nil, nil, fmt.Errorf("fingerprint is not 256 bits (32 bytes)")
+	// Ensure that the MacKey is 256 bits (32 bytes)
+	if len(macKey) != 32 {
+		return nil, nil, fmt.Errorf("MacKey is not 256 bits (32 bytes)")
 	}
 
-	// Generate the chain code by combining the original parts and the fingerprint, then hashing it
-	chainCode := common.SpxHash(append(combinedParts, fingerprint...))
+	// Generate the chain code by combining the original parts and the MacKey, then hashing it
+	chainCode := common.SpxHash(append(combinedParts, macKey...))
 
 	// Lock memoryStore to safely store the chain code in memory
 	mu.Lock()
 	defer mu.Unlock()
 
-	// Store both fingerprint and chain code in memory using the Base32-encoded version of combinedParts as the key
+	// Store both MacKey and chain code in memory using the Base32-encoded version of combinedParts as the key
 	decodepasskeyStr := EncodeBase32(combinedParts)
 	memoryStore[decodepasskeyStr] = struct {
-		Fingerprint []byte
-		ChainCode   []byte
+		MacKey    []byte
+		ChainCode []byte
 	}{
-		Fingerprint: fingerprint,
-		ChainCode:   chainCode,
+		MacKey:    macKey,
+		ChainCode: chainCode,
 	}
 
-	// Return the fingerprint and chain code
-	return fingerprint, chainCode, nil
+	// Return the MacKey and chain code
+	return macKey, chainCode, nil
 }
 
-// VerifyBase32Passkey verifies the fingerprint and checks the chain code in memory
-// If the fingerprint and chain code are found, it prints the fingerprint.
+// VerifyBase32Passkey verifies the MacKey and checks the chain code in memory
+// If the MacKey and chain code are found, it prints the MacKey.
 func VerifyBase32Passkey(base32Passkey string) (bool, []byte, []byte, error) {
 	// Decode the Base32-encoded passkey into a byte slice
 	decodedPasskey, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(base32Passkey)
@@ -106,30 +106,30 @@ func VerifyBase32Passkey(base32Passkey string) (bool, []byte, []byte, error) {
 	storedData, exists := memoryStore[decodepasskeyStr]
 	mu.Unlock()
 
-	// If the chain code exists in memory, return the fingerprint and chain code
+	// If the chain code exists in memory, return the MacKey and chain code
 	if exists {
-		// Print the fingerprint once it's verified
-		fmt.Printf("Found Fingerprint: %x\n", storedData.Fingerprint)
-		fmt.Printf("Found ChainCode: %x\n", storedData.ChainCode)
-		// Return both the fingerprint and chain code
-		return true, storedData.Fingerprint, storedData.ChainCode, nil
+		// Print the MacKey once it's verified
+		fmt.Printf("Found MacKey: %x\n", storedData.MacKey)
+		fmt.Printf("Found ChainCode (MacKey): %x\n", storedData.ChainCode)
+		// Return both the MacKey and chain code
+		return true, storedData.MacKey, storedData.ChainCode, nil
 	} else {
 		// If the chain code doesn't exist, generate it
-		fingerprint, chainCode, err := GenerateChainCode(decodedPasskey, nil) // Generate fingerprint with the passed key parts
+		macKey, chainCode, err := GenerateMacKey(decodedPasskey, nil) // Generate MacKey with the passed key parts
 		if err != nil {
-			return false, nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
+			return false, nil, nil, fmt.Errorf("failed to generate MacKey: %v", err)
 		}
 
-		// Print the fingerprint after it is generated
-		fmt.Printf("Generated Fingerprint: %x\n", fingerprint)
+		// Print the MacKey after it is generated
+		fmt.Printf("Generated MacKey: %x\n", macKey)
 
-		// Return the newly generated fingerprint and chain code
-		return true, fingerprint, chainCode, nil
+		// Return the newly generated MacKey and chain code
+		return true, macKey, chainCode, nil
 	}
 }
 
 // VerifyChainCode verifies that the ChainCode stored in memory matches the newly generated ChainCode
-func VerifyChainCode(decodepasskey []byte, fingerprint []byte) (bool, error) {
+func VerifyChainCode(decodepasskey []byte, macKey []byte) (bool, error) {
 	mu.Lock() // Lock memory access for thread-safety
 	defer mu.Unlock()
 
@@ -142,8 +142,8 @@ func VerifyChainCode(decodepasskey []byte, fingerprint []byte) (bool, error) {
 		return false, fmt.Errorf("chain code not found for the provided passkey")
 	}
 
-	// Re-generate the chain code by combining the passkey and fingerprint and hashing the result
-	combined := append(decodepasskey, fingerprint...)
+	// Re-generate the chain code by combining the passkey and MacKey and hashing the result
+	combined := append(decodepasskey, macKey...)
 	newChainCode := common.SpxHash(combined)
 
 	// Compare the newly generated chain code with the stored one
