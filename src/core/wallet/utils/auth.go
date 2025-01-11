@@ -90,7 +90,7 @@ func GenerateChainCode(passphrase string, combinedParts, hashedPasskey []byte) (
 // Returns:
 // - true if authentication is successful, false otherwise.
 // - An error if the process encounters issues.
-func VerifyLogin(Base32Passkey, passphrase string, storedFingerprint []byte, combinedParts []byte) (bool, error) {
+func VerifyFingerPrint(Base32Passkey, passphrase string, storedFingerprint []byte, combinedParts []byte) (bool, error) {
 	// Validate that the input Base32Passkey is a valid hexadecimal string.
 	if !isHex(Base32Passkey) {
 		return false, fmt.Errorf("invalid hexadecimal input")
