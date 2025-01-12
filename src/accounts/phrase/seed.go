@@ -284,7 +284,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 
 	// Step 5: Truncate the hashed passkey to 384 bits (64 bytes).
 	// We take the first 64 bytes of the SHA3-512 hash to use in further steps.
-	selectedParts := hashedPasskey[:64]
+	selectedParts := hashedPasskey
 
 	// Step 6: Generate a nonce (16 bytes).
 	// A nonce is a random value used only once, typically to prevent replay attacks. Here, we generate it using `rand.Read`.
