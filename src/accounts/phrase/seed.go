@@ -462,10 +462,10 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	// For 8 bytes (64 bits), Base32 encoding results in 16 characters.
 
 	// At this point:
-	// - `combinedParts` has exactly 8 bytes (64 bits).
+	// - `combinedParts` has exactly random between 6-8 bytes.
 	// - The Base32 encoded string `base32Encoded` is 16 characters long.
 	// This is because Base32 uses padding to ensure the output length is a multiple of 8 characters.
-	base32Encoded := EncodeBase32(combinedParts) // Base32 encodes the 8-byte output.
+	base32Encoded := EncodeBase32(combinedParts)
 
 	// Step 12: Generate a MacKey it used for validated combinedparts (Base32passkey) during login seasons.
 	macKey, chainCode, err = utils.GenerateMacKey(combinedParts, hashedPasskey)
