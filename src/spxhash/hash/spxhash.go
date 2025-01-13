@@ -24,7 +24,6 @@ package spxhash
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/binary"
 	"io"
@@ -289,23 +288,30 @@ func (s *SphinxHash) sphinxHash(hash1, hash2 []byte, primeConstant uint64) []byt
 	// Step 1: Hash both input hashes to protect against pre-images.
 	// This step applies a chaining operation: H∘(x) = H0(H1(x)).
 	// We hash each input individually before combining them.
-	chainHash1 := sha256.Sum256(hash1) // Hash the first input hash with SHA-256.
-	chainHash2 := sha256.Sum256(hash2) // Hash the second input hash with SHA-256.
+	chainHash1 := sha512.New512_256()
+	chainHash1.Write(hash1)                 // Hash the first input hash using sha512.New512_256.
+	chainHash1Result := chainHash1.Sum(nil) // Get the result of the hash as a slice.
+
+	chainHash2 := sha512.New512_256()
+	chainHash2.Write(hash2)                 // Hash the second input hash using sha512.New512_256.
+	chainHash2Result := chainHash2.Sum(nil) // Get the result of the hash as a slice.
 
 	// Step 2: Combine the two hashed results into one hash.
 	// This concatenates (H|(x) = H0(x)|H1(x)) the results of the two SHA-256 hashes, which will be used for further processing.
-	combinedHash := bytes.Join([][]byte{chainHash1[:], chainHash2[:]}, nil)
+	combinedHash := bytes.Join([][]byte{chainHash1Result, chainHash2Result}, nil)
 
 	// Step 3: Hash the combined result to generate a final chained hash.
 	// By applying SHA-256 again on the combined hashes, we ensure that the final result has better security.
-	chainHash := sha256.Sum256(combinedHash) // Perform another SHA-256 hash to form the final combined result.
+	chainHash := sha512.New512_256()
+	chainHash.Write(combinedHash)         // Perform another SHA-512/256 hash on the combined result.
+	chainHashResult := chainHash.Sum(nil) // Get the final hash.
 
 	// Step 4: Initialize the output hash (sphinxHash) using the chained result.
 	// The combined hash from the previous step becomes the starting point for further transformations.
-	sphinxHash := chainHash[:] // Convert the [32]byte result to a []byte for further manipulation.
+	sphinxHash := chainHashResult // This is the current state of the hash.
 
 	// Step 5: Apply iterative rounds to increase diffusion and avalanche effects.
-	rounds := 3000 // Set the number of rounds for iterative hashing to enhance diffusion.
+	rounds := 2000 // Set the number of rounds for iterative hashing to enhance diffusion.
 	// The number of rounds is a critical factor for making sure that the hash undergoes substantial transformations
 	// through multiple rounds of mixing and re-hashing. The higher the number of rounds, the harder it becomes
 	// to predict the final output, even with a quantum computer or brute force attack.
@@ -342,8 +348,8 @@ func (s *SphinxHash) sphinxHash(hash1, hash2 []byte, primeConstant uint64) []byt
 		// This makes brute force attacks more difficult because attackers have to account for the cascade of changes caused by the previous rounds.
 		// Grover's algorithm, which can provide a quadratic speedup for brute-forcing quantum-resistant functions, would be less effective here.
 		// The multiple rounds of hashing make it harder to guess any specific bit of the output without fully processing through each round.
-		chainHash = sha256.Sum256(sphinxHash) // Re-hash the intermediate result.
-		sphinxHash = chainHash[:]             // Update sphinxHash with the new hash value after each round.
+		chainHash.Write(sphinxHash)     // Re-hash the intermediate result.
+		sphinxHash = chainHash.Sum(nil) // Update sphinxHash with the new hash value after each round.
 	}
 
 	// Step 6: Apply further mixing by adding the prime constant to each 64-bit segment of the hash.
