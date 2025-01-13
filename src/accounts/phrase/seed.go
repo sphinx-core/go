@@ -304,12 +304,12 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	salt := "Base32Passkey" + string(hashedPasskey)
 	saltBytes := []byte(salt)
 
-	// Step 9: Apply Sponge Construction (SHA-3) for every 8-byte group over multiple iterations.
+	// Step 9: Apply sphinx hash for every 8-byte group over multiple iterations.
 	transformedParts := make([]byte, 0) // Initialize an empty slice to hold the transformed data after operations.
 	iterations := 5                     // Define the number of iterations to perform operations across the data.
 
-	stateSize := 256 / 8             // SHA3-256 uses 512-256 state (32 bytes).
-	state := make([]byte, stateSize) // The state used for SHA3 Sponge construction.
+	stateSize := 256 / 8             // sphinx hash state (32 bytes).
+	state := make([]byte, stateSize) // The state used for sphinx hash.
 
 	for round := 0; round < iterations; round++ { // Iterate for the specified number of iterations.
 		for i := 0; i+7 < len(combinedParts); i += 8 { // Loop through the combinedParts slice in 8-byte chunks.
@@ -324,7 +324,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 			g := combinedParts[i+6]
 			h := combinedParts[i+7]
 
-			// Combine bytes into a single 64-bit value to feed into SHA-3
+			// Combine bytes into a single 64-bit value to feed into sphinx hash
 			dataBlock := make([]byte, 8) // Create an 8-byte slice to hold the 64-bit value.
 
 			// Create a 64-bit value from the 8 bytes (a, b, c, d, e, f, g, h) using bitwise operations.
@@ -341,16 +341,12 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 					uint64(h), // No shift required for byte 'h', it occupies the lowest 8 bits of the 64-bit value
 			)
 
-			// Absorb the current data block into the sponge state
-			// This step processes the current state using the SHA3-256 hash function.
-			// The SHA-3 sponge construction involves absorbing data into a state.
-			// The state will be updated by applying the SHA3-256 hash function
+			// This step processes the current state using the SphinxHash function.
+			// The SphinxHash sponge construction involves absorbing data into a state.
+			// The state will be updated by applying the SphinxHash function
 			// using the current `state` and `saltBytes` as inputs.
 
-			hash := sha3.New256() // Initialize a new SHA3-256 hash function.
-			hash.Write(state)     // Absorb the current state into the hash function.
-			hash.Write(saltBytes) // Absorb the saltBytes into the hash function to mix the salt with the state.
-			state = hash.Sum(nil) // Finalize the hash and return the updated state. This updated state is now ready for further operations.
+			state = common.SpxHash(append(state, saltBytes...)) // Apply SphinxHash with the current state and saltBytes.
 
 			// New mixing operation as per the requested formula
 			// This operation performs additional mixing on the current state.
