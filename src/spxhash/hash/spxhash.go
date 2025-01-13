@@ -304,14 +304,12 @@ func (s *SphinxHash) sphinxHash(hash1, hash2 []byte, primeConstant uint64) []byt
 	chainHash1.Write(hash1)                 // Hash the first input hash using sha512.New512_256.
 	chainHash1Result := chainHash1.Sum(nil) // Get the result of the hash as a slice.
 
-	// Determine the size of chain2 based on the result length of chainHash1.
-	chain2Size := len(chainHash1Result) // Set the size of chain2 dynamically based on chainHash1Result's length.
-
-	// Using SHAKE256 as the "chain2" step for further mixing and resistance.
-	chainHash2 := sha3.NewShake256()             // Create a SHAKE256 instance for hash2 processing.
-	chainHash2.Write(hash2)                      // Write hash2 to the SHAKE256 instance.
-	chainHash2Result := make([]byte, chain2Size) // Dynamically allocate space for the result based on chain2Size.
-	chainHash2.Read(chainHash2Result)            // Read the result into the allocated slice.
+	// Step 2: Use SHAKE256 as the "chain2" step for further mixing and resistance.
+	shake := sha3.NewShake256()                   // Create a SHAKE256 instance for hash2 processing.
+	shake.Write(hash2)                            // Write hash2 to the SHAKE256 instance.
+	shakeLength := s.Size()                       // Dynamically set the length of the output hash.
+	chainHash2Result := make([]byte, shakeLength) // Dynamically allocate space for the result based on shakeLength.
+	shake.Read(chainHash2Result)                  // Read the result into the allocated slice.
 
 	// Step 2: Combine the two hashed results into one hash.
 	// This concatenates (H|(x) = H0(x)|H1(x)) the results of the two hashes, which will be used for further processing.
