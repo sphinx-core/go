@@ -227,27 +227,36 @@ func (s *SphinxHash) Sum(b []byte) []byte {
 func (s *SphinxHash) Size() int {
 	switch s.bitSize {
 	case 256:
-		return 32 // 256 bits = 32 bytes
+		// SHA-512/256 produces a 256-bit output, equivalent to 32 bytes.
+		return 32 // 256 bits = 32 bytes (SHA-512/256)
 	case 384:
-		return 48 // 384 bits = 48 bytes
+		// SHA-384 produces a 384-bit output, equivalent to 48 bytes.
+		return 48 // 384 bits = 48 bytes (SHA-384)
 	case 512:
-		return 64 // 512 bits = 64 bytes
+		// SHA-512 produces a 512-bit output, equivalent to 64 bytes.
+		return 64 // 512 bits = 64 bytes (SHA-512)
 	default:
-		return 32 // Default to 256 bits
+		// Default to 256 bits (SHA-512/256) if bitSize is unspecified
+		return 32 // Default to 256 bits (SHA-512/256)
 	}
 }
 
 // BlockSize returns the hash block size based on the current bit size configuration.
 func (s *SphinxHash) BlockSize() int {
+	// Block size for SHA-512/256, SHA-384, SHA-512, and SHAKE256 can differ.
 	switch s.bitSize {
 	case 256:
-		return 136 // For SHAKE256 or SHA-256 (adjust based on SHAKE256 preference)
+		// SHA-512/256 uses the same block size as SHA-512.
+		return 128 // SHA-512/256 block size is 128 bytes (1024 bits)
 	case 384:
-		return 128 // For SHA-384
+		// SHA-384 block size is 128 bytes.
+		return 128 // SHA-384 block size is 128 bytes
 	case 512:
-		return 128 // For SHA-512
+		// SHA-512 block size is 128 bytes.
+		return 128 // SHA-512 block size is 128 bytes
 	default:
-		return 64 // Defaulting to SHA-256 block size for unspecified sizes
+		// Default to SHA-512/256 block size (128 bytes) if bitSize is unspecified
+		return 128 // Default to SHA-512/256 block size (128 bytes)
 	}
 }
 
@@ -269,11 +278,10 @@ func (s *SphinxHash) hashData(data []byte) []byte {
 	shake := sha3.NewShake256()
 	shake.Write(stretchedKey) // Use the stretched key for SHAKE256.
 
-	// Dynamically determine the length of the shake output.
-	// You can choose a length based on the desired output size or some internal state.
-	// For example, let’s say we base the length on the length of sha2Hash.
-	shakeHash := make([]byte, len(sha2Hash)) // Use the length of the SHA2 hash as the length for SHAKE256.
-	shake.Read(shakeHash)                    // Read the resulting hash into shakeHash.
+	// Dynamically determine the length of the shake output based on the size.
+	shakeLength := s.Size()                // Use the Size function to dynamically set the output length for SHAKE256.
+	shakeHash := make([]byte, shakeLength) // Create a slice for the dynamically determined length.
+	shake.Read(shakeHash)                  // Read the resulting hash into shakeHash.
 
 	// Step 3: Combine both the hashes (SHA-256 and SHAKE256) using SphinxHash.
 	return s.sphinxHash(sha2Hash, shakeHash, prime32) // Pass the hashes and prime constant to SphinxHash for combination.
