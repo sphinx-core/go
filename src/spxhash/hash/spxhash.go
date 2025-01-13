@@ -267,9 +267,13 @@ func (s *SphinxHash) hashData(data []byte) []byte {
 
 	// Step 2: Compute SHAKE256 (a variable-length cryptographic hash function).
 	shake := sha3.NewShake256()
-	shake.Write(stretchedKey)     // Use the stretched key for SHAKE256 as well.
-	shakeHash := make([]byte, 32) // Prepare a slice to store 256-bit (32-byte) hash.
-	shake.Read(shakeHash)         // Read the resulting hash into shakeHash.
+	shake.Write(stretchedKey) // Use the stretched key for SHAKE256.
+
+	// Dynamically determine the length of the shake output.
+	// You can choose a length based on the desired output size or some internal state.
+	// For example, let’s say we base the length on the length of sha2Hash.
+	shakeHash := make([]byte, len(sha2Hash)) // Use the length of the SHA2 hash as the length for SHAKE256.
+	shake.Read(shakeHash)                    // Read the resulting hash into shakeHash.
 
 	// Step 3: Combine both the hashes (SHA-256 and SHAKE256) using SphinxHash.
 	return s.sphinxHash(sha2Hash, shakeHash, prime32) // Pass the hashes and prime constant to SphinxHash for combination.
@@ -292,12 +296,17 @@ func (s *SphinxHash) sphinxHash(hash1, hash2 []byte, primeConstant uint64) []byt
 	chainHash1.Write(hash1)                 // Hash the first input hash using sha512.New512_256.
 	chainHash1Result := chainHash1.Sum(nil) // Get the result of the hash as a slice.
 
-	chainHash2 := sha512.New512_256()
-	chainHash2.Write(hash2)                 // Hash the second input hash using sha512.New512_256.
-	chainHash2Result := chainHash2.Sum(nil) // Get the result of the hash as a slice.
+	// Determine the size of chain2 based on the result length of chainHash1.
+	chain2Size := len(chainHash1Result) // Set the size of chain2 dynamically based on chainHash1Result's length.
+
+	// Using SHAKE256 as the "chain2" step for further mixing and resistance.
+	chainHash2 := sha3.NewShake256()             // Create a SHAKE256 instance for hash2 processing.
+	chainHash2.Write(hash2)                      // Write hash2 to the SHAKE256 instance.
+	chainHash2Result := make([]byte, chain2Size) // Dynamically allocate space for the result based on chain2Size.
+	chainHash2.Read(chainHash2Result)            // Read the result into the allocated slice.
 
 	// Step 2: Combine the two hashed results into one hash.
-	// This concatenates (H|(x) = H0(x)|H1(x)) the results of the two SHA-256 hashes, which will be used for further processing.
+	// This concatenates (H|(x) = H0(x)|H1(x)) the results of the two hashes, which will be used for further processing.
 	combinedHash := bytes.Join([][]byte{chainHash1Result, chainHash2Result}, nil)
 
 	// Step 3: Hash the combined result to generate a final chained hash.
