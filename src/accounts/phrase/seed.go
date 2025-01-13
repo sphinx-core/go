@@ -400,13 +400,13 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		fmt.Println("Size of combinedParts in bytes:", len(combinedParts)) // Print the size in bytes
 	}
 
-	// Initialize the combinedParts slice with sequential byte values (0 to 127)
-	// This slice will contain 128 elements, where each byte is sequentially assigned
-	// values from 0 to 127. These values represent the pool of bytes from which we will
-	// randomly select a subset later.
+	// Initialize the combinedParts slice with byte values ranging from 0 to 127.
+	// This slice serves as a pool of 128 sequential bytes, where each element
+	// is assigned its respective value (e.g., combinedParts[0] = 0, combinedParts[1] = 1, etc.).
+	// These values can later be used for random selection or other operations.
 	combinedParts = make([]byte, 128)
 	for i := range combinedParts {
-		combinedParts[i] = byte(i) // Assign each element in the slice its respective byte value.
+		combinedParts[i] = byte(i) // Assign each element in the slice its corresponding byte value.
 	}
 
 	// Generate a random output length between 6 and 8 bytes.
@@ -470,13 +470,13 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	// Step 12: Generate a MacKey it used for validated combinedparts (Base32passkey) during login seasons.
 	macKey, chainCode, err = utils.GenerateMacKey(combinedParts, hashedPasskey)
 	if err != nil {
-		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
+		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate macKey: %v", err)
 	}
 
 	// Step 13: Generated a Fingerprint (a chain of generated passphrase and combinedparts).
 	fingerprint, err = utils.GenerateChainCode(passphrase, combinedParts, hashedPasskey)
 	if err != nil {
-		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate HMAC key: %v", err)
+		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
 	}
 
 	// Return the generated passphrase, encoded passkey, hashed passkey, and fingerprint.
