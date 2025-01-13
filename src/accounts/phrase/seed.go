@@ -301,7 +301,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 
 	// Step 8: Create salt by combining "Base32Passkey" with the selected parts of the hashed passkey.
 	// We concatenate the string "Base32Passkey" with the first 64 bytes of the hashed passkey to create a salt.
-	salt := "Base32Passkey" + string(hashedPasskey[:64])
+	salt := "Base32Passkey" + string(hashedPasskey)
 	saltBytes := []byte(salt)
 
 	// Step 9: Apply Sponge Construction (SHA-3) for every 8-byte group over multiple iterations.
@@ -467,13 +467,13 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	// This is because Base32 uses padding to ensure the output length is a multiple of 8 characters.
 	base32Encoded := EncodeBase32(combinedParts) // Base32 encodes the 8-byte output.
 
-	// Step 12: Generate a fingerprint and chain code (a chain of combinedparts and fingerprint) using generated hashed passkey and reduced parts.
+	// Step 12: Generate a MacKey it used for validated combinedparts (Base32passkey) during login seasons.
 	macKey, chainCode, err = utils.GenerateMacKey(combinedParts, hashedPasskey)
 	if err != nil {
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
 	}
 
-	// Step 13: GenerateHmacKey to chaining generated passphrase and combinedparts.
+	// Step 13: Generated a Fingerprint (a chain of generated passphrase and combinedparts).
 	fingerprint, err = utils.GenerateChainCode(passphrase, combinedParts, hashedPasskey)
 	if err != nil {
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate HMAC key: %v", err)
