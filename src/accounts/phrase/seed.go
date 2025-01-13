@@ -315,14 +315,14 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		for i := 0; i+7 < len(combinedParts); i += 8 { // Loop through the combinedParts slice in 8-byte chunks.
 
 			// Extract each byte of the current 8-byte group into separate variables (a, b, c, d, e, f, g, h).
-			a := combinedParts[i]   // First byte of the group
-			b := combinedParts[i+1] // Second byte of the group
-			c := combinedParts[i+2] // Third byte of the group
-			d := combinedParts[i+3] // Fourth byte of the group
-			e := combinedParts[i+4] // Fifth byte of the group
-			f := combinedParts[i+5] // Sixth byte of the group
-			g := combinedParts[i+6] // Seventh byte of the group
-			h := combinedParts[i+7] // Eighth byte of the group
+			a := combinedParts[i]
+			b := combinedParts[i+1]
+			c := combinedParts[i+2]
+			d := combinedParts[i+3]
+			e := combinedParts[i+4]
+			f := combinedParts[i+5]
+			g := combinedParts[i+6]
+			h := combinedParts[i+7]
 
 			// Combine bytes into a single 64-bit value to feed into SHA-3
 			dataBlock := make([]byte, 8) // Create an 8-byte slice to hold the 64-bit value.
