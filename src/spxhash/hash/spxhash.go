@@ -25,6 +25,7 @@ package spxhash
 import (
 	"bytes"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/binary"
 	"io"
 	"sync"
@@ -260,9 +261,10 @@ func (s *SphinxHash) hashData(data []byte) []byte {
 	// Key stretching using Argon2id, which is a memory-hard function to improve resistance against brute-force attacks.
 	stretchedKey := argon2.IDKey(combined, s.salt, iterations, memory, parallelism, 64) // Generate a 64-byte key.
 
-	// Step 1: Compute SHA-256 on the stretched key.
-	hash := sha256.Sum256(stretchedKey) // Hash the stretched key using SHA-256.
-	sha2Hash = hash[:]                  // Convert the hash array into a slice.
+	// Step 1: Compute SHA-512/256 on the stretched key.
+	hash := sha512.New512_256() // Create a new SHA-512/256 hash instance.
+	hash.Write(stretchedKey)    // Hash the stretched key using SHA-512/256.
+	sha2Hash = hash.Sum(nil)    // Get the resulting hash.
 
 	// Step 2: Compute SHAKE256 (a variable-length cryptographic hash function).
 	shake := sha3.NewShake256()
