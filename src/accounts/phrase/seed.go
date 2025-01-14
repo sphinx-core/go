@@ -347,7 +347,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 			// The state will be updated by applying the SHA3-256 hash function
 			// using the current `state` and `saltBytes` as inputs.
 
-			hash := sha3.New384() // Initialize a new SHA3-256 hash function.
+			hash := sha3.New256() // Initialize a new SHA3-256 hash function.
 			hash.Write(state)     // Absorb the current state into the hash function.
 			hash.Write(saltBytes) // Absorb the saltBytes into the hash function to mix the salt with the state.
 			state = hash.Sum(nil) // Finalize the hash and return the updated state. This updated state is now ready for further operations.
