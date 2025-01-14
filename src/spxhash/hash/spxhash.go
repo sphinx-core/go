@@ -314,7 +314,7 @@ func (s *SphinxHash) sphinxHash(hash1, hash2 []byte, primeConstant uint64) []byt
 
 	// Step 3: Combine the two hashed results into one hash.
 	// This concatenates (H|(x) = H0(x)|H1(x)) the results of the two hashes, which will be used for further processing.
-	combinedHash := bytes.Join([][]byte{chainHash1Result, chainHash2Result}, nil)
+	combinedHash := bytes.Join([][]byte{chainHash1Result[:], chainHash2Result[:]}, nil)
 
 	// Step 3: Hash the combined result to generate a final chained hash.
 	// By applying SHA-256 again on the combined hashes, we ensure that the final result has better security.
