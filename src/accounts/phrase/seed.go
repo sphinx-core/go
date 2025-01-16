@@ -282,8 +282,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to hash passkey: %v", err)
 	}
 
-	// Step 5: Truncate the hashed passkey to 384 bits (64 bytes).
-	// We take the first 64 bytes of the SHA3-512 hash to use in further steps.
+	// Step 5: Call 512-bit hashedPasskey as key combinied material
 	selectedParts := hashedPasskey
 
 	// Step 6: Generate a nonce (16 bytes).
@@ -308,7 +307,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	transformedParts := make([]byte, 0) // Initialize an empty slice to hold the transformed data after operations.
 	iterations := 5                     // Define the number of iterations to perform operations across the data.
 
-	stateSize := 384 / 8             // SHA3-384 uses a 512-bit (64-byte) state size.
+	stateSize := 256 / 8             // SHA3-256 uses a 512-bit (32-byte) state size.
 	state := make([]byte, stateSize) // The state used for SHA3 Sponge construction.
 
 	for round := 0; round < iterations; round++ { // Iterate for the specified number of iterations.
