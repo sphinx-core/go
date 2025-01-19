@@ -59,7 +59,7 @@ func main() {
 	}
 
 	// Step 4: Verify the fingerprint
-	isValidFingerprint, err := auth.VerifyFingerPrint(base32Passkey, passphrase, fingerprint)
+	isValidFingerprint, err := auth.VerifyFingerPrint(base32Passkey, passphrase)
 	if err != nil {
 		// If verification fails, print an error message
 		fmt.Printf("Fingerprint verification failed: %v\n", err)

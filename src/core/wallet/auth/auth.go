@@ -26,9 +26,16 @@ import (
 	"crypto/hmac"
 	"encoding/base32"
 	"fmt"
+	"sync"
 
 	"golang.org/x/crypto/sha3"
 )
+
+// Mutex to protect access to the stored fingerprints
+var mu sync.Mutex
+
+// Map to store generated fingerprints by some identifier (e.g., passkey)
+var storedFingerprints = make(map[string][]byte)
 
 // GenerateHMAC generates a keyed-hash message authentication code (HMAC) using SHA3-512 (Keccak-512).
 // Parameters:
@@ -82,7 +89,12 @@ func GenerateChainCode(passphrase string, combinedParts, hashedPasskey []byte) (
 		return nil, fmt.Errorf("failed to generate fingerprint: %v", err)
 	}
 
-	// Return only the fingerprint.
+	// Store the generated fingerprint in memory using the passphrase as the key
+	mu.Lock() // Locking to ensure safe access to the stored fingerprints
+	storedFingerprints[passphrase] = fingerprint
+	mu.Unlock()
+
+	// Return the generated fingerprint.
 	return fingerprint, nil
 }
 
@@ -94,7 +106,7 @@ func GenerateChainCode(passphrase string, combinedParts, hashedPasskey []byte) (
 // Returns:
 // - true if authentication is successful, false otherwise.
 // - An error if the process encounters issues.
-func VerifyFingerPrint(Base32Passkey, passphrase string, storedFingerprint []byte) (bool, error) {
+func VerifyFingerPrint(Base32Passkey, passphrase string) (bool, error) {
 	// Decode the Base32 passkey to get its byte representation.
 	decodedPasskey, err := DecodeBase32(Base32Passkey)
 	if err != nil {
@@ -109,6 +121,16 @@ func VerifyFingerPrint(Base32Passkey, passphrase string, storedFingerprint []byt
 
 	// Print the generated fingerprint (in hex) regardless of whether it's a match
 	fmt.Printf("Generated Fingerprint: %x\n", generatedFingerprint)
+
+	// Lock and retrieve the stored fingerprint from the map
+	mu.Lock()
+	storedFingerprint, exists := storedFingerprints[passphrase]
+	mu.Unlock()
+
+	// If no stored fingerprint exists, authentication fails
+	if !exists {
+		return false, fmt.Errorf("no stored fingerprint for passphrase: %v", passphrase)
+	}
 
 	// Compare the generated fingerprint with the stored fingerprint.
 	if len(generatedFingerprint) != len(storedFingerprint) {
