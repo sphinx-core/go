@@ -27,6 +27,7 @@ import (
 	"log"
 
 	seed "github.com/sphinx-core/go/src/accounts/phrase"
+	auth "github.com/sphinx-core/go/src/core/wallet/auth"
 	utils "github.com/sphinx-core/go/src/core/wallet/utils"
 )
 
@@ -58,7 +59,7 @@ func main() {
 	}
 
 	// Step 4: Verify the fingerprint using VerifyFingerPrint function
-	isValidFingerprint, err := utils.VerifyFingerPrint(base32Passkey, passphrase, fingerprint)
+	isValidFingerprint, err := auth.VerifyFingerPrint(base32Passkey, passphrase, fingerprint)
 	if err != nil {
 		// If verification fails, print an error message
 		fmt.Printf("Fingerprint verification failed: %v\n", err)

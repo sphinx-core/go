@@ -37,6 +37,7 @@ import (
 	sips3 "github.com/sphinx-core/go/src/accounts/mnemonic"
 	"github.com/sphinx-core/go/src/common"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
+	auth "github.com/sphinx-core/go/src/core/wallet/auth"
 	utils "github.com/sphinx-core/go/src/core/wallet/utils"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/sha3"
@@ -473,7 +474,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	}
 
 	// Step 13: Generated a Fingerprint (a chain of generated passphrase and combinedparts).
-	fingerprint, err = utils.GenerateChainCode(passphrase, combinedParts, hashedPasskey)
+	fingerprint, err = auth.GenerateChainCode(passphrase, combinedParts, hashedPasskey)
 	if err != nil {
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
 	}
