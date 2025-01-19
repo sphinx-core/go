@@ -474,7 +474,7 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	}
 
 	// Step 13: Generated a Fingerprint (a chain of generated passphrase and combinedparts).
-	fingerprint, err = auth.GenerateChainCode(passphrase, combinedParts, hashedPasskey)
+	fingerprint, err = auth.GenerateChainCode(passphrase, combinedParts)
 	if err != nil {
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
 	}

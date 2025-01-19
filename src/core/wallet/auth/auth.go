@@ -66,9 +66,9 @@ func DecodeBase32(base32Str string) ([]byte, error) {
 }
 
 // GenerateChainCode generates a fingerprint (HMAC) by applying HMAC-SHA3-512 on the combined input data.
-func GenerateChainCode(passphrase string, combinedParts, hashedPasskey []byte) ([]byte, error) {
-	// Combine the passphrase, combined parts, and hashed passkey into a single byte slice.
-	KeyMaterial := append(append([]byte(passphrase), combinedParts...), hashedPasskey...)
+func GenerateChainCode(passphrase string, combinedParts []byte) ([]byte, error) {
+	// Combine the passphrase and combinedParts (Base32 passkey) into a single byte slice.
+	KeyMaterial := append([]byte(passphrase), combinedParts...)
 
 	// Generate the fingerprint (HMAC) using the combined data and passphrase as the key.
 	fingerprint, err := GenerateHMAC(KeyMaterial, []byte(passphrase))
@@ -93,7 +93,7 @@ func VerifyFingerPrint(Base32Passkey, passphrase string) (bool, error) {
 		return false, fmt.Errorf("failed to decode passkey: %v", err)
 	}
 
-	// Combine the passkey and passphrase into a single byte slice
+	// Combine the decoded passkey and passphrase into a single byte slice
 	dataToHash := append(decodedPasskey, []byte(passphrase)...)
 
 	// Generate the fingerprint using the combined data (passkey + passphrase).
