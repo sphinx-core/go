@@ -55,7 +55,7 @@ func main() {
 		fmt.Printf("Verification failed: %v\n", err)
 	} else {
 		// If verification succeeds, display the results
-		fmt.Printf("Verification result: %t\n", isValidmacKey) // Indicate whether the passkey is valid
+		fmt.Printf("Verification macKey result: %t\n", isValidmacKey) // Indicate whether the passkey is valid
 	}
 
 	// Step 4: Verify the fingerprint
@@ -65,7 +65,7 @@ func main() {
 		fmt.Printf("Fingerprint verification failed: %v\n", err)
 	} else if isValidFingerprint {
 		// If the fingerprint verification succeeds, display the result
-		fmt.Printf("Verification result: %t\n", isValidFingerprint)
+		fmt.Printf("Verification fingerprint result: %t\n", isValidFingerprint)
 	} else {
 		// If the fingerprint does not match
 		fmt.Println("Fingerprint did not match!")
