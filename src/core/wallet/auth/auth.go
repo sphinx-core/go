@@ -73,9 +73,6 @@ func GenerateChainCode(passphrase string, combinedParts []byte) ([]byte, error) 
 	// Combine the passphrase and combinedParts (Base32 passkey) into a single byte slice.
 	KeyMaterial := append([]byte(passphrase), combinedParts...)
 
-	// Debugging: Print the KeyMaterial for both passphrase and Base32 passkey
-	fmt.Printf("KeyMaterial: %x\n", KeyMaterial)
-
 	// Generate the fingerprint (HMAC) using the combined data (passphrase + Base32 passkey) and passphrase as the key.
 	fingerprint, err := GenerateHMAC(KeyMaterial, []byte(passphrase))
 	if err != nil {
