@@ -58,7 +58,7 @@ func main() {
 		fmt.Printf("Verification result: %t\n", isValidmacKey) // Indicate whether the passkey is valid
 	}
 
-	// Step 4: Verify the fingerprint using VerifyFingerPrint function
+	// Step 4: Verify the fingerprint
 	isValidFingerprint, err := auth.VerifyFingerPrint(base32Passkey, passphrase, fingerprint)
 	if err != nil {
 		// If verification fails, print an error message

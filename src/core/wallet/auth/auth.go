@@ -50,15 +50,16 @@ func GenerateHMAC(data []byte, key []byte) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
-// DecodeBase32 decodes a Base32-encoded string into its byte representation.
-// Parameters:
-// - s: The input Base32-encoded string.
-// Returns:
-// - The decoded byte slice, or an error if decoding fails.
-func DecodeBase32(s string) ([]byte, error) {
-	decoded, err := base32.StdEncoding.DecodeString(s)
+// EncodeBase32 encodes a byte slice into a Base32 string without padding
+func EncodeBase32(data []byte) string {
+	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(data)
+}
+
+// DecodeBase32 decodes a Base32 string into a byte slice
+func DecodeBase32(base32Str string) ([]byte, error) {
+	decoded, err := base32.StdEncoding.DecodeString(base32Str)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode Base32 passkey: %v", err)
+		return nil, fmt.Errorf("failed to decode base32 string: %v", err)
 	}
 	return decoded, nil
 }
