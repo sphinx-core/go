@@ -140,5 +140,5 @@ func main() {
 
 	// Print the number of bytes loaded during verification
 	// This includes the size of the signature and the Merkle root hash loaded during verification
-	fmt.Printf("Bytes loaded during verification: Signature: %d bytes, Merkle root hash: %d bytes\n", len(sigBytes), len(loadedHash))
+	fmt.Printf("Bytes loaded during verification: Signature: %d bytes, HashTree (root hash): %d bytes\n", len(sigBytes), len(loadedHash))
 }
