@@ -23,7 +23,7 @@
 package auth
 
 import (
-	"bytes" // Import the bytes package for comparison
+	"bytes"
 	"crypto/hmac"
 	"encoding/base32"
 	"fmt"
@@ -106,9 +106,8 @@ func VerifyFingerPrint(Base32Passkey, passphrase string) (bool, error) {
 	}
 
 	// Retrieve the stored fingerprint from memory
-	mu.Lock()                                                    // Lock access to storedFingerprints for thread safety
-	key := string(append([]byte(passphrase), decodedPasskey...)) // Re-create the key for lookup
-	storedFingerprint, exists := storedFingerprints[key]
+	mu.Lock()                                                            // Lock access to storedFingerprints for thread safety
+	storedFingerprint, exists := storedFingerprints[string(KeyMaterial)] // Directly use m[string(key)]
 	mu.Unlock()
 
 	if !exists {
