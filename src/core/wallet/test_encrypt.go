@@ -81,9 +81,13 @@ func main() {
 	// Initialize crypter for encryption/decryption
 	crypt := &crypter.CCrypter{}
 	// Generate random salt for encryption
+	// Generate random salt for encryption with correct length (16 bytes)
 	salt, err := crypter.GenerateRandomBytes(crypter.WALLET_CRYPTO_IV_SIZE)
 	if err != nil {
 		log.Fatalf("Failed to generate salt: %v", err) // Log and exit if salt generation fails
+	}
+	if len(salt) != crypter.WALLET_CRYPTO_IV_SIZE {
+		log.Fatalf("Invalid salt length: expected %d, got %d", crypter.WALLET_CRYPTO_IV_SIZE, len(salt))
 	}
 
 	// Convert passphrase and base32Passkey to []byte
