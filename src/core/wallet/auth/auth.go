@@ -52,6 +52,13 @@ func DecodeBase32(base32Str string) ([]byte, error) {
 	return decoded, nil
 }
 
+// memoryCleanse overwrites a byte slice with zeroes to securely erase sensitive data
+func memoryCleanse(buf []byte) {
+	for i := range buf {
+		buf[i] = 0
+	}
+}
+
 // GenerateHMAC generates a keyed-hash message authentication code (HMAC) using SHA3-512 (Keccak-512).
 func GenerateHMAC(data []byte, key []byte) ([]byte, error) {
 	h := hmac.New(sha3.NewLegacyKeccak512, key)
@@ -83,6 +90,10 @@ func GenerateChainCode(passphrase string, combinedParts []byte) ([]byte, error) 
 	storedFingerprints[key] = fingerprint
 
 	mu.Unlock()
+
+	// Securely cleanse the sensitive data
+	memoryCleanse(KeyMaterial)
+	memoryCleanse([]byte(passphrase)) // Securely cleanse passphrase
 
 	// Return the generated fingerprint.
 	return fingerprint, nil
@@ -123,6 +134,10 @@ func VerifyFingerPrint(Base32Passkey, passphrase string) (bool, error) {
 		// If they do not match, verification fails
 		return false, fmt.Errorf("fingerprint mismatch")
 	}
+
+	// Securely cleanse the sensitive data after use
+	memoryCleanse(KeyMaterial)
+	memoryCleanse([]byte(passphrase)) // Securely cleanse passphrase
 
 	// If everything matches, verification succeeds
 	return true, nil
