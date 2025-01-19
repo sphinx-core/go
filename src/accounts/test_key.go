@@ -48,12 +48,25 @@ func main() {
 
 	// Step 3: Verify the Base32 passkey
 	// Now using the `VerifyBase32Passkey` function from `utils`, which no longer generates a root hash.
-	isValid, _, _, err := utils.VerifyBase32Passkey(base32Passkey)
+	isValidmacKey, _, _, err := utils.VerifyBase32Passkey(base32Passkey)
 	if err != nil {
 		// If verification fails, print an error message
 		fmt.Printf("Verification failed: %v\n", err)
 	} else {
 		// If verification succeeds, display the results
-		fmt.Printf("Verification result: %t\n", isValid) // Indicate whether the passkey is valid
+		fmt.Printf("Verification result: %t\n", isValidmacKey) // Indicate whether the passkey is valid
+	}
+
+	// Step 4: Verify the fingerprint using VerifyFingerPrint function
+	isValidFingerprint, err := utils.VerifyFingerPrint(base32Passkey, passphrase, fingerprint)
+	if err != nil {
+		// If verification fails, print an error message
+		fmt.Printf("Fingerprint verification failed: %v\n", err)
+	} else if isValidFingerprint {
+		// If the fingerprint verification succeeds, display the result
+		fmt.Println("Fingerprint verification succeeded!")
+	} else {
+		// If the fingerprint does not match
+		fmt.Println("Fingerprint did not match!")
 	}
 }

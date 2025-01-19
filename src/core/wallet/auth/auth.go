@@ -24,7 +24,7 @@ package utils
 
 import (
 	"crypto/hmac"
-	"encoding/hex"
+	"encoding/base32"
 	"fmt"
 
 	"golang.org/x/crypto/sha3"
@@ -50,14 +50,17 @@ func GenerateHMAC(data []byte, key []byte) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
-// isHex checks if a string is a valid hexadecimal representation.
+// DecodeBase32 decodes a Base32-encoded string into its byte representation.
 // Parameters:
-// - s: The input string to validate.
+// - s: The input Base32-encoded string.
 // Returns:
-// - true if the string is valid hexadecimal, false otherwise.
-func isHex(s string) bool {
-	_, err := hex.DecodeString(s)
-	return err == nil
+// - The decoded byte slice, or an error if decoding fails.
+func DecodeBase32(s string) ([]byte, error) {
+	decoded, err := base32.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode Base32 passkey: %v", err)
+	}
+	return decoded, nil
 }
 
 // GenerateChainCode generates a fingerprint (HMAC) by applying HMAC-SHA3-512 on the combined input data.
@@ -70,37 +73,41 @@ func isHex(s string) bool {
 // - An error if the process fails.
 func GenerateChainCode(passphrase string, combinedParts, hashedPasskey []byte) ([]byte, error) {
 	// Combine the passphrase, combined parts, and hashed passkey into a single byte slice.
-	combined := append(append([]byte(passphrase), combinedParts...), hashedPasskey...)
+	KeyMaterial := append(append([]byte(passphrase), combinedParts...), hashedPasskey...)
 
 	// Generate the fingerprint (HMAC) using the combined data and passphrase as the key.
-	fingerprint, err := GenerateHMAC(combined, []byte(passphrase))
+	fingerprint, err := GenerateHMAC(KeyMaterial, []byte(passphrase))
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate chain code: %v", err)
+		return nil, fmt.Errorf("failed to generate fingerprint: %v", err)
 	}
 
+	// Return only the fingerprint.
 	return fingerprint, nil
 }
 
-// VerifyLogin authenticates a user by comparing a generated fingerprint with a stored one.
+// VerifyFingerPrint authenticates a user by comparing a generated fingerprint with a stored one.
 // Parameters:
-// - Base32Passkey: A base32-encoded string representing the user's passkey (expected in hexadecimal format).
+// - Base32Passkey: A Base32-encoded string representing the user's passkey.
 // - passphrase: The secret passphrase used for generating the fingerprint.
 // - storedFingerprint: The previously stored fingerprint to compare against.
-// - combinedParts: Additional data used during fingerprint generation.
 // Returns:
 // - true if authentication is successful, false otherwise.
 // - An error if the process encounters issues.
-func VerifyFingerPrint(Base32Passkey, passphrase string, storedFingerprint []byte, combinedParts []byte) (bool, error) {
-	// Validate that the input Base32Passkey is a valid hexadecimal string.
-	if !isHex(Base32Passkey) {
-		return false, fmt.Errorf("invalid hexadecimal input")
+func VerifyFingerPrint(Base32Passkey, passphrase string, storedFingerprint []byte) (bool, error) {
+	// Decode the Base32 passkey to get its byte representation.
+	decodedPasskey, err := DecodeBase32(Base32Passkey)
+	if err != nil {
+		return false, fmt.Errorf("failed to decode passkey: %v", err)
 	}
 
-	// Generate a fingerprint using the passphrase and combined parts.
-	generatedFingerprint, err := GenerateChainCode(passphrase, combinedParts, []byte(Base32Passkey))
+	// Generate the fingerprint using the decoded passkey and passphrase.
+	generatedFingerprint, err := GenerateHMAC(decodedPasskey, []byte(passphrase))
 	if err != nil {
-		return false, fmt.Errorf("failed to generate chain code: %v", err)
+		return false, fmt.Errorf("failed to generate fingerprint: %v", err)
 	}
+
+	// Print the generated fingerprint (in hex) regardless of whether it's a match
+	fmt.Printf("Generated Fingerprint: %x\n", generatedFingerprint)
 
 	// Compare the generated fingerprint with the stored fingerprint.
 	if len(generatedFingerprint) != len(storedFingerprint) {
@@ -113,6 +120,9 @@ func VerifyFingerPrint(Base32Passkey, passphrase string, storedFingerprint []byt
 			return false, nil
 		}
 	}
+
+	// Print success message when the fingerprints match
+	fmt.Println("Fingerprint matched successfully!")
 
 	return true, nil // Fingerprints match; authentication is successful.
 }
