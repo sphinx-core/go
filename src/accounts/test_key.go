@@ -65,7 +65,7 @@ func main() {
 		fmt.Printf("Fingerprint verification failed: %v\n", err)
 	} else if isValidFingerprint {
 		// If the fingerprint verification succeeds, display the result
-		fmt.Println("Fingerprint verification succeeded!")
+		fmt.Printf("Verification result: %t\n", isValidFingerprint)
 	} else {
 		// If the fingerprint does not match
 		fmt.Println("Fingerprint did not match!")

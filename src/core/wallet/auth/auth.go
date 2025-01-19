@@ -23,6 +23,7 @@
 package auth
 
 import (
+	"bytes" // Import the bytes package for comparison
 	"crypto/hmac"
 	"encoding/base32"
 	"fmt"
@@ -34,7 +35,7 @@ import (
 // Mutex to protect access to the stored fingerprints
 var mu sync.Mutex
 
-// Map to store generated fingerprints (HMAC) directly by the Base32 encoded fingerprint string
+// Map to store generated fingerprints (HMAC) directly by the combined key
 var storedFingerprints = make(map[string][]byte)
 
 // EncodeBase32 encodes a byte slice into a Base32 string without padding
@@ -77,13 +78,9 @@ func GenerateChainCode(passphrase string, combinedParts []byte) ([]byte, error) 
 	// Store the generated fingerprint in memory directly as raw bytes
 	mu.Lock() // Locking to ensure safe access to the stored fingerprints
 
-	// Use passphrase + combinedParts as the key to store the fingerprint
+	// Combine passphrase and combinedParts as the single key for storing the fingerprint
 	key := string(append([]byte(passphrase), combinedParts...))
 	storedFingerprints[key] = fingerprint
-
-	// Debugging: Print the key used to store the fingerprint
-	fmt.Printf("Stored Key: %s\n", key)
-	fmt.Printf("Stored Fingerprint: %x\n", fingerprint)
 
 	mu.Unlock()
 
@@ -93,41 +90,38 @@ func GenerateChainCode(passphrase string, combinedParts []byte) ([]byte, error) 
 
 // VerifyFingerPrint authenticates a user by comparing a generated fingerprint with a stored one.
 func VerifyFingerPrint(Base32Passkey, passphrase string) (bool, error) {
-	mu.Lock() // Lock memory access for thread-safety
-	defer mu.Unlock()
-
-	// Decode the Base32 passkey to get its byte representation.
+	// Decode the Base32 passkey into its original byte slice
 	decodedPasskey, err := DecodeBase32(Base32Passkey)
 	if err != nil {
-		return false, fmt.Errorf("failed to decode passkey: %v", err)
+		return false, fmt.Errorf("failed to decode Base32 passkey: %v", err)
 	}
 
-	// Combine the decoded passkey and passphrase into a single byte slice
-	combined := append(decodedPasskey, []byte(passphrase)...)
+	// Combine the passphrase and the decoded passkey into a single byte slice for verification
+	KeyMaterial := append([]byte(passphrase), decodedPasskey...)
 
-	// Generate the fingerprint using the combined data (passkey + passphrase).
-	generatedFingerprint, err := GenerateHMAC(combined, []byte(passphrase))
+	// Generate the fingerprint using the same method as in GenerateChainCode
+	generatedFingerprint, err := GenerateHMAC(KeyMaterial, []byte(passphrase))
 	if err != nil {
-		return false, fmt.Errorf("failed to generate fingerprint: %v", err)
+		return false, fmt.Errorf("failed to generate fingerprint for verification: %v", err)
 	}
 
-	// Retrieve the stored fingerprint from the map using the Base32 encoded passkey
-	storedFingerprint, exists := storedFingerprints[Base32Passkey]
+	// Retrieve the stored fingerprint from memory
+	mu.Lock()                                                    // Lock access to storedFingerprints for thread safety
+	key := string(append([]byte(passphrase), decodedPasskey...)) // Re-create the key for lookup
+	storedFingerprint, exists := storedFingerprints[key]
+	mu.Unlock()
+
 	if !exists {
-		// If no stored fingerprint exists for the passphrase and Base32 passkey combination, authentication fails
-		return false, fmt.Errorf("no stored fingerprint for the given passphrase and Base32 passkey combination")
+		// If the fingerprint is not found in memory, verification fails
+		return false, fmt.Errorf("no stored fingerprint found for the provided passphrase and Base32 passkey")
 	}
 
-	// Debugging statement to ensure the comparison is correct
-	fmt.Printf("Stored Fingerprint: %x\n", storedFingerprint)
-
-	// Compare the generated fingerprint with the stored fingerprint.
-	if string(storedFingerprint) == string(generatedFingerprint) {
-		// If they match, authentication is successful
-		return true, nil
+	// Compare the generated fingerprint with the stored fingerprint
+	if !bytes.Equal(generatedFingerprint, storedFingerprint) {
+		// If they do not match, verification fails
+		return false, fmt.Errorf("fingerprint mismatch")
 	}
 
-	// Debugging statement if the fingerprints don't match
-	fmt.Println("Fingerprint did not match!")
-	return false, nil // Fingerprints don't match; authentication failed.
+	// If everything matches, verification succeeds
+	return true, nil
 }
