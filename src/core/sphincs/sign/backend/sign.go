@@ -106,7 +106,7 @@ func (km *SphincsManager) SignMessage(message []byte, deserializedSK *sphincs.SP
 	// to the expected Merkle root.
 
 	// Build a Merkle tree from the signature parts and retrieve the root node
-	merkleRoot, err := buildMerkleTreeFromSignature(sigParts)
+	merkleRoot, err := buildHashTreeFromSignature(sigParts)
 	if err != nil {
 		// Return an error if the Merkle tree construction fails
 		return nil, nil, err
@@ -177,7 +177,7 @@ func (sm *SphincsManager) VerifySignature(params *key.KeyManager, message []byte
 
 	// Build a Merkle tree from the signature parts to reconstruct the Merkle tree root.
 	// This part only constructs the tree without reconstructing the entire signature.
-	rebuiltRoot, err := buildMerkleTreeFromSignature(sigParts)
+	rebuiltRoot, err := buildHashTreeFromSignature(sigParts)
 	if err != nil {
 		return false
 	}
@@ -212,13 +212,25 @@ func (sm *SphincsManager) DeserializeSignature(params *key.KeyManager, sigBytes 
 }
 
 // buildMerkleTreeFromSignature builds the Merkle tree from the signature parts and returns the root node
-func buildMerkleTreeFromSignature(sigParts [][]byte) (*hashtree.HashTreeNode, error) {
-	// Create a new Merkle tree instance with the given signature parts
+// buildHashTreeFromSignature constructs a Merkle tree from the provided signature parts
+// and returns the root node of the tree.
+//
+// Parameters:
+// - sigParts: A slice of byte slices, where each slice represents a chunk of the signature.
+//
+// Returns:
+// - *hashtree.HashTreeNode: The root node of the constructed Merkle tree.
+// - error: An error if tree construction fails.
+func buildHashTreeFromSignature(sigParts [][]byte) (*hashtree.HashTreeNode, error) {
+	// Create a new Merkle tree instance using the signature parts as leaves
 	tree := hashtree.NewHashTree(sigParts)
+
+	// Build the Merkle tree from the provided leaves
 	if err := tree.Build(); err != nil {
-		// Return an error if the building of the Merkle tree fails
+		// Return an error if the tree construction fails
 		return nil, err
 	}
-	// Return the root node of the constructed Merkle tree
+
+	// Return the root node of the constructed tree
 	return tree.Root, nil
 }

@@ -97,8 +97,8 @@ func main() {
 	fmt.Printf("Size of Serialized Signature: %d bytes\n", len(sigBytes))
 
 	// Print Merkle Tree root hash and size
-	fmt.Printf("Merkle Tree Root Hash: %x\n", merkleRoot.Hash)
-	fmt.Printf("Size of Merkle Tree Root Hash: %d bytes\n", len(merkleRoot.Hash))
+	fmt.Printf("HashTree (Root Hash): %x\n", merkleRoot.Hash)
+	fmt.Printf("Size of HashtreeTree (Root Hash): %d bytes\n", len(merkleRoot.Hash))
 
 	// Save Merkle root hash to a file in the new directory
 	err = hashtree.SaveRootHashToFile(merkleRoot, "root_hashtree/merkle_root_hash.bin")
@@ -111,8 +111,8 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to load root hash from file:", err)
 	}
-	fmt.Printf("Loaded Merkle Tree Root Hash: %x\n", loadedHash)
-	fmt.Printf("Size of Loaded Merkle Tree Root Hash: %d bytes\n", len(loadedHash))
+	fmt.Printf("Loaded HashTree (Root Hash): %x\n", loadedHash)
+	fmt.Printf("Size of Loaded HashTree (Root Hash): %d bytes\n", len(loadedHash))
 
 	// Save leaves to LevelDB
 	leaves := [][]byte{sigBytes} // Example usage
@@ -129,7 +129,7 @@ func main() {
 	fmt.Printf("Random Data: %x\n", randomData)
 
 	// Print the Merkle root hash directly
-	fmt.Printf("Merkle Tree Root Hash: %x\n", merkleRoot.Hash)
+	fmt.Printf("HashTree (Root Hash): %x\n", merkleRoot.Hash)
 
 	// Verify the signature and print the original message
 	isValid := manager.VerifySignature(km, message, sig, deserializedPK, merkleRoot)
