@@ -33,7 +33,7 @@ import (
 
 func main() {
 	// Step 1: Generate the keys (passphrase, Base32-encoded passkey, hashed passkey, fingerprint, chain code, and hmac key)
-	passphrase, base32Passkey, hashedPasskey, macKey, chainCode, fingerprint, err := seed.GenerateKeys()
+	passphrase, base32Passkey, _, macKey, chainCode, fingerprint, err := seed.GenerateKeys()
 	if err != nil {
 		// Log the error and terminate the program if key generation fails
 		log.Fatalf("Error generating keys: %v", err)
@@ -42,7 +42,6 @@ func main() {
 	// Step 2: Display the generated keys for debugging or information purposes
 	fmt.Println("Passphrase: ", passphrase)            // Display the original mnemonic phrase
 	fmt.Println("Passkey: ", base32Passkey)            // Display the Base32-encoded passkey
-	fmt.Printf("HashedPasskey: %x\n", hashedPasskey)   // Display the hashed passkey in hexadecimal format
 	fmt.Printf("MacKey: %x\n", macKey)                 // Display the fingerprint in hexadecimal format
 	fmt.Printf("Chain code (Mackey): %x\n", chainCode) // Display the Chain code in hexadecimal format
 	fmt.Printf("Fingerprint: %x\n", fingerprint)       // Display the hmac key in hexadecimal format
