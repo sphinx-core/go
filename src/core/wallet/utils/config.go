@@ -33,6 +33,10 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
+// This package imnplementation of SIPS0004 & SIPS0005
+// https://github.com/sphinx-core/sips/wiki/SIPS0004
+// https://github.com/sphinx-core/sips/wiki/SIPS0005
+
 // walletConfig handles the storage and retrieval of keys in the keystore directory.
 type walletConfig struct {
 	db *leveldb.DB // LevelDB database instance for storing keys.

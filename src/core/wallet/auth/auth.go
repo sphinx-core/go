@@ -32,6 +32,10 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
+// This package imnplementation of SIPS0004 & SIPS0005
+// https://github.com/sphinx-core/sips/wiki/SIPS0004
+// https://github.com/sphinx-core/sips/wiki/SIPS0005
+
 // Mutex to protect access to the stored fingerprints
 var mu sync.Mutex
 
