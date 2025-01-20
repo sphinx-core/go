@@ -32,7 +32,7 @@ import (
 )
 
 func main() {
-	// Step 1: Generate the keys (passphrase, Base32-encoded passkey, hashed passkey, fingerprint, chain code, and hmac key)
+	// Step 1: Generate the keys (passphrase, Base32-encoded passkey, fingerprint, chain code, and macKey)
 	passphrase, base32Passkey, _, macKey, chainCode, fingerprint, err := seed.GenerateKeys()
 	if err != nil {
 		// Log the error and terminate the program if key generation fails
