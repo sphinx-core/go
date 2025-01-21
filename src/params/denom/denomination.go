@@ -29,6 +29,8 @@ package params
 // larger units such as gSPX (giga SPX) and SPX (1 full token) are represented
 // by multiplying nSPX values.
 
+// SIPS0007 https://github.com/sphinx-core/sips/wiki/SIPS0007
+
 const (
 	nSPX = 1e0  // 1 nSPX (nano SPX) is the smallest unit of SPX, similar to "wei" in Ethereum.
 	gSPX = 1e9  // 1 gSPX (giga SPX) equals 1e9 nSPX. It's a larger denomination used for easier representation.
