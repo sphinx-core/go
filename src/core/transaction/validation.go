@@ -23,7 +23,9 @@
 package types
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/sphinx-core/go/src/common"
 )
@@ -78,4 +80,45 @@ func (v *Validator) CreateAddress(nonce int64) (string, error) {
 
 	// Return the manipulated contract address
 	return address, nil
+}
+
+// validateAddress validates a wallet address to ensure it adheres to specific rules.
+func validateAddress(address string) error {
+	// Step 1: Check if the address length is within the valid range (26 to 62 characters).
+	if len(address) < 26 || len(address) > 62 {
+		return errors.New("address length must be between 26 and 62 characters")
+	}
+
+	// Step 2: Ensure the address starts with the prefix 'x'.
+	if !strings.HasPrefix(address, "x") {
+		return errors.New("address must start with 'x'")
+	}
+
+	// Step 3: Verify that the remainder of the address contains only alphanumeric characters.
+	if !isAlphanumeric(address[1:]) {
+		return errors.New("address contains invalid characters")
+	}
+
+	// Step 4: Return nil if all validations pass.
+	return nil
+}
+
+// isAlphanumeric checks if the provided string consists solely of alphanumeric characters.
+func isAlphanumeric(s string) bool {
+	// Step 1: Iterate through each character in the string.
+	for _, char := range s {
+		// Step 2: If any character is not alphanumeric, return false.
+		if !isAlphanumericChar(char) {
+			return false
+		}
+	}
+	// Step 3: If all characters are alphanumeric, return true.
+	return true
+}
+
+// isAlphanumericChar checks if a single character is alphanumeric (a digit or letter).
+func isAlphanumericChar(c rune) bool {
+	// Step 1: Check if the character is between '0' and '9' (a digit).
+	// Step 2: Check if the character is between 'a' and 'z' or 'A' and 'Z' (a letter).
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
