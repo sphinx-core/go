@@ -63,9 +63,9 @@ func memoryCleanse(buf []byte) {
 	}
 }
 
-// GenerateHMAC generates a keyed-hash message authentication code (HMAC) using SHA3-512 (Keccak-512).
+// GenerateHMAC generates a keyed-hash message authentication code (HMAC) using SHA3-512.
 func GenerateHMAC(data []byte, key []byte) ([]byte, error) {
-	h := hmac.New(sha3.NewLegacyKeccak512, key)
+	h := hmac.New(sha3.New512, key)
 	if _, err := h.Write(data); err != nil {
 		return nil, fmt.Errorf("failed to write data to HMAC: %v", err)
 	}
