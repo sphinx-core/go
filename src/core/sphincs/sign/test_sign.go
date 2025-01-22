@@ -127,13 +127,6 @@ func main() {
 		log.Fatal("Failed to save leaves to DB:", err)
 	}
 
-	// Generate random data for the tree
-	randomData, err := hashtree.GenerateRandomData(16)
-	if err != nil {
-		log.Fatal("Failed to generate random data:", err)
-	}
-	fmt.Printf("Random Data: %x\n", randomData)
-
 	// Verify the signature and print the original message
 	isValid := manager.VerifySignature(message, sig, deserializedPK, merkleRoot)
 	fmt.Printf("Signature valid: %v\n", isValid)

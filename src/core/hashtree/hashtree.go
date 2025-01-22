@@ -23,7 +23,6 @@
 package hashtree
 
 import (
-	"crypto/rand"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -130,16 +129,6 @@ func BuildHashTree(leaves [][]byte) *HashTreeNode {
 
 	// Return the single remaining node, which is the root of the hash tree.
 	return nodes[0]
-}
-
-// Generate random data of specified length
-func GenerateRandomData(size int) ([]byte, error) {
-	data := make([]byte, size)
-	_, err := rand.Read(data) // Fill with random data
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
 }
 
 // Save root hash to file
