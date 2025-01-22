@@ -34,6 +34,10 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
+// Message: The original data (the message "Hello, world!") that is being signed.
+// Merkle Root Hash: The root hash of the Merkle tree that was generated when signing the message.
+// Proof Generation: GenerateSigProof takes these inputs and creates a proof that confirms the validity of the signature (i.e., that the signature corresponds to the message and the Merkle root).
+
 func main() {
 	// Create the root_hashtree directory inside src/core
 	err := os.MkdirAll("root_hashtree", os.ModePerm)
