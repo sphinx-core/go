@@ -72,8 +72,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error serializing key pair: %v", err)
 	}
+
+	// Print the size of the serialized keys
 	fmt.Printf("Serialized private key: %x\n", skBytes)
+	fmt.Printf("Size of Serialized private key: %d bytes\n", len(skBytes))
+
 	fmt.Printf("Serialized public key: %x\n", pkBytes)
+	fmt.Printf("Size of Serialized public key: %d bytes\n", len(pkBytes))
 
 	// Deserialize the key pair.
 	deserializedSK, deserializedPK, err := km.DeserializeKeyPair(skBytes, pkBytes)
