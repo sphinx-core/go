@@ -28,6 +28,7 @@ import (
 
 	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
 	"github.com/sphinx-core/go/src/core/hashtree"
+	params "github.com/sphinx-core/go/src/core/sphincs/config"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 	"github.com/syndtr/goleveldb/leveldb"
 )
@@ -37,35 +38,42 @@ import (
 // SphincsManager holds a reference to KeyManager
 type SphincsManager struct {
 	db         *leveldb.DB
-	keyManager *key.KeyManager // Add KeyManager to hold Params
+	keyManager *key.KeyManager
+	parameters *params.SPHINCSParameters // Add SPHINCSParameters
 }
 
 // NewSphincsManager creates a new instance of SphincsManager with KeyManager and LevelDB instance
-func NewSphincsManager(db *leveldb.DB, keyManager *key.KeyManager) *SphincsManager {
-	// Ensure KeyManager has initialized Params
-	if keyManager == nil || keyManager.Params == nil {
-		panic("KeyManager or its Params are not initialized")
+func NewSphincsManager(db *leveldb.DB, keyManager *key.KeyManager, parameters *params.SPHINCSParameters) *SphincsManager {
+	if keyManager == nil || parameters == nil || parameters.Params == nil {
+		panic("KeyManager or SPHINCSParameters are not properly initialized")
 	}
-	return &SphincsManager{db: db, keyManager: keyManager}
+	return &SphincsManager{
+		db:         db,
+		keyManager: keyManager,
+		parameters: parameters,
+	}
 }
 
 // SignMessage signs a given message using the secret key
+// SignMessage signs a given message using the secret key
 func (km *SphincsManager) SignMessage(message []byte, deserializedSK *sphincs.SPHINCS_SK) (*sphincs.SPHINCS_SIG, *hashtree.HashTreeNode, error) {
-	// Ensure the KeyManager and Params are not nil
-	if km.keyManager == nil || km.keyManager.Params == nil {
-		return nil, nil, errors.New("KeyManager or Params are not initialized")
+	// Ensure the parameters are initialized
+	if km.parameters == nil || km.parameters.Params == nil {
+		return nil, nil, errors.New("SPHINCSParameters are not initialized")
 	}
 
-	// Use the Params from the KeyManager
-	params := km.keyManager.Params
+	// Use SPHINCSParameters for signing
+	params := km.parameters.Params
 
 	// Sign the message
 	signature := sphincs.Spx_sign(params, message, deserializedSK)
+	if signature == nil {
+		return nil, nil, errors.New("failed to sign message")
+	}
 
-	// Serialize the generated signature into a byte array for further processing
+	// Serialize the generated signature into a byte array
 	sigBytes, err := signature.SerializeSignature()
 	if err != nil {
-		// Return an error if the serialization process fails
 		return nil, nil, err
 	}
 
@@ -136,16 +144,14 @@ func (km *SphincsManager) SignMessage(message []byte, deserializedSK *sphincs.SP
 // - sig: The signature that needs to be verified.
 // - pk: The public key used to verify the signature.
 // - merkleRoot: The Merkle tree root used for verifying the integrity of the signature.
-func (sm *SphincsManager) VerifySignature(params *key.KeyManager, message []byte, sig *sphincs.SPHINCS_SIG, pk *sphincs.SPHINCS_PK, merkleRoot *hashtree.HashTreeNode) bool {
-	// Ensure the params and their nested Params field are not nil.
-	// If they are nil, the function immediately returns false as verification cannot proceed.
-	if params == nil || params.Params == nil {
+func (sm *SphincsManager) VerifySignature(message []byte, sig *sphincs.SPHINCS_SIG, pk *sphincs.SPHINCS_PK, merkleRoot *hashtree.HashTreeNode) bool {
+	// Ensure the parameters are initialized
+	if sm.parameters == nil || sm.parameters.Params == nil {
 		return false
 	}
 
-	// Use the SPHINCS+ verification function to verify the signature against the message and public key.
-	// If the verification fails, return false immediately.
-	isValid := sphincs.Spx_verify(params.Params, message, sig, pk)
+	// Use SPHINCS+ verification
+	isValid := sphincs.Spx_verify(sm.parameters.Params, message, sig, pk)
 	if !isValid {
 		return false
 	}
@@ -201,14 +207,17 @@ func (sm *SphincsManager) SerializeSignature(sig *sphincs.SPHINCS_SIG) ([]byte, 
 }
 
 // DeserializeSignature deserializes a byte slice into a signature (sig) using the provided parameters
-func (sm *SphincsManager) DeserializeSignature(params *key.KeyManager, sigBytes []byte) (*sphincs.SPHINCS_SIG, error) {
-	// Extract the Parameters from KeyManager
-	if params.Params == nil {
-		return nil, errors.New("parameters are not initialized in KeyManager")
+func (sm *SphincsManager) DeserializeSignature(sigBytes []byte) (*sphincs.SPHINCS_SIG, error) {
+	// Ensure the SPHINCSParameters are initialized
+	if sm.parameters == nil || sm.parameters.Params == nil {
+		return nil, errors.New("SPHINCSParameters are not initialized")
 	}
 
-	// Call the SPHINCS method to deserialize the signature from bytes
-	return sphincs.DeserializeSignature(params.Params, sigBytes) // Pass params.Params, not params
+	// Extract the internal *parameters.Parameters from SPHINCSParameters
+	sphincsParams := sm.parameters.Params
+
+	// Call the SPHINCS method to deserialize the signature using the extracted params
+	return sphincs.DeserializeSignature(sphincsParams, sigBytes)
 }
 
 // buildMerkleTreeFromSignature builds the Merkle tree from the signature parts and returns the root node

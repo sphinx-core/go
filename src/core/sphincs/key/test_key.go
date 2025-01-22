@@ -27,7 +27,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs" // Import the SPHINCS+ library
+	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 )
 
@@ -46,12 +46,15 @@ func main() {
 	fmt.Println("Keys generated successfully!")
 
 	// Serialize the key pair.
+	// Serialize the key pair.
 	skBytes, pkBytes, err := km.SerializeKeyPair(sk, pk)
 	if err != nil {
 		log.Fatalf("Error serializing key pair: %v", err)
 	}
-	fmt.Printf("Serialized private key: %x\n", skBytes)
-	fmt.Printf("Serialized public key: %x\n", pkBytes)
+
+	// Print the serialized keys and their sizes.
+	fmt.Printf("Serialized private key (%d bytes): %x\n", len(skBytes), skBytes)
+	fmt.Printf("Serialized public key (%d bytes): %x\n", len(pkBytes), pkBytes)
 
 	// Deserialize the key pair.
 	deserializedSK, deserializedPK, err := km.DeserializeKeyPair(skBytes, pkBytes)
@@ -79,19 +82,19 @@ func main() {
 
 	fmt.Println("Deserialization check passed! The keys match.")
 
-	// Step 1: Initialize SPHINCS+ parameters (use km.Params from KeyManager).
-	params := km.Params // Parameters already set in the KeyManager.
+	// Step 1: Extract SPHINCS+ parameters (use km.Params.Params for the actual *parameters.Parameters object).
+	spxParams := km.Params.Params
 
 	// Step 2: Sign a message using the secret key (sk) and parameters.
 	message := []byte("Hello, this is a message to be signed!")
-	signature := sphincs.Spx_sign(params, message, deserializedSK)
+	signature := sphincs.Spx_sign(spxParams, message, deserializedSK)
 	if signature == nil {
 		log.Fatalf("Error signing message")
 	}
 	fmt.Printf("Generated signature: %x\n", signature)
 
 	// Step 3: Verify the signature using the public key (pk), parameters, message, and signature.
-	isValid := sphincs.Spx_verify(params, message, signature, deserializedPK)
+	isValid := sphincs.Spx_verify(spxParams, message, signature, deserializedPK)
 	if !isValid {
 		log.Fatalf("Signature verification failed!")
 	}

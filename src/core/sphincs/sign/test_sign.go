@@ -54,8 +54,11 @@ func main() {
 		log.Fatalf("Error initializing KeyManager: %v", err)
 	}
 
-	// Initialize the SphincsManager with the LevelDB instance and KeyManager
-	manager := sign.NewSphincsManager(db, km)
+	// Initialize the SPHINCS parameters (you might need to fetch or generate them)
+	parameters := km.GetSPHINCSParameters()
+
+	// Initialize the SphincsManager with the LevelDB instance, KeyManager, and SPHINCSParameters
+	manager := sign.NewSphincsManager(db, km, parameters)
 
 	// Generate a new SPHINCS key pair.
 	sk, pk, err := km.GenerateKey()
@@ -81,8 +84,6 @@ func main() {
 
 	// Sign a message with the deserialized keys
 	message := []byte("Hello, world!")
-
-	// Sign a message with the deserialized keys
 	sig, merkleRoot, err := manager.SignMessage(message, deserializedSK)
 	if err != nil {
 		log.Fatal("Failed to sign message:", err)
@@ -128,17 +129,13 @@ func main() {
 	}
 	fmt.Printf("Random Data: %x\n", randomData)
 
-	// Print the Merkle root hash directly
-	fmt.Printf("HashTree (Root Hash): %x\n", merkleRoot.Hash)
-
 	// Verify the signature and print the original message
-	isValid := manager.VerifySignature(km, message, sig, deserializedPK, merkleRoot)
+	isValid := manager.VerifySignature(message, sig, deserializedPK, merkleRoot)
 	fmt.Printf("Signature valid: %v\n", isValid)
 	if isValid {
 		fmt.Printf("Original Message: %s\n", message)
 	}
 
 	// Print the number of bytes loaded during verification
-	// This includes the size of the signature and the Merkle root hash loaded during verification
 	fmt.Printf("Bytes loaded during verification: Signature: %d bytes, HashTree (root hash): %d bytes\n", len(sigBytes), len(loadedHash))
 }
