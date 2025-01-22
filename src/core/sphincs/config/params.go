@@ -21,3 +21,23 @@
 // SOFTWARE.
 
 package params
+
+import (
+	"errors"
+
+	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
+)
+
+// SPHINCSParameters wraps the SPHINCS+ parameter configuration.
+type SPHINCSParameters struct {
+	Params *parameters.Parameters
+}
+
+// NewSPHINCSParameters initializes SPHINCS+ parameters for SHAKE256-192f-robust.
+func NewSPHINCSParameters() (*SPHINCSParameters, error) {
+	params := parameters.MakeSphincsPlusSHAKE256192fSimple(false)
+	if params == nil {
+		return nil, errors.New("failed to initialize SPHINCS+ parameters")
+	}
+	return &SPHINCSParameters{Params: params}, nil
+}
