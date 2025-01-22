@@ -185,10 +185,10 @@ func GeneratePasskey(passphrase string, pk []byte) ([]byte, error) {
 	return passkey, nil
 }
 
-// HashPasskey hashes the given passkey using SHA3-512 (Keccak-512).
+// HashPasskey hashes the given passkey using SHA3-512.
 func HashPasskey(passkey []byte) ([]byte, error) {
 	// Initialize the SHA3-512 hasher.
-	hash := sha3.NewLegacyKeccak512()
+	hash := sha3.New512()
 
 	// Write the passkey to the hasher.
 	if _, err := hash.Write(passkey); err != nil {

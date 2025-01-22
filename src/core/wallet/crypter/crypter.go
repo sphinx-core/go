@@ -145,7 +145,7 @@ func (c *CCrypter) BytesToKeySHA512AES(salt, keyData []byte, count int) ([]byte,
 	}
 
 	// Initialize a new SHA-512 hash function.
-	hash := sha3.NewLegacyKeccak512()
+	hash := sha3.New512()
 
 	// Create a buffer to store the output of the SHA-512 hashing.
 	// CSHA512OutputSize is likely 64 bytes (512 bits), the output size of SHA-512.
