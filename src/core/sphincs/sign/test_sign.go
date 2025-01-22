@@ -28,9 +28,9 @@ import (
 	"os"
 
 	"github.com/sphinx-core/go/src/core/hashtree"
+	sigproof "github.com/sphinx-core/go/src/core/proof"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 	sign "github.com/sphinx-core/go/src/core/sphincs/sign/backend"
-
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
@@ -102,9 +102,12 @@ func main() {
 	fmt.Printf("Signature: %x\n", sigBytes)
 	fmt.Printf("Size of Serialized Signature: %d bytes\n", len(sigBytes))
 
+	// Convert Merkle Root Hash to []byte
+	merkleRootHash := merkleRoot.Hash.Bytes()
+
 	// Print Merkle Tree root hash and size
-	fmt.Printf("HashTree (Root Hash): %x\n", merkleRoot.Hash)
-	fmt.Printf("Size of HashtreeTree (Root Hash): %d bytes\n", len(merkleRoot.Hash))
+	fmt.Printf("HashTree (Root Hash): %x\n", merkleRootHash)
+	fmt.Printf("Size of HashtreeTree (Root Hash): %d bytes\n", len(merkleRootHash))
 
 	// Save Merkle root hash to a file in the new directory
 	err = hashtree.SaveRootHashToFile(merkleRoot, "root_hashtree/merkle_root_hash.bin")
@@ -126,6 +129,31 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to save leaves to DB:", err)
 	}
+
+	// Combine the message and Merkle root hash into a proof
+	proof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootHash})
+	if err != nil {
+		log.Fatalf("Failed to generate signature proof: %v", err)
+	}
+	fmt.Printf("Generated Proof: %x\n", proof)
+
+	// Store the proof in LevelDB
+	err = db.Put([]byte("signature_proof"), proof, nil)
+	if err != nil {
+		log.Fatalf("Failed to store signature proof: %v", err)
+	}
+	fmt.Println("Signature proof saved successfully!")
+
+	// Load the proof from LevelDB
+	storedProof, err := db.Get([]byte("signature_proof"), nil)
+	if err != nil {
+		log.Fatalf("Failed to load signature proof: %v", err)
+	}
+	fmt.Printf("Loaded signature proof: %x\n", storedProof)
+
+	// Verify the proof by comparing it with the generated proof
+	isValidProof := sigproof.VerifySigProof(storedProof, proof)
+	fmt.Printf("Proof valid: %v\n", isValidProof)
 
 	// Verify the signature and print the original message
 	isValid := manager.VerifySignature(message, sig, deserializedPK, merkleRoot)
