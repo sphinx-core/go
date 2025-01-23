@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"unsafe"
 
 	"github.com/sphinx-core/go/src/core/hashtree"
 	sigproof "github.com/sphinx-core/go/src/core/proof"
@@ -157,7 +158,9 @@ func main() {
 	// Charlie verifies the signature with the received public key and proof
 	if isValidProof {
 		isValidSig := manager.VerifySignature(receivedMessage, sig, receivedDeserializedPK, merkleRoot)
+		// Verify the signature validity and print the size of isValidSig
 		fmt.Printf("Charlie verifies signature valid: %v\n", isValidSig)
+		fmt.Printf("Size of isValidSig: %d bytes\n", unsafe.Sizeof(isValidSig))
 		if isValidSig {
 			fmt.Printf("Verified message: %s\n", receivedMessage)
 		} else {
