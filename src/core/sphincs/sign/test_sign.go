@@ -127,7 +127,7 @@ func main() {
 	sigproof.SetStoredProof(proof)
 	fmt.Println("Signature proof stored successfully in mutex-protected variable!")
 
-	// Now Alice verifies the signature locally:
+	// Now Alice verifies the signature locally  (using her device):
 	isValidSig := manager.VerifySignature(message, sig, deserializedPK, merkleRoot)
 	fmt.Printf("Alice verifies signature valid: %v\n", isValidSig)
 	if isValidSig {
@@ -140,11 +140,11 @@ func main() {
 
 	// Charlie's side
 	// Charlie receives the public key, proof, and message
-	receivedPK := pkBytes // pkBytes has already been serialized and passed from Alice
+	receivedPK := pkBytes
 	receivedProof := proof
 	receivedMessage := message
 
-	// Charlie re-generates the proof using the received message, Merkle root hash, and public key
+	// Charlie re-generates the proof from Alice's the received message, Merkle root hash, and Public key
 	regeneratedProof, err := sigproof.GenerateSigProof([][]byte{receivedMessage}, [][]byte{merkleRootHash}, receivedPK)
 	if err != nil {
 		log.Fatalf("Failed to regenerate proof: %v", err)
@@ -161,9 +161,10 @@ func main() {
 	if isValidProof {
 		// Print everything that Charlie loaded
 		fmt.Printf("Charlie has received and loaded:\n")
-		fmt.Printf("Public Key: %x\n", receivedPK)   // Print the public key in hex format
-		fmt.Printf("Proof: %x\n", receivedProof)     // Print the proof in hex format
-		fmt.Printf("Message: %s\n", receivedMessage) // Print the received message
+		fmt.Printf("Alice's Public Key: %x\n", receivedPK)   // Print the public key in hex format
+		fmt.Printf("Alice's Proof: %x\n", receivedProof)     // Print the proof in hex format
+		fmt.Printf("Alice's Message: %s\n", receivedMessage) // Print the received message
+		fmt.Printf("Alice's RootHash: %x\n", merkleRootHash) // Corrected fmt.Printf here
 	} else {
 		// Do not print anything when the proof is invalid
 		fmt.Println("Invalid proof.")
