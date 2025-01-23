@@ -159,11 +159,11 @@ func main() {
 	isValidProof := sigproof.VerifySigProof(storedProof, proof)
 	fmt.Printf("Proof valid: %v\n", isValidProof)
 
-	// Verify the signature and print the original message
-	isValid := manager.VerifySignature(message, sig, deserializedPK, merkleRoot)
-	fmt.Printf("Signature valid: %v\n", isValid)
-	if isValid {
-		fmt.Printf("Original Message: %s\n", message)
+	// Verify the signature and print the original messages
+	isValidSig := manager.VerifySignature(message, sig, deserializedPK, merkleRoot)
+	fmt.Printf("Signature valid: %v\n", isValidSig)
+	if isValidSig {
+		fmt.Printf("Signed Message: %s\n", message)
 	}
 
 	// Print the number of bytes loaded during verification
