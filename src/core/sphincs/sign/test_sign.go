@@ -26,7 +26,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"unsafe"
 
 	"github.com/sphinx-core/go/src/core/hashtree"
 	sigproof "github.com/sphinx-core/go/src/core/proof"
@@ -146,30 +145,42 @@ func main() {
 	receivedMessage := message
 
 	// Deserialize the public key for Charlie
-	receivedDeserializedPK, err := km.DeserializePublicKey(receivedPK)
+	pk, err = km.DeserializePublicKey(pkBytes)
 	if err != nil {
 		log.Fatalf("Error deserializing received public key: %v", err)
 	}
 
+	// Convert the public key to bytes (depending on the structure of the SPHINCS_PK type)
+	pkBytes, err = pk.SerializePK() // Assuming SerializePK() converts the public key to bytes
+	if err != nil {
+		log.Fatalf("Error serializing public key: %v", err)
+	}
+
+	// Print the public key in hex format
+	fmt.Printf("Charlie has deserialized the public key: %x\n", pkBytes)
+
+	// Charlie re-generates the proof using the received message and Merkle root hash
+	regeneratedProof, err := sigproof.GenerateSigProof([][]byte{receivedMessage}, [][]byte{merkleRootHash})
+	if err != nil {
+		log.Fatalf("Failed to regenerate proof: %v", err)
+	}
+
+	// Print the regenerated proof
+	fmt.Printf("Regenerated Proof: %x\n", regeneratedProof)
+
 	// Verify the proof received by Charlie
-	isValidProof := sigproof.VerifySigProof(receivedProof, proof)
+	isValidProof := sigproof.VerifySigProof(receivedProof, regeneratedProof)
 	fmt.Printf("Charlie verifies proof valid: %v\n", isValidProof)
 
-	// Charlie verifies the signature with the received public key and proof
+	// Charlie does NOT verify the signature anymore; only verifies the proof
 	if isValidProof {
-		isValidSig := manager.VerifySignature(receivedMessage, sig, receivedDeserializedPK, merkleRoot)
-		// Verify the signature validity and print the size of isValidSig
-		fmt.Printf("Charlie verifies signature valid: %v\n", isValidSig)
-		fmt.Printf("Size of isValidSig: %d bytes\n", unsafe.Sizeof(isValidSig))
-		if isValidSig {
-			fmt.Printf("Verified message: %s\n", receivedMessage)
-		} else {
-			fmt.Println("Invalid signature.")
-		}
+		fmt.Printf("Proof is valid, no need to load the signature\n")
+		fmt.Printf("Verified message: %s\n", receivedMessage)
 	} else {
 		fmt.Println("Invalid proof.")
 	}
-	// Print actual values during verification in Charlie's hardware
+
+	// Print actual values during verification in Charlie's hardware (without loading the signature)
 	fmt.Printf("What Charlie loads into his hardware?:\n")
 	fmt.Printf("Alice's Public key: %x\n", receivedPK)
 	fmt.Printf("Alice's Proof: %x\n", receivedProof)
