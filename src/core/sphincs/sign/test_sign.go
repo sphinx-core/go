@@ -34,10 +34,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
-// Message: The original data (the message "Hello, world!") that is being signed.
-// Merkle Root Hash: The root hash of the Merkle tree that was generated when signing the message.
-// Proof Generation: GenerateSigProof takes these inputs and creates a proof that confirms the validity of the signature (i.e., that the signature corresponds to the message and the Merkle root).
-
+// Simulating the communication between Alice and Charlie
 func main() {
 	// Create the root_hashtree directory inside src/core
 	err := os.MkdirAll("root_hashtree", os.ModePerm)
@@ -91,7 +88,7 @@ func main() {
 	}
 	fmt.Println("Keys deserialized successfully!")
 
-	// Sign a message with the deserialized keys
+	// Alice signs the message
 	message := []byte("Hello, world!")
 	sig, merkleRoot, err := manager.SignMessage(message, deserializedSK)
 	if err != nil {
@@ -104,7 +101,6 @@ func main() {
 		log.Fatal("Failed to serialize signature:", err)
 	}
 	fmt.Printf("Signature: %x\n", sigBytes)
-	fmt.Printf("Size of Serialized Signature: %d bytes\n", len(sigBytes))
 
 	// Convert Merkle Root Hash to []byte
 	merkleRootHash := merkleRoot.Hash.Bytes()
@@ -119,52 +115,63 @@ func main() {
 		log.Fatal("Failed to save root hash to file:", err)
 	}
 
-	// Load Merkle root hash from the file
-	loadedHash, err := hashtree.LoadRootHashFromFile("root_hashtree/merkle_root_hash.bin")
-	if err != nil {
-		log.Fatal("Failed to load root hash from file:", err)
-	}
-	fmt.Printf("Loaded HashTree (Root Hash): %x\n", loadedHash)
-	fmt.Printf("Size of Loaded HashTree (Root Hash): %d bytes\n", len(loadedHash))
-
-	// Save leaves to LevelDB
-	leaves := [][]byte{sigBytes} // Example usage
-	err = hashtree.SaveLeavesToDB(db, leaves)
-	if err != nil {
-		log.Fatal("Failed to save leaves to DB:", err)
-	}
-
-	// Combine the message and Merkle root hash into a proof
+	// Generate the proof for Charlie to verify
 	proof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootHash})
 	if err != nil {
 		log.Fatalf("Failed to generate signature proof: %v", err)
 	}
 	fmt.Printf("Generated Proof: %x\n", proof)
-	fmt.Printf("Size of Generated Proof: %d bytes\n", len(proof)) // Print the size of the generated proof
 
-	// Store the proof in the global mutex-protected variable
+	// Store the proof for Charlie to use
 	sigproof.SetStoredProof(proof)
 	fmt.Println("Signature proof stored successfully in mutex-protected variable!")
 
-	// Retrieve the stored proof
-	storedProof := sigproof.GetStoredProof()
-	fmt.Printf("Retrieved stored proof: %x\n", storedProof)
-
-	// Define proofHash and generatedHash for verification
-	proofHash := storedProof
-	generatedHash := proof
-
-	// Verify the proof by comparing it with the generated proof
-	isValidProof := sigproof.VerifySigProof(proofHash, generatedHash)
-	fmt.Printf("Proof valid: %v\n", isValidProof)
-
-	// Verify the signature and print the original messages
+	// Now Alice verifies the signature locally:
 	isValidSig := manager.VerifySignature(message, sig, deserializedPK, merkleRoot)
-	fmt.Printf("Signature valid: %v\n", isValidSig)
+	fmt.Printf("Alice verifies signature valid: %v\n", isValidSig)
 	if isValidSig {
-		fmt.Printf("Signed Message: %s\n", message)
+		fmt.Printf("Signed Message by alice: %s\n", message)
 	}
 
+	// --- Simulate sending data from Alice to Charlie ---
+	// Example: Alice sends pkBytes, proof, and message to Charlie
+	// In a real application, use network communication (e.g., HTTP, gRPC) to send these values.
+
+	// --- Charlie's side ---
+	// Charlie receives the public key, proof, and message
+	receivedPK := pkBytes
+	receivedProof := proof
+	receivedMessage := message
+
+	// Deserialize the public key for Charlie
+	receivedDeserializedPK, err := km.DeserializePublicKey(receivedPK)
+	if err != nil {
+		log.Fatalf("Error deserializing received public key: %v", err)
+	}
+
+	// Verify the proof received by Charlie
+	isValidProof := sigproof.VerifySigProof(receivedProof, proof)
+	fmt.Printf("Charlie verifies proof valid: %v\n", isValidProof)
+
+	// Charlie verifies the signature with the received public key and proof
+	if isValidProof {
+		isValidSig := manager.VerifySignature(receivedMessage, sig, receivedDeserializedPK, merkleRoot)
+		fmt.Printf("Charlie verifies signature valid: %v\n", isValidSig)
+		if isValidSig {
+			fmt.Printf("Verified message: %s\n", receivedMessage)
+		} else {
+			fmt.Println("Invalid signature.")
+		}
+	} else {
+		fmt.Println("Invalid proof.")
+	}
+	// Print actual values Charlie loads into hardware
+	fmt.Printf("Charlie loads into his hardware:\n")
+	fmt.Printf("Alice's Public key: %x\n", receivedPK)
+	fmt.Printf("Alice's Proof: %x\n", receivedProof)
+	fmt.Printf("Alice's message: %s\n", receivedMessage)
+	fmt.Printf("Alice's HashTree (Root Hash): %x\n", merkleRootHash)
+
 	// Print the number of bytes loaded during verification
-	fmt.Printf("Bytes loaded during verification: Signature: %d bytes, HashTree (root hash): %d bytes\n", len(sigBytes), len(loadedHash))
+	fmt.Printf("Bytes loaded during verification: Signature: %d bytes, HashTree (root hash): %d bytes\n", len(sigBytes), len(merkleRootHash))
 }

@@ -130,3 +130,18 @@ func (km *KeyManager) DeserializeKeyPair(skBytes, pkBytes []byte) (*sphincs.SPHI
 
 	return sk, pk, nil
 }
+
+// DeserializePublicKey deserializes only the public key from byte slices.
+func (km *KeyManager) DeserializePublicKey(pkBytes []byte) (*sphincs.SPHINCS_PK, error) {
+	if km.Params == nil || km.Params.Params == nil {
+		return nil, errors.New("missing parameters in KeyManager")
+	}
+
+	// Deserialize the public key from bytes.
+	pk, err := sphincs.DeserializePK(km.Params.Params, pkBytes) // Access the Params field directly
+	if err != nil {
+		return nil, errors.New("failed to deserialize public key: " + err.Error())
+	}
+
+	return pk, nil
+}
