@@ -30,52 +30,54 @@ import (
 	"github.com/sphinx-core/go/src/common"
 )
 
-// Define a global mutex to protect access to shared memory
-var mu sync.Mutex
+var (
+	mu          sync.Mutex
+	storedProof []byte // Global variable for storing the proof
+)
 
 // GenerateSigProof generates a hash of the signature parts as a proof
 func GenerateSigProof(sigParts [][]byte, leaves [][]byte) ([]byte, error) {
-	// Lock the mutex to ensure no concurrent access to shared memory
 	mu.Lock()
-	defer mu.Unlock() // Ensure the mutex is unlocked after the operation
+	defer mu.Unlock()
 
-	// Check if signature parts are not empty
 	if len(sigParts) == 0 {
 		return nil, errors.New("no signature parts provided")
 	}
 
-	// Generate the hash of the signature parts using the provided leaves
 	hash := generateHashFromParts(sigParts, leaves)
-
-	// Return the resulting hash as proof
 	return hash, nil
 }
 
 // generateHashFromParts creates a combined hash of the given signature parts and data from the leaves
 func generateHashFromParts(parts [][]byte, leaves [][]byte) []byte {
-	// Concatenate all parts into a single slice
 	var combined []byte
 	for _, part := range parts {
 		combined = append(combined, part...)
 	}
-
-	// Append the leaves to the combined data
 	for _, leaf := range leaves {
 		combined = append(combined, leaf...)
 	}
 
-	// Now use the SpxHash from the common package to hash the combined data
-	hash := common.SpxHash(combined)
-
-	return hash
+	return common.SpxHash(combined)
 }
 
 // VerifySigProof compares the generated hash with the expected proof hash
 func VerifySigProof(proofHash, generatedHash []byte) bool {
-	// Lock the mutex to ensure no concurrent access to shared memory during verification
 	mu.Lock()
 	defer mu.Unlock()
-
-	// Compare the proof hash with the generated hash
 	return bytes.Equal(proofHash, generatedHash)
+}
+
+// SetStoredProof safely sets the stored proof
+func SetStoredProof(proof []byte) {
+	mu.Lock()
+	defer mu.Unlock()
+	storedProof = proof
+}
+
+// GetStoredProof safely retrieves the stored proof
+func GetStoredProof() []byte {
+	mu.Lock()
+	defer mu.Unlock()
+	return storedProof
 }

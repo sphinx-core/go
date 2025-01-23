@@ -142,23 +142,20 @@ func main() {
 	fmt.Printf("Generated Proof: %x\n", proof)
 	fmt.Printf("Size of Generated Proof: %d bytes\n", len(proof)) // Print the size of the generated proof
 
-	// Store the proof in LevelDB
-	err = db.Put([]byte("signature_proof"), proof, nil)
-	if err != nil {
-		log.Fatalf("Failed to store signature proof: %v", err)
-	}
-	fmt.Println("Signature proof saved successfully!")
+	// Store the proof in the global mutex-protected variable
+	sigproof.SetStoredProof(proof)
+	fmt.Println("Signature proof stored successfully in mutex-protected variable!")
 
-	// Load the proof from LevelDB
-	storedProof, err := db.Get([]byte("signature_proof"), nil)
-	if err != nil {
-		log.Fatalf("Failed to load signature proof: %v", err)
-	}
-	fmt.Printf("Loaded signature proof: %x\n", storedProof)
-	fmt.Printf("Size of Loaded Signature Proof: %d bytes\n", len(storedProof)) // Print the size of the loaded signature proof
+	// Retrieve the stored proof
+	storedProof := sigproof.GetStoredProof()
+	fmt.Printf("Retrieved stored proof: %x\n", storedProof)
+
+	// Define proofHash and generatedHash for verification
+	proofHash := storedProof
+	generatedHash := proof
 
 	// Verify the proof by comparing it with the generated proof
-	isValidProof := sigproof.VerifySigProof(storedProof, proof)
+	isValidProof := sigproof.VerifySigProof(proofHash, generatedHash)
 	fmt.Printf("Proof valid: %v\n", isValidProof)
 
 	// Verify the signature and print the original messages
