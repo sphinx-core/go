@@ -101,6 +101,7 @@ func main() {
 		log.Fatal("Failed to serialize signature:", err)
 	}
 	fmt.Printf("Signature: %x\n", sigBytes)
+	fmt.Printf("Size of Serialized Signature: %d bytes\n", len(sigBytes))
 
 	// Convert Merkle Root Hash to []byte
 	merkleRootHash := merkleRoot.Hash.Bytes()
@@ -165,13 +166,10 @@ func main() {
 	} else {
 		fmt.Println("Invalid proof.")
 	}
-	// Print actual values Charlie loads into hardware
-	fmt.Printf("Charlie loads into his hardware:\n")
+	// Print actual values during verification in Charlie's hardware
+	fmt.Printf("What Charlie loads into his hardware?:\n")
 	fmt.Printf("Alice's Public key: %x\n", receivedPK)
 	fmt.Printf("Alice's Proof: %x\n", receivedProof)
 	fmt.Printf("Alice's message: %s\n", receivedMessage)
 	fmt.Printf("Alice's HashTree (Root Hash): %x\n", merkleRootHash)
-
-	// Print the number of bytes loaded during verification
-	fmt.Printf("Bytes loaded during verification: Signature: %d bytes, HashTree (root hash): %d bytes\n", len(sigBytes), len(merkleRootHash))
 }
