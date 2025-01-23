@@ -91,7 +91,6 @@ func main() {
 	if signature == nil {
 		log.Fatalf("Error signing message")
 	}
-	fmt.Printf("Generated signature: %x\n", signature)
 
 	// Step 3: Verify the signature using the public key (pk), parameters, message, and signature.
 	isValid := sphincs.Spx_verify(spxParams, message, signature, deserializedPK)

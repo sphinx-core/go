@@ -116,8 +116,8 @@ func main() {
 		log.Fatal("Failed to save root hash to file:", err)
 	}
 
-	// Generate the proof for Charlie to verify
-	proof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootHash})
+	// Generate the proof for Charlie to verify, including pkBytes in the process
+	proof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootHash}, pkBytes)
 	if err != nil {
 		log.Fatalf("Failed to generate signature proof: %v", err)
 	}
@@ -138,29 +138,14 @@ func main() {
 	// Example: Alice sends pkBytes, proof, and message to Charlie
 	// In a real application, use network communication (e.g., HTTP, gRPC) to send these values.
 
-	// --- Charlie's side ---
+	// Charlie's side
 	// Charlie receives the public key, proof, and message
-	receivedPK := pkBytes
+	receivedPK := pkBytes // pkBytes has already been serialized and passed from Alice
 	receivedProof := proof
 	receivedMessage := message
 
-	// Deserialize the public key for Charlie
-	pk, err = km.DeserializePublicKey(pkBytes)
-	if err != nil {
-		log.Fatalf("Error deserializing received public key: %v", err)
-	}
-
-	// Convert the public key to bytes (depending on the structure of the SPHINCS_PK type)
-	pkBytes, err = pk.SerializePK() // Assuming SerializePK() converts the public key to bytes
-	if err != nil {
-		log.Fatalf("Error serializing public key: %v", err)
-	}
-
-	// Print the public key in hex format
-	fmt.Printf("Charlie has deserialized the public key: %x\n", pkBytes)
-
-	// Charlie re-generates the proof using the received message and Merkle root hash
-	regeneratedProof, err := sigproof.GenerateSigProof([][]byte{receivedMessage}, [][]byte{merkleRootHash})
+	// Charlie re-generates the proof using the received message, Merkle root hash, and public key
+	regeneratedProof, err := sigproof.GenerateSigProof([][]byte{receivedMessage}, [][]byte{merkleRootHash}, receivedPK)
 	if err != nil {
 		log.Fatalf("Failed to regenerate proof: %v", err)
 	}
@@ -174,16 +159,13 @@ func main() {
 
 	// Charlie does NOT verify the signature anymore; only verifies the proof
 	if isValidProof {
-		fmt.Printf("Proof is valid, no need to load the signature\n")
-		fmt.Printf("Verified message: %s\n", receivedMessage)
+		// Print everything that Charlie loaded
+		fmt.Printf("Charlie has received and loaded:\n")
+		fmt.Printf("Public Key: %x\n", receivedPK)   // Print the public key in hex format
+		fmt.Printf("Proof: %x\n", receivedProof)     // Print the proof in hex format
+		fmt.Printf("Message: %s\n", receivedMessage) // Print the received message
 	} else {
+		// Do not print anything when the proof is invalid
 		fmt.Println("Invalid proof.")
 	}
-
-	// Print actual values during verification in Charlie's hardware (without loading the signature)
-	fmt.Printf("What Charlie loads into his hardware?:\n")
-	fmt.Printf("Alice's Public key: %x\n", receivedPK)
-	fmt.Printf("Alice's Proof: %x\n", receivedProof)
-	fmt.Printf("Alice's message: %s\n", receivedMessage)
-	fmt.Printf("Alice's HashTree (Root Hash): %x\n", merkleRootHash)
 }

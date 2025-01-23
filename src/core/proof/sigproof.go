@@ -35,8 +35,8 @@ var (
 	storedProof []byte // Global variable for storing the proof
 )
 
-// GenerateSigProof generates a hash of the signature parts as a proof
-func GenerateSigProof(sigParts [][]byte, leaves [][]byte) ([]byte, error) {
+// GenerateSigProof generates a hash of the signature parts, Merkle leaves, and public key as a proof
+func GenerateSigProof(sigParts [][]byte, leaves [][]byte, pkBytes []byte) ([]byte, error) {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -44,12 +44,13 @@ func GenerateSigProof(sigParts [][]byte, leaves [][]byte) ([]byte, error) {
 		return nil, errors.New("no signature parts provided")
 	}
 
-	hash := generateHashFromParts(sigParts, leaves)
+	// Include pkBytes in the proof generation
+	hash := generateHashFromParts(sigParts, leaves, pkBytes)
 	return hash, nil
 }
 
-// generateHashFromParts creates a combined hash of the given signature parts and data from the leaves
-func generateHashFromParts(parts [][]byte, leaves [][]byte) []byte {
+// generateHashFromParts creates a combined hash of the given signature parts, Merkle leaves, and public key
+func generateHashFromParts(parts [][]byte, leaves [][]byte, pkBytes []byte) []byte {
 	var combined []byte
 	for _, part := range parts {
 		combined = append(combined, part...)
@@ -57,6 +58,8 @@ func generateHashFromParts(parts [][]byte, leaves [][]byte) []byte {
 	for _, leaf := range leaves {
 		combined = append(combined, leaf...)
 	}
+	// Append the public key bytes
+	combined = append(combined, pkBytes...)
 
 	return common.SpxHash(combined)
 }
