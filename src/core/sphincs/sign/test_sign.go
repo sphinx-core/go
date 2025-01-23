@@ -140,6 +140,7 @@ func main() {
 		log.Fatalf("Failed to generate signature proof: %v", err)
 	}
 	fmt.Printf("Generated Proof: %x\n", proof)
+	fmt.Printf("Size of Generated Proof: %d bytes\n", len(proof)) // Print the size of the generated proof
 
 	// Store the proof in LevelDB
 	err = db.Put([]byte("signature_proof"), proof, nil)
@@ -154,6 +155,7 @@ func main() {
 		log.Fatalf("Failed to load signature proof: %v", err)
 	}
 	fmt.Printf("Loaded signature proof: %x\n", storedProof)
+	fmt.Printf("Size of Loaded Signature Proof: %d bytes\n", len(storedProof)) // Print the size of the loaded signature proof
 
 	// Verify the proof by comparing it with the generated proof
 	isValidProof := sigproof.VerifySigProof(storedProof, proof)
