@@ -31,12 +31,23 @@ import (
 )
 
 func main() {
-	// Set up the JSON-RPC server URL
-	serverURL := "http://localhost:8080/rpc" // Adjust based on your server
+	// Register the HTTP handler for the RPC endpoint
+	http.HandleFunc("/rpc", rpc.HandleRPC)
+
+	// Start the HTTP server on localhost:8080
+	log.Println("Starting server on http://localhost:8080/rpc")
+	go func() {
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			log.Fatalf("Server failed: %s", err)
+		}
+	}()
 
 	client := &http.Client{}
 
-	// Assuming you would pass the URL here for your clientCodec
+	// Define the server URL
+	serverURL := "http://localhost:8080/rpc"
+
+	// Create a new client codec
 	clientCodec := rpc.NewClientCodecHTTP(serverURL, client)
 
 	// Prepare a request to call the example service method
@@ -73,7 +84,7 @@ func main() {
 	// Output the result
 	fmt.Printf("Result: %s\n", result)
 
-	// Close the clientCodec connection (optional, as it’s managed by HTTP client)
+	// Close the clientCodec connection
 	err = clientCodec.Close()
 	if err != nil {
 		log.Fatalf("Error closing client codec: %v", err)

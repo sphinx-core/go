@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
 	"net/rpc"
 	"sync"
 )
@@ -166,4 +167,30 @@ func (c *serverCodec) Close() error {
 func ServeConn(conn io.ReadWriteCloser) {
 	// Use the rpc.ServeCodec function to serve the connection using the serverCodec
 	rpc.ServeCodec(NewServerCodec(conn))
+}
+
+// HandleRPC wraps the JSON-RPC server logic with an HTTP handler
+func HandleRPC(w http.ResponseWriter, r *http.Request) {
+	// Ensure the request method is POST
+	if r.Method != http.MethodPost {
+		http.Error(w, "JSON-RPC server only accepts POST requests", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Hijack the HTTP connection to use it for RPC communication
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "Server does not support connection hijacking", http.StatusInternalServerError)
+		return
+	}
+
+	// Hijack the connection
+	conn, _, err := hijacker.Hijack()
+	if err != nil {
+		http.Error(w, "Failed to hijack connection: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Serve JSON-RPC on the hijacked connection
+	go rpc.ServeConn(conn)
 }
