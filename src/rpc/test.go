@@ -26,22 +26,17 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"rpc"
-)
 
-// A simple service method for demonstration
-func exampleServiceMethod(request string) string {
-	return "Hello, " + request
-}
+	rpc "github.com/sphinx-core/go/src/rpc/jsonrpc"
+)
 
 func main() {
 	// Set up the JSON-RPC server URL
 	serverURL := "http://localhost:8080/rpc" // Adjust based on your server
 
-	// Create an HTTP client
 	client := &http.Client{}
 
-	// Initialize the clientCodecHTTP with the server URL and HTTP client
+	// Assuming you would pass the URL here for your clientCodec
 	clientCodec := rpc.NewClientCodecHTTP(serverURL, client)
 
 	// Prepare a request to call the example service method
