@@ -26,9 +26,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/rpc"
 	"sync"
+	"time"
 )
 
 // Error variable for handling missing parameters in the request body
@@ -37,40 +39,61 @@ var errMissingParams = errors.New("jsonrpc: request body missing params")
 // Predefined null value for invalid requests
 var null = json.RawMessage([]byte("null"))
 
+// createHTTPClient creates and configures an HTTP client with connection pooling and timeouts.
+func CreateHTTPClient() *http.Client { // Changed to uppercase 'C'
+	transport := &http.Transport{
+		MaxIdleConns:        100, // Maximum number of idle connections
+		MaxIdleConnsPerHost: 50,  // Maximum number of idle connections per host
+		IdleConnTimeout:     90 * time.Second,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second, // Timeout for establishing new connections
+			KeepAlive: 30 * time.Second, // Keep-alive period for idle connections
+		}).DialContext,
+	}
+	return &http.Client{Transport: transport}
+}
+
+// asyncCall allows asynchronous execution of RPC calls and returns a channel for response handling.
+func AsyncCall(client *rpc.Client, serviceMethod string, args any) <-chan *rpc.Call { // Changed to uppercase 'A'
+	done := make(chan *rpc.Call, 1)
+	go func() {
+		client.Go(serviceMethod, args, nil, done)
+	}()
+	return done
+}
+
+// =====================
+// ServerCodec Implementation
+// =====================
+
 // serverCodec implements the rpc.ServerCodec interface for handling JSON-RPC requests and responses.
 type serverCodec struct {
 	dec *json.Decoder // Decoder for reading JSON values from the connection
 	enc *json.Encoder // Encoder for writing JSON values to the connection
 	c   io.Closer     // Closer for the connection
 
-	// Temporary workspace for request data
-	req serverRequest
+	req serverRequest // Temporary workspace for request data
 
-	// The sequence number (seq) is used to uniquely identify each request.
-	// We assign uint64 sequence numbers to incoming requests but save the
-	// original request ID (which can be any JSON value) in the pending map.
-	// When rpc responds, we use the sequence number in the response to
-	// find the original request ID.
 	mutex   sync.Mutex                  // Mutex to protect access to seq and pending
 	seq     uint64                      // Sequence number for each request
 	pending map[uint64]*json.RawMessage // Maps sequence numbers to request IDs
 }
 
-// NewServerCodec returns a new rpc.ServerCodec for handling JSON-RPC on the provided connection.
+// NewServerCodec creates a new rpc.ServerCodec for handling JSON-RPC.
 func NewServerCodec(conn io.ReadWriteCloser) rpc.ServerCodec {
 	return &serverCodec{
-		dec:     json.NewDecoder(conn),             // Create a new JSON decoder for reading from the connection
-		enc:     json.NewEncoder(conn),             // Create a new JSON encoder for writing to the connection
-		c:       conn,                              // Store the connection object
-		pending: make(map[uint64]*json.RawMessage), // Initialize the pending map
+		dec:     json.NewDecoder(conn),
+		enc:     json.NewEncoder(conn),
+		c:       conn,
+		pending: make(map[uint64]*json.RawMessage),
 	}
 }
 
 // serverRequest represents the structure of a JSON-RPC request.
 type serverRequest struct {
 	Method string           `json:"method"` // Method name of the RPC request
-	Params *json.RawMessage `json:"params"` // Parameters for the method (may be null or any JSON value)
-	Id     *json.RawMessage `json:"id"`     // Unique ID for the request (can be any JSON value)
+	Params *json.RawMessage `json:"params"` // Parameters for the method
+	Id     *json.RawMessage `json:"id"`     // Unique ID for the request
 }
 
 // reset resets the fields of the serverRequest for reuse.
@@ -82,116 +105,140 @@ func (r *serverRequest) reset() {
 
 // serverResponse represents the structure of a JSON-RPC response.
 type serverResponse struct {
-	Id     *json.RawMessage `json:"id"`     // ID from the original request (can be null if invalid)
+	Id     *json.RawMessage `json:"id"`     // ID from the original request
 	Result any              `json:"result"` // Result of the RPC method call
-	Error  any              `json:"error"`  // Error message if there is an error in processing the request
+	Error  any              `json:"error"`  // Error message if there is an error
 }
 
 // ReadRequestHeader reads the header of the incoming JSON-RPC request and populates the rpc.Request.
+// The header contains information about the service method being called and the sequence number for the request.
+// It also manages the sequence of requests to keep track of pending requests.
 func (c *serverCodec) ReadRequestHeader(r *rpc.Request) error {
-	// Reset the request struct to clear any previous data
+	// Reset the server request object to ensure it is ready for the next request
 	c.req.reset()
 
-	// Decode the incoming JSON request into the serverRequest struct
+	// Decode the JSON-RPC header into the server request struct
 	if err := c.dec.Decode(&c.req); err != nil {
-		return err // Return error if decoding fails
+		// Return an error if decoding the request header fails
+		return err
 	}
 
-	// Set the ServiceMethod for the RPC request
+	// Set the service method in the rpc.Request object from the decoded request
 	r.ServiceMethod = c.req.Method
 
-	// The JSON request ID can be any JSON value. RPC expects a uint64 ID.
-	// We assign a sequence number and save the original request ID in the pending map.
+	// Lock the mutex to ensure thread safety while modifying the sequence and pending map
 	c.mutex.Lock()
-	c.seq++                     // Increment the sequence number for each new request
-	c.pending[c.seq] = c.req.Id // Store the original request ID
-	c.req.Id = nil              // Remove the request ID from the JSON-RPC request
-	r.Seq = c.seq               // Set the sequence number in the rpc.Request
+	// Increment the sequence number for the new request
+	c.seq++
+	// Store the request ID in the pending map, mapping the sequence number to the request ID
+	c.pending[c.seq] = c.req.Id
+	// Set the sequence number in the rpc.Request object
+	r.Seq = c.seq
+	// Unlock the mutex after modifying the sequence and pending map
 	c.mutex.Unlock()
 
+	// Return nil if the header is read and processed successfully
 	return nil
 }
 
 // ReadRequestBody reads the body of the request and unmarshals the parameters into the provided value.
+// The body contains the actual data for the method call (arguments to the method).
 func (c *serverCodec) ReadRequestBody(x any) error {
+	// If the provided value is nil, return without doing anything
 	if x == nil {
-		return nil // No body to read if x is nil
+		return nil
 	}
-	// If no parameters are provided in the request, return an error
+
+	// If no parameters are present in the request, return an error indicating missing parameters
 	if c.req.Params == nil {
 		return errMissingParams
 	}
-	// JSON params are expected to be an array value; RPC params are usually structs.
-	// We unmarshal the JSON params into an array containing a struct for now.
+
+	// Define a single-element array to hold the unmarshalled parameters
 	var params [1]any
+	// Assign the provided value to the parameters array (only one argument is expected)
 	params[0] = x
-	return json.Unmarshal(*c.req.Params, &params) // Unmarshal the parameters into the struct
+
+	// Unmarshal the parameters from the JSON payload into the provided value (x)
+	return json.Unmarshal(*c.req.Params, &params)
 }
 
 // WriteResponse encodes and writes the JSON-RPC response to the connection.
+// The response contains either the result of the method call or an error message.
 func (c *serverCodec) WriteResponse(r *rpc.Response, x any) error {
-	// Lock the mutex to safely access and modify the pending map
+	// Lock the mutex to ensure thread safety while modifying the pending map
 	c.mutex.Lock()
-	b, ok := c.pending[r.Seq] // Get the original request ID for the sequence number
-	if !ok {
-		// If the sequence number is invalid, unlock and return an error
-		c.mutex.Unlock()
-		return errors.New("invalid sequence number in response")
-	}
-	// Remove the sequence number from the pending map after processing
+	// Retrieve the request ID associated with the sequence number in the response
+	id, ok := c.pending[r.Seq]
+	// Remove the entry from the pending map after using it
 	delete(c.pending, r.Seq)
+	// Unlock the mutex after modifying the pending map
 	c.mutex.Unlock()
 
-	// If the request ID is nil (invalid request), use JSON null for the response ID
-	if b == nil {
-		b = &null
+	// If no corresponding request ID was found, return an error
+	if !ok {
+		return errors.New("invalid sequence number in response")
 	}
 
-	// Create the response object
-	resp := serverResponse{Id: b}
+	// If the request ID is nil, assign the null value (no ID) for the response
+	if id == nil {
+		id = &null
+	}
+
+	// Create a new serverResponse struct to hold the response data
+	resp := serverResponse{Id: id}
+
+	// If there is no error in the response, set the result; otherwise, set the error message
 	if r.Error == "" {
-		resp.Result = x // Set the result if there is no error
+		resp.Result = x
 	} else {
-		resp.Error = r.Error // Set the error message if there is an error
+		resp.Error = r.Error
 	}
 
-	// Encode the response and send it to the client
+	// Encode the response into JSON and write it to the connection
 	return c.enc.Encode(resp)
 }
 
 // Close closes the connection used by the serverCodec.
+// This method is called to clean up the connection resources once the communication is complete.
 func (c *serverCodec) Close() error {
-	return c.c.Close() // Close the underlying connection
+	// Close the underlying connection and return any error that may occur
+	return c.c.Close()
 }
 
-// ServeConn serves the JSON-RPC server on a single connection. This blocks until the client disconnects.
+// ServeConn serves the JSON-RPC server on a single connection.
+// It reads incoming requests, processes them, and writes responses back to the client.
 func ServeConn(conn io.ReadWriteCloser) {
-	// Use the rpc.ServeCodec function to serve the connection using the serverCodec
+	// Create a new server codec for the connection and serve it using the rpc package
 	rpc.ServeCodec(NewServerCodec(conn))
 }
 
-// HandleRPC wraps the JSON-RPC server logic with an HTTP handler
+// HandleRPC serves JSON-RPC requests over HTTP connections.
+// It expects HTTP POST requests containing JSON-RPC data and handles the connection accordingly.
 func HandleRPC(w http.ResponseWriter, r *http.Request) {
-	// Ensure the request method is POST
+	// Only accept HTTP POST requests for JSON-RPC
 	if r.Method != http.MethodPost {
+		// Respond with an error if the method is not POST
 		http.Error(w, "JSON-RPC server only accepts POST requests", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Hijack the HTTP connection to use it for RPC communication
+	// Check if the response writer supports hijacking (necessary for establishing custom connections)
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
+		// If hijacking is not supported, respond with an error
 		http.Error(w, "Server does not support connection hijacking", http.StatusInternalServerError)
 		return
 	}
 
-	// Hijack the connection
+	// Hijack the connection to gain control over the network connection
 	conn, _, err := hijacker.Hijack()
 	if err != nil {
+		// If hijacking fails, respond with an error and the reason
 		http.Error(w, "Failed to hijack connection: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Serve JSON-RPC on the hijacked connection
+	// Serve the hijacked connection by processing JSON-RPC requests asynchronously
 	go rpc.ServeConn(conn)
 }
