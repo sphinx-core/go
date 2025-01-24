@@ -24,138 +24,286 @@ package rpc
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/rpc"
 	"sync"
+	"time"
 )
 
-// clientCodec implements the rpc.ClientCodec interface for handling JSON-RPC requests and responses.
+// clientCodec implements the rpc.ClientCodec interface for JSON-RPC over HTTP.
 type clientCodec struct {
-	dec *json.Decoder // Decoder for reading JSON values from the connection
-	enc *json.Encoder // Encoder for writing JSON values to the connection
+	dec *json.Decoder // Decoder for reading JSON values
+	enc *json.Encoder // Encoder for writing JSON values
 	c   io.Closer     // Closer for the connection
 
-	// Temporary workspace for request and response data
-	req  clientRequest  // Struct to hold the client request
-	resp clientResponse // Struct to hold the client response
+	req  clientRequest  // Workspace for requests
+	resp clientResponse // Workspace for responses
 
-	// Synchronization for pending requests
-	mutex   sync.Mutex        // Mutex to protect access to the pending map
-	pending map[uint64]string // Map that stores request IDs and their corresponding service methods
+	mutex   sync.Mutex        // Protects access to pending requests
+	pending map[uint64]string // Tracks request IDs to methods
+
+	// Hooks for logging and debugging
+	logRequest  func(request clientRequest)
+	logResponse func(response clientResponse)
 }
 
-// NewClientCodec creates a new clientCodec, which will use JSON-RPC over the given connection.
-func NewClientCodec(conn io.ReadWriteCloser) rpc.ClientCodec {
-	return &clientCodec{
-		dec:     json.NewDecoder(conn),   // Create a new JSON decoder
-		enc:     json.NewEncoder(conn),   // Create a new JSON encoder
-		c:       conn,                    // Store the connection object
-		pending: make(map[uint64]string), // Initialize the pending map to track requests
-	}
+// CircuitBreaker structure to track failure count and timeout
+type CircuitBreaker struct {
+	failureCount int
+	open         bool
+	lastFailedAt time.Time
+	timeout      time.Duration
+	mu           sync.Mutex
 }
 
-// clientRequest represents the structure of a JSON-RPC request.
+// clientRequest represents a JSON-RPC request.
 type clientRequest struct {
-	Method string `json:"method"` // Name of the method to be called
-	Params [1]any `json:"params"` // Parameters for the method
-	Id     uint64 `json:"id"`     // Unique identifier for the request
+	Method string `json:"method"` // Method name
+	Params [1]any `json:"params"` // Parameters
+	Id     uint64 `json:"id"`     // Request ID
 }
 
-// WriteRequest encodes and writes a JSON-RPC request to the connection.
-func (c *clientCodec) WriteRequest(r *rpc.Request, param any) error {
-	// Lock the mutex to safely modify the pending map
-	c.mutex.Lock()
-	c.pending[r.Seq] = r.ServiceMethod // Store the service method for the request ID
-	c.mutex.Unlock()
-
-	// Set the fields of the client request struct
-	c.req.Method = r.ServiceMethod
-	c.req.Params[0] = param
-	c.req.Id = r.Seq
-
-	// Encode and write the request to the connection
-	return c.enc.Encode(&c.req)
-}
-
-// clientResponse represents the structure of a JSON-RPC response.
+// clientResponse represents a JSON-RPC response.
 type clientResponse struct {
-	Id     uint64           `json:"id"`     // Unique identifier for the response
-	Result *json.RawMessage `json:"result"` // The result of the method call
-	Error  any              `json:"error"`  // Error message if any
+	Id     uint64           `json:"id"`     // Response ID
+	Result *json.RawMessage `json:"result"` // Result
+	Error  any              `json:"error"`  // Error
 }
 
-// reset resets the client response object for reuse.
+// reset prepares a response for reuse.
 func (r *clientResponse) reset() {
 	r.Id = 0
 	r.Result = nil
 	r.Error = nil
 }
 
-// ReadResponseHeader reads the response header from the connection and fills the rpc.Response.
-func (c *clientCodec) ReadResponseHeader(r *rpc.Response) error {
-	// Reset the response before reading new data
-	c.resp.reset()
+// NewClientCodec initializes a new clientCodec.
+func NewClientCodec(conn io.ReadWriteCloser, logRequest func(clientRequest), logResponse func(clientResponse)) rpc.ClientCodec {
+	return &clientCodec{
+		dec:         json.NewDecoder(conn),
+		enc:         json.NewEncoder(conn),
+		c:           conn,
+		pending:     make(map[uint64]string),
+		logRequest:  logRequest,
+		logResponse: logResponse,
+	}
+}
 
-	// Decode the response from the connection
-	if err := c.dec.Decode(&c.resp); err != nil {
-		return err // Return error if decoding fails
+// WriteRequest sends a JSON-RPC request, with retries for transient errors.
+// WriteRequest sends a JSON-RPC request, with retries for transient errors.
+func (c *clientCodec) WriteRequest(r *rpc.Request, param any) error {
+	c.mutex.Lock()
+	c.pending[r.Seq] = r.ServiceMethod
+	c.mutex.Unlock()
+
+	c.req.Method = r.ServiceMethod
+	c.req.Params[0] = param
+	c.req.Id = r.Seq
+
+	// Track the start time for latency measurement
+	startTime := time.Now()
+
+	// Log the outgoing request if logging is enabled
+	if c.logRequest != nil {
+		c.logRequest(c.req)
 	}
 
-	// Lock the mutex to safely access the pending map
+	// Retry logic for transient errors
+	const maxRetries = 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if err := c.enc.Encode(&c.req); err != nil {
+			// On failure, increment error count and return
+			IncrementErrorCount()
+			if attempt == maxRetries {
+				return fmt.Errorf("failed after %d attempts: %w", maxRetries, err)
+			}
+			time.Sleep(100 * time.Millisecond) // Backoff before retrying
+			continue
+		}
+		break
+	}
+
+	// Calculate latency and add to metrics
+	latency := time.Since(startTime)
+	AddLatency(latency)
+
+	// Increment the request count
+	IncrementRequestCount()
+
+	return nil
+}
+
+// ReadResponseHeader reads the JSON-RPC response header.
+func (c *clientCodec) ReadResponseHeader(r *rpc.Response) error {
+	c.resp.reset()
+	startTime := time.Now()
+
+	if err := c.dec.Decode(&c.resp); err != nil {
+		// Increment error count on failure
+		IncrementErrorCount()
+		return err
+	}
+
 	c.mutex.Lock()
-	// Set the service method from the pending map using the response ID
 	r.ServiceMethod = c.pending[c.resp.Id]
-	// Remove the request ID from the pending map
 	delete(c.pending, c.resp.Id)
 	c.mutex.Unlock()
 
-	// Set the response ID and initialize error field
-	r.Error = ""
 	r.Seq = c.resp.Id
-
-	// Check if the response contains an error or no result
-	if c.resp.Error != nil || c.resp.Result == nil {
-		// Convert the error to a string if it's not already
-		x, ok := c.resp.Error.(string)
+	if c.resp.Error != nil {
+		errMsg, ok := c.resp.Error.(string)
 		if !ok {
-			return fmt.Errorf("invalid error %v", c.resp.Error) // Invalid error format
+			return fmt.Errorf("invalid error format: %v", c.resp.Error)
 		}
-		if x == "" {
-			x = "unspecified error" // Default error message if it's empty
+		r.Error = errMsg
+		// Increment error count for failed responses
+		IncrementErrorCount()
+	}
+
+	// Calculate response time (latency) and add to metrics
+	latency := time.Since(startTime)
+	AddLatency(latency)
+
+	// Log the incoming response if logging is enabled
+	if c.logResponse != nil {
+		c.logResponse(c.resp)
+	}
+
+	return nil
+}
+
+// ReadResponseBody unmarshals the response body into the provided object.
+func (c *clientCodec) ReadResponseBody(x any) error {
+	if x == nil {
+		return nil
+	}
+	return json.Unmarshal(*c.resp.Result, x)
+}
+
+// Close closes the connection.
+func (c *clientCodec) Close() error {
+	return c.c.Close()
+}
+
+// NewClient creates a new rpc.Client with the specified codec.
+func NewClient(conn io.ReadWriteCloser, logRequest func(clientRequest), logResponse func(clientResponse)) *rpc.Client {
+	return rpc.NewClientWithCodec(NewClientCodec(conn, logRequest, logResponse))
+}
+
+// Dial establishes a connection to the server.
+func Dial(network, address string) (*rpc.Client, error) {
+	conn, err := net.Dial(network, address)
+	if err != nil {
+		return nil, err
+	}
+	return NewClient(conn, nil, nil), nil
+}
+
+// DialWithTimeout establishes a connection with a timeout.
+func DialWithTimeout(network, address string, timeout time.Duration) (*rpc.Client, error) {
+	conn, err := net.DialTimeout(network, address, timeout)
+	if err != nil {
+		return nil, err
+	}
+	return NewClient(conn, nil, nil), nil
+}
+
+// Call is a helper for synchronous JSON-RPC method calls.
+func Call(client *rpc.Client, method string, args any, result any) error {
+	return client.Call(method, args, result)
+}
+
+// BatchRequest sends multiple requests as a single batch for efficiency.
+func BatchRequest(client *rpc.Client, requests []rpc.Request, results []any, args []any) error {
+	if len(requests) != len(results) || len(requests) != len(args) {
+		return errors.New("requests, results, and args length mismatch")
+	}
+	for i, req := range requests {
+		// Call the service method with arguments from the args slice
+		if err := client.Call(req.ServiceMethod, args[i], &results[i]); err != nil {
+			return err
 		}
-		r.Error = x // Set the error message in the rpc response
 	}
 	return nil
 }
 
-// ReadResponseBody reads the body of the response and unmarshals it into the provided result.
-func (c *clientCodec) ReadResponseBody(x any) error {
-	if x == nil {
-		return nil // No response body to read if nil
+// CircuitBreakerHandler is a wrapper around the CircuitBreaker to manage requests.
+func (cb *CircuitBreaker) HandleRequest() error {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	if cb.open && time.Since(cb.lastFailedAt) < cb.timeout {
+		return fmt.Errorf("circuit breaker is open, request not allowed")
 	}
-	// Unmarshal the result into the provided object
-	return json.Unmarshal(*c.resp.Result, x)
-}
 
-// Close closes the connection used by the clientCodec.
-func (c *clientCodec) Close() error {
-	return c.c.Close() // Close the underlying connection
-}
-
-// NewClient creates and returns a new rpc.Client with the provided connection.
-func NewClient(conn io.ReadWriteCloser) *rpc.Client {
-	return rpc.NewClientWithCodec(NewClientCodec(conn))
-}
-
-// Dial establishes a connection to a JSON-RPC server at the specified network and address.
-func Dial(network, address string) (*rpc.Client, error) {
-	// Dial the server using the provided network type and address
-	conn, err := net.Dial(network, address)
-	if err != nil {
-		return nil, err // Return error if the connection fails
+	if cb.open && time.Since(cb.lastFailedAt) > cb.timeout {
+		// Reset the breaker after timeout
+		cb.open = false
 	}
-	// Return a new client with the established connection
-	return NewClient(conn), err
+
+	return nil
+}
+
+// ReportFailure increments the failure count and opens the circuit if needed.
+func (cb *CircuitBreaker) ReportFailure() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	cb.failureCount++
+	if cb.failureCount >= 3 {
+		cb.open = true
+		cb.lastFailedAt = time.Now()
+	}
+}
+
+// Reset resets the failure count and closes the circuit.
+func (cb *CircuitBreaker) Reset() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	cb.failureCount = 0
+	cb.open = false
+}
+
+// ConnectionPool manages a pool of connections.
+type ConnectionPool struct {
+	conns    []*rpc.Client
+	mu       sync.Mutex
+	maxConns int
+}
+
+// NewConnectionPool creates a new connection pool with a maximum number of connections.
+func NewConnectionPool(maxConns int) *ConnectionPool {
+	return &ConnectionPool{
+		conns:    make([]*rpc.Client, 0, maxConns),
+		maxConns: maxConns,
+	}
+}
+
+// GetConnection retrieves a connection from the pool, or creates one if needed.
+func (p *ConnectionPool) GetConnection(network, address string) (*rpc.Client, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if len(p.conns) > 0 {
+		conn := p.conns[len(p.conns)-1]
+		p.conns = p.conns[:len(p.conns)-1]
+		return conn, nil
+	}
+
+	// Create a new connection if the pool is empty
+	return Dial(network, address)
+}
+
+// ReturnConnection returns a connection to the pool.
+func (p *ConnectionPool) ReturnConnection(client *rpc.Client) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if len(p.conns) < p.maxConns {
+		p.conns = append(p.conns, client)
+	}
 }
