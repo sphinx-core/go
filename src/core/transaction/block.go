@@ -32,7 +32,7 @@ import (
 
 // BlockHeader represents the metadata for a block in the blockchain.
 type BlockHeader struct {
-	NBlock     uint64   `json:"n_block"`     // The position of the block in the blockchain (index)
+	Block      uint64   `json:"nblock"`      // The position of the block in the blockchain (index)
 	Timestamp  int64    `json:"timestamp"`   // The timestamp when the block is mined
 	PrevHash   []byte   `json:"prev_hash"`   // Hash of the previous block (direct predecessor)
 	Difficulty *big.Int `json:"difficulty"`  // Difficulty level of mining the block
@@ -71,7 +71,7 @@ type Transaction struct {
 // NewBlockHeader creates a new BlockHeader.
 func NewBlockHeader(nBlock uint64, prevHash []byte, difficulty *big.Int, txsRoot, stateRoot []byte, gasLimit, gasUsed *big.Int, parentHash, unclesHash []byte) *BlockHeader {
 	return &BlockHeader{
-		NBlock:     nBlock, // Set nBlock as the block's position in the chain
+		Block:      nBlock, // Set nBlock as the block's position in the chain
 		Timestamp:  time.Now().Unix(),
 		PrevHash:   prevHash,
 		Difficulty: difficulty,
@@ -166,8 +166,8 @@ func (b *Block) SanityCheck() error {
 	}
 
 	// Ensure PrevHash is not empty (except for the genesis block)
-	if b.Header.NBlock > 0 && len(b.Header.PrevHash) == 0 {
-		return fmt.Errorf("previous hash is missing for block number: %d", b.Header.NBlock)
+	if b.Header.Block > 0 && len(b.Header.PrevHash) == 0 {
+		return fmt.Errorf("previous hash is missing for block number: %d", b.Header.Block)
 	}
 
 	// Check if Difficulty is non-negative
