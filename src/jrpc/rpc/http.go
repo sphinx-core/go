@@ -41,6 +41,19 @@ type clientCodecHTTP struct {
 	pending map[uint64]string // Map that stores request IDs and their corresponding service methods
 }
 
+// Request represents a custom structure for an RPC request.
+type Request struct {
+	Seq           uint64 // Sequence ID for the request
+	ServiceMethod string // The method being called
+}
+
+// Response represents a custom structure for an RPC response.
+type Response struct {
+	Seq           uint64 // Sequence ID for the response
+	ServiceMethod string // The method being called
+	Error         string // Error message if any
+}
+
 // NewClientCodecHTTP creates a new clientCodecHTTP, which will use JSON-RPC over HTTP for the given URL.
 func NewClientCodecHTTP(url string, client *http.Client) *clientCodecHTTP {
 	return &clientCodecHTTP{
@@ -136,17 +149,4 @@ func (c *clientCodecHTTP) ReadResponseBody(x any) error {
 func (c *clientCodecHTTP) Close() error {
 	// HTTP connections are managed by the client
 	return nil
-}
-
-// Request represents a custom structure for an RPC request.
-type Request struct {
-	Seq           uint64 // Sequence ID for the request
-	ServiceMethod string // The method being called
-}
-
-// Response represents a custom structure for an RPC response.
-type Response struct {
-	Seq           uint64 // Sequence ID for the response
-	ServiceMethod string // The method being called
-	Error         string // Error message if any
 }
