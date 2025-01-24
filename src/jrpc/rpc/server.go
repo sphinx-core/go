@@ -34,6 +34,9 @@ import (
 // Error variable for handling missing parameters in the request body
 var errMissingParams = errors.New("jsonrpc: request body missing params")
 
+// Predefined null value for invalid requests
+var null = json.RawMessage([]byte("null"))
+
 // serverCodec implements the rpc.ServerCodec interface for handling JSON-RPC requests and responses.
 type serverCodec struct {
 	dec *json.Decoder // Decoder for reading JSON values from the connection
@@ -124,8 +127,6 @@ func (c *serverCodec) ReadRequestBody(x any) error {
 	params[0] = x
 	return json.Unmarshal(*c.req.Params, &params) // Unmarshal the parameters into the struct
 }
-
-var null = json.RawMessage([]byte("null")) // Predefined null value for invalid requests
 
 // WriteResponse encodes and writes the JSON-RPC response to the connection.
 func (c *serverCodec) WriteResponse(r *rpc.Response, x any) error {
