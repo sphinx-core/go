@@ -28,7 +28,6 @@ import (
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -393,11 +392,6 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		}
 		// After completing the inner loop, update combinedParts to the transformedParts.
 		combinedParts = transformedParts
-
-		// Print the hexString and size of transformedParts to observe the result of each iteration
-		hexString := hex.EncodeToString(combinedParts)
-		fmt.Println("Iteration", round+1, "Hex String:", hexString)
-		fmt.Println("Size of combinedParts in bytes:", len(combinedParts)) // Print the size in bytes
 	}
 
 	// Initialize the combinedParts slice with byte values ranging from 0 to 127.
