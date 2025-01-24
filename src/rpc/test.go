@@ -27,7 +27,7 @@ import (
 	"log"
 	"net/http"
 
-	rpc "github.com/sphinx-core/go/src/rpc/jsonrpc"
+	rpc "github.com/sphinx-core/go/src/rpc/json"
 )
 
 func main() {
