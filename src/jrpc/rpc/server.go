@@ -39,10 +39,8 @@ import (
 var (
 	errMissingParams = errors.New("jsonrpc: request body missing params") // Error for missing parameters in the request
 	errInvalidSeq    = errors.New("invalid sequence number in response")  // Error for invalid sequence numbers in responses
+	null             = json.RawMessage([]byte("null"))                    // Null value is used for invalid or empty requests
 )
-
-// Null value is used for invalid or empty requests
-var null = json.RawMessage([]byte("null"))
 
 // ServerCodec interface defines methods to read, write, and close an RPC connection
 type ServerCodec interface {
@@ -50,6 +48,18 @@ type ServerCodec interface {
 	ReadRequestBody(interface{}) error              // Reads and decodes the body of an RPC request, extracting the parameters
 	WriteResponse(*rpc.Response, interface{}) error // Serializes and sends back the response for an RPC call
 	Close() error
+}
+
+// serverCodec implements the rpc.ServerCodec interface for handling requests and responses.
+type serverCodec struct {
+	dec      *json.Decoder               // JSON decoder for reading incoming requests
+	enc      *json.Encoder               // JSON encoder for sending responses
+	c        io.Closer                   // The connection object
+	req      serverRequest               // Temporary object to store the current request data
+	mutex    sync.RWMutex                // Mutex to protect concurrent access to shared resources
+	seq      uint64                      // Sequence number for each request
+	pending  map[uint64]*json.RawMessage // Map to store pending requests by sequence number
+	PeerInfo PeerInfo                    // Peer connection details
 }
 
 // CircuitBreaker tracks failure count and handles connection timeouts.
@@ -66,6 +76,28 @@ type ConnectionPool struct {
 	conns    []*rpc.Client // List of active connections in the pool
 	mu       sync.Mutex    // Mutex to protect access to the connection pool
 	maxConns int           // Maximum number of connections allowed in the pool
+}
+
+// serverRequest represents the structure of a JSON-RPC request.
+type serverRequest struct {
+	Method string           `json:"method"` // The name of the RPC method being called
+	Params *json.RawMessage `json:"params"` // The parameters for the method (encoded as JSON)
+	Id     *json.RawMessage `json:"id"`     // The unique ID for the request
+}
+
+// Reset resets the fields of the serverRequest to prepare for a new request.
+func (r *serverRequest) reset() {
+	// Clear all fields of the request
+	r.Method = ""
+	r.Params = nil
+	r.Id = nil
+}
+
+// serverResponse represents the structure of a JSON-RPC response.
+type serverResponse struct {
+	Id     *json.RawMessage `json:"id"`     // The request ID for matching response
+	Result any              `json:"result"` // The result of the RPC method execution
+	Error  any              `json:"error"`  // Any error message if the RPC call fails
 }
 
 // PeerInfo struct for storing information about client connections based on RFC 2-like protocols
@@ -159,18 +191,6 @@ func AsyncCall(client *rpc.Client, serviceMethod string, args any) <-chan *rpc.C
 	return done
 }
 
-// serverCodec implements the rpc.ServerCodec interface for handling requests and responses.
-type serverCodec struct {
-	dec      *json.Decoder               // JSON decoder for reading incoming requests
-	enc      *json.Encoder               // JSON encoder for sending responses
-	c        io.Closer                   // The connection object
-	req      serverRequest               // Temporary object to store the current request data
-	mutex    sync.RWMutex                // Mutex to protect concurrent access to shared resources
-	seq      uint64                      // Sequence number for each request
-	pending  map[uint64]*json.RawMessage // Map to store pending requests by sequence number
-	PeerInfo PeerInfo                    // Peer connection details
-}
-
 // NewServerCodec creates a new instance of serverCodec to handle the RPC communication.
 func NewServerCodec(conn io.ReadWriteCloser, peer PeerInfo) rpc.ServerCodec {
 	// Cast the connection to WebSocketConnWrapper
@@ -187,28 +207,6 @@ func NewServerCodec(conn io.ReadWriteCloser, peer PeerInfo) rpc.ServerCodec {
 		pending:  make(map[uint64]*json.RawMessage),
 		PeerInfo: peer, // Add peer information
 	}
-}
-
-// serverRequest represents the structure of a JSON-RPC request.
-type serverRequest struct {
-	Method string           `json:"method"` // The name of the RPC method being called
-	Params *json.RawMessage `json:"params"` // The parameters for the method (encoded as JSON)
-	Id     *json.RawMessage `json:"id"`     // The unique ID for the request
-}
-
-// Reset resets the fields of the serverRequest to prepare for a new request.
-func (r *serverRequest) reset() {
-	// Clear all fields of the request
-	r.Method = ""
-	r.Params = nil
-	r.Id = nil
-}
-
-// serverResponse represents the structure of a JSON-RPC response.
-type serverResponse struct {
-	Id     *json.RawMessage `json:"id"`     // The request ID for matching response
-	Result any              `json:"result"` // The result of the RPC method execution
-	Error  any              `json:"error"`  // Any error message if the RPC call fails
 }
 
 // ReadRequestHeader reads and decodes the header of the incoming request, then unmarshals it into the serverRequest structure.
