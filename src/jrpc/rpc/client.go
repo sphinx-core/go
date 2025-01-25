@@ -53,15 +53,6 @@ type clientCodec struct {
 	logResponse func(response clientResponse)
 }
 
-// CircuitBreaker tracks failure count and handles connection timeouts.
-type CircuitBreaker struct {
-	failureCount int           // Tracks the number of failures
-	open         bool          // Indicates if the circuit is open or closed
-	lastFailedAt time.Time     // Time of the last failure
-	timeout      time.Duration // Time to wait before resetting the circuit
-	mu           sync.Mutex    // Mutex to protect concurrent access to the CircuitBreaker
-}
-
 // clientRequest represents a JSON-RPC request structure.
 type clientRequest struct {
 	Method string `json:"method"` // The method to be called
@@ -269,21 +260,6 @@ func (cb *CircuitBreaker) Reset() {
 
 	cb.failureCount = 0 // Resets the failure count
 	cb.open = false     // Closes the circuit
-}
-
-// ConnectionPool manages a pool of reusable connections.
-type ConnectionPool struct {
-	conns    []*rpc.Client // List of active connections in the pool
-	mu       sync.Mutex    // Mutex to protect access to the connection pool
-	maxConns int           // Maximum number of connections allowed in the pool
-}
-
-// NewConnectionPool creates a new connection pool with the specified maximum connections.
-func NewConnectionPool(maxConns int) *ConnectionPool {
-	return &ConnectionPool{
-		conns:    make([]*rpc.Client, 0, maxConns), // Initializes the connection pool
-		maxConns: maxConns,                         // Sets the maximum number of connections
-	}
 }
 
 // GetConnection retrieves a connection from the pool or creates a new one if needed.

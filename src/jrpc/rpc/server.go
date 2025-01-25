@@ -41,12 +41,31 @@ var (
 	errInvalidSeq    = errors.New("invalid sequence number in response")  // Error for invalid sequence numbers in responses
 )
 
+// Null value is used for invalid or empty requests
+var null = json.RawMessage([]byte("null"))
+
 // ServerCodec interface defines methods to read, write, and close an RPC connection
 type ServerCodec interface {
 	ReadRequestHeader(*rpc.Request) error           // Reads and decodes the header of an RPC request, extracting method info
 	ReadRequestBody(interface{}) error              // Reads and decodes the body of an RPC request, extracting the parameters
 	WriteResponse(*rpc.Response, interface{}) error // Serializes and sends back the response for an RPC call
 	Close() error
+}
+
+// CircuitBreaker tracks failure count and handles connection timeouts.
+type CircuitBreaker struct {
+	failureCount int           // Tracks the number of failures
+	open         bool          // Indicates if the circuit is open or closed
+	lastFailedAt time.Time     // Time of the last failure
+	timeout      time.Duration // Time to wait before resetting the circuit
+	mu           sync.Mutex    // Mutex to protect concurrent access to the CircuitBreaker
+}
+
+// ConnectionPool manages a pool of reusable connections.
+type ConnectionPool struct {
+	conns    []*rpc.Client // List of active connections in the pool
+	mu       sync.Mutex    // Mutex to protect access to the connection pool
+	maxConns int           // Maximum number of connections allowed in the pool
 }
 
 // PeerInfo struct for storing information about client connections based on RFC 2-like protocols
@@ -90,8 +109,13 @@ type PeerInfo struct {
 	HeaderInfo string // Stores the decoded header information
 }
 
-// Null value is used for invalid or empty requests
-var null = json.RawMessage([]byte("null"))
+// NewConnectionPool creates a new connection pool with the specified maximum connections.
+func NewConnectionPool(maxConns int) *ConnectionPool {
+	return &ConnectionPool{
+		conns:    make([]*rpc.Client, 0, maxConns), // Initializes the connection pool
+		maxConns: maxConns,                         // Sets the maximum number of connections
+	}
+}
 
 // isBatch returns true when the first non-whitespace characters is '['
 func isBatch(raw json.RawMessage) bool {
