@@ -23,8 +23,10 @@
 package rpc
 
 import (
+	"encoding/base64"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -50,7 +52,30 @@ func NewWebSocketServer() *WebSocketServer {
 }
 
 // HandleWebSocketUpgrade handles incoming HTTP requests and upgrades them to WebSocket connections.
+// HandleWebSocketUpgrade handles incoming HTTP requests and upgrades them to WebSocket connections.
 func (ws *WebSocketServer) HandleWebSocketUpgrade(w http.ResponseWriter, r *http.Request) {
+	// Get the Base64-encoded custom header from the HTTP request (if present)
+	encodedHeader := r.Header.Get("X-Client-Header")
+
+	// If the custom header exists, decode it from Base64
+	var decodedHeader string
+	if encodedHeader != "" {
+		// Ensure proper padding before decoding
+		if len(encodedHeader)%4 != 0 {
+			encodedHeader += strings.Repeat("=", 4-len(encodedHeader)%4)
+		}
+
+		// Decode the Base64 header
+		decodedData, err := base64.StdEncoding.DecodeString(encodedHeader)
+		if err != nil {
+			log.Printf("Error decoding Base64 header: %v", err)
+			http.Error(w, "Invalid Base64 header", http.StatusBadRequest)
+			return
+		}
+		decodedHeader = string(decodedData) // Store the decoded header
+		log.Printf("Decoded client header: %s", decodedHeader)
+	}
+
 	// Upgrade HTTP connection to WebSocket
 	conn, err := ws.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -58,14 +83,15 @@ func (ws *WebSocketServer) HandleWebSocketUpgrade(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Log the new WebSocket connection
-	log.Printf("New WebSocket connection: %s", conn.RemoteAddr())
+	// Log the new WebSocket connection with the decoded header info
+	log.Printf("New WebSocket connection: %s, Client header: %s", conn.RemoteAddr(), decodedHeader)
 
 	// Populate the PeerInfo struct for the new connection
 	peer := PeerInfo{
 		Transport:  "ws",                       // Indicate WebSocket transport
 		RemoteAddr: conn.RemoteAddr().String(), // Get the client's remote address
 		Timestamp:  time.Now(),                 // Store the connection timestamp
+		HeaderInfo: decodedHeader,              // Store the decoded header info
 	}
 
 	// Add the WebSocket connection to the client list

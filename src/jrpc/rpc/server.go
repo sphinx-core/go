@@ -78,6 +78,8 @@ type PeerInfo struct {
 
 	// ConnectionID is a unique identifier for the client connection. This helps track and identify sessions.
 	ConnectionID string
+
+	HeaderInfo string // Stores the decoded header information
 }
 
 // Null value is used for invalid or empty requests
@@ -165,7 +167,6 @@ type serverResponse struct {
 	Error  any              `json:"error"`  // Any error message if the RPC call fails
 }
 
-// ReadRequestHeader reads and decodes the header of the incoming request.
 // ReadRequestHeader reads and decodes the header of the incoming request, then unmarshals it into the serverRequest structure.
 func (c *serverCodec) ReadRequestHeader(r *rpc.Request) error {
 	// Reset the current request object to prepare for reading new data.
