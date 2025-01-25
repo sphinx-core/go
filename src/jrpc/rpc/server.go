@@ -166,30 +166,57 @@ type serverResponse struct {
 }
 
 // ReadRequestHeader reads and decodes the header of the incoming request.
+// ReadRequestHeader reads and decodes the header of the incoming request, then unmarshals it into the serverRequest structure.
 func (c *serverCodec) ReadRequestHeader(r *rpc.Request) error {
-	// Reset the request object to prepare for reading a new request
+	// Reset the current request object to prepare for reading new data.
 	c.req.reset()
-	// Decode the JSON request header into the serverRequest object
-	if err := c.dec.Decode(&c.req); err != nil {
-		// Log and return an error if decoding fails
-		log.Printf("Error decoding request header: %v", err)
-		return err
+
+	// Initialize a slice to hold the raw message that will be received.
+	rawMessage := []byte{}
+
+	// Decode the incoming message into the rawMessage slice.
+	// This reads the raw byte data from the WebSocket connection.
+	if err := c.dec.Decode(&rawMessage); err != nil {
+		// Log an error message if decoding the raw message fails.
+		log.Printf("Error decoding raw message: %v", err)
+		return err // Return the error to the caller.
 	}
-	// Set the service method name in the rpc.Request object
+
+	// Log the raw message received to help with debugging or logging.
+	// This shows the exact raw data as it was received before any processing.
+	log.Printf("Raw message received: %s", string(rawMessage))
+
+	// Unmarshal the raw message (which is in JSON format) into the serverRequest struct.
+	// This deserializes the incoming JSON payload into the fields of serverRequest.
+	if err := json.Unmarshal(rawMessage, &c.req); err != nil {
+		// Log an error message if unmarshalling the raw message into serverRequest fails.
+		log.Printf("Error unmarshalling message into serverRequest: %v", err)
+		return err // Return the error to the caller.
+	}
+
+	// Once unmarshalled, set the service method in the rpc.Request object.
+	// This helps the RPC server understand which method to call for this request.
 	r.ServiceMethod = c.req.Method
 
-	// Lock the mutex to ensure thread-safe access to shared resources
+	// Lock the mutex to ensure that the sequence number and pending requests are modified safely.
 	c.mutex.Lock()
-	// Increment the sequence number for the new request
+
+	// Increment the sequence number for the current request.
+	// This helps to uniquely identify and track requests and responses.
 	c.seq++
-	// Map the sequence number to the request ID for tracking the request
+
+	// Store the request ID in the pending map using the sequence number as the key.
+	// This allows us to associate a response with its corresponding request.
 	c.pending[c.seq] = c.req.Id
-	// Set the sequence number in the rpc.Request object
+
+	// Set the sequence number in the rpc.Request object.
+	// This helps the RPC server track the response's sequence number.
 	r.Seq = c.seq
-	// Unlock the mutex after modifying shared resources
+
+	// Unlock the mutex after the sequence number and pending map are modified.
 	c.mutex.Unlock()
 
-	// Return nil indicating successful header read
+	// Return nil to indicate that the header has been successfully read and processed.
 	return nil
 }
 

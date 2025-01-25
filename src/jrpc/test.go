@@ -31,8 +31,11 @@ import (
 )
 
 func main() {
-	// Register the HTTP handler for the RPC endpoint
-	http.HandleFunc("/rpc", rpc.HandleRPC)
+	// Initialize the WebSocket server
+	wsServer := rpc.NewWebSocketServer()
+
+	// Register the WebSocket handler for the RPC endpoint
+	http.HandleFunc("/rpc", wsServer.HandleWebSocketUpgrade) // WebSocket upgrade handler
 
 	// Start the HTTP server on localhost:8080
 	log.Println("Starting server on http://localhost:8080/rpc")
@@ -44,11 +47,14 @@ func main() {
 
 	client := &http.Client{}
 
-	// Define the server URL
-	serverURL := "http://localhost:8080/rpc"
+	// Define the server URL for WebSocket (ws:// instead of http://)
+	serverURL := "ws://localhost:8080/rpc" // WebSocket URL
 
-	// Create a new client codec
-	clientCodec := rpc.NewClientCodecHTTP(serverURL, client)
+	// Create a new WebSocket client codec
+	clientCodec, err := rpc.NewClientCodecWebSocket(serverURL, client)
+	if err != nil {
+		log.Fatalf("Error creating client codec: %v", err)
+	}
 
 	// Prepare a request to call the example service method
 	req := &rpc.Request{
@@ -56,8 +62,8 @@ func main() {
 		ServiceMethod: "exampleServiceMethod",
 	}
 
-	// Call WriteRequest to send a JSON-RPC request
-	err := clientCodec.WriteRequest(req, "World")
+	// Call WriteRequest to send a WebSocket RPC request
+	err = clientCodec.WriteRequest(req, "World")
 	if err != nil {
 		log.Fatalf("Error sending request: %v", err)
 	}
