@@ -44,6 +44,33 @@ func NewWebSocketConnWrapper(conn *websocket.Conn) *WebSocketConnWrapper {
 	return &WebSocketConnWrapper{Conn: conn}
 }
 
+// ReadResponseHeader reads the header of the RPC response.
+func (c *ClientCodecWebSocket) ReadResponseHeader(resp *Response) error {
+	// Read the response header (just an example of parsing JSON, adjust as needed)
+	return c.conn.ReadJSON(resp)
+}
+
+// ReadResponseBody reads the response body.
+func (c *ClientCodecWebSocket) ReadResponseBody(result interface{}) error {
+	// Read the response body (the actual result of the RPC call)
+	return c.conn.ReadJSON(result)
+}
+
+// NewClientCodecWebSocket creates a new ClientCodecWebSocket instance.
+func NewClientCodecWebSocket(serverURL string, client *http.Client) (*ClientCodecWebSocket, error) {
+	// Dial the WebSocket server
+	conn, _, err := websocket.DefaultDialer.Dial(serverURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return a new ClientCodecWebSocket instance
+	return &ClientCodecWebSocket{
+		conn:   conn,
+		client: client,
+	}, nil
+}
+
 // Read implements the io.Reader interface for WebSocketConnWrapper.
 func (w *WebSocketConnWrapper) Read(p []byte) (n int, err error) {
 	// Read from the WebSocket connection into a temporary message variable
