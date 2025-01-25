@@ -41,6 +41,45 @@ var (
 	errInvalidSeq    = errors.New("invalid sequence number in response")  // Error for invalid sequence numbers in responses
 )
 
+// PeerInfo struct for storing information about client connections based on RFC 2-like protocols
+type PeerInfo struct {
+	// Transport indicates the protocol used for communication (e.g., HTTP, WebSocket, or IPC).
+	// This could be extended to include "ws" for WebSocket or "ipc" for Inter-process communication.
+	Transport string
+
+	// RemoteAddr holds the address of the client, typically containing the client's IP address and port.
+	// This is key for identifying the client during interactions.
+	RemoteAddr string
+
+	// HTTP-specific information that is relevant for connections using the HTTP protocol.
+	// This helps provide context about the client's HTTP request headers.
+	HTTP struct {
+		// Version specifies the HTTP version used by the client (e.g., "HTTP/1.1" or "HTTP/2").
+		// Not applicable for WebSocket, but can be extended for HTTP-based protocols.
+		Version string
+
+		// UserAgent holds the value of the 'User-Agent' header, which can be used to identify the client's software.
+		UserAgent string
+
+		// Origin represents the 'Origin' header, often used in CORS scenarios to track the source of the request.
+		// Could also be used for WebSocket handshakes.
+		Origin string
+
+		// Host indicates the 'Host' header which specifies the domain and port number for HTTP requests.
+		Host string
+	}
+
+	// Timestamp represents the time the connection was established. Useful for monitoring and auditing.
+	Timestamp time.Time
+
+	// ProtocolVersion indicates the version of the peer protocol in use, potentially for negotiation.
+	// Example: "2.0" for JSON-RPC 2.0 compliance.
+	ProtocolVersion string
+
+	// ConnectionID is a unique identifier for the client connection. This helps track and identify sessions.
+	ConnectionID string
+}
+
 // Null value is used for invalid or empty requests
 var null = json.RawMessage([]byte("null"))
 
@@ -76,23 +115,31 @@ func AsyncCall(client *rpc.Client, serviceMethod string, args any) <-chan *rpc.C
 
 // serverCodec implements the rpc.ServerCodec interface for handling requests and responses.
 type serverCodec struct {
-	dec     *json.Decoder               // JSON decoder for reading incoming requests
-	enc     *json.Encoder               // JSON encoder for sending responses
-	c       io.Closer                   // The connection object
-	req     serverRequest               // Temporary object to store the current request data
-	mutex   sync.RWMutex                // Mutex to protect concurrent access to shared resources
-	seq     uint64                      // Sequence number for each request
-	pending map[uint64]*json.RawMessage // Map to store pending requests by sequence number
+	dec      *json.Decoder               // JSON decoder for reading incoming requests
+	enc      *json.Encoder               // JSON encoder for sending responses
+	c        io.Closer                   // The connection object
+	req      serverRequest               // Temporary object to store the current request data
+	mutex    sync.RWMutex                // Mutex to protect concurrent access to shared resources
+	seq      uint64                      // Sequence number for each request
+	pending  map[uint64]*json.RawMessage // Map to store pending requests by sequence number
+	PeerInfo PeerInfo                    // Peer connection details
 }
 
-// NewServerCodec creates a new instance of serverCodec to handle the RPC communication
-func NewServerCodec(conn io.ReadWriteCloser) rpc.ServerCodec {
-	// Return a new serverCodec with initialized fields
+// NewServerCodec creates a new instance of serverCodec to handle the RPC communication.
+func NewServerCodec(conn io.ReadWriteCloser, peer PeerInfo) rpc.ServerCodec {
+	// Cast the connection to WebSocketConnWrapper
+	wsConn, ok := conn.(*WebSocketConnWrapper)
+	if !ok {
+		// Handle the case where the connection is not a WebSocketConnWrapper
+		log.Fatal("Connection is not a WebSocketConnWrapper")
+	}
+	// Return a new serverCodec instance with the wrapped connection
 	return &serverCodec{
-		dec:     json.NewDecoder(conn),             // Initialize the JSON decoder for the connection
-		enc:     json.NewEncoder(conn),             // Initialize the JSON encoder for the connection
-		c:       conn,                              // Set the connection object
-		pending: make(map[uint64]*json.RawMessage), // Initialize the map to track pending requests
+		dec:      json.NewDecoder(wsConn),
+		enc:      json.NewEncoder(wsConn),
+		c:        wsConn,
+		pending:  make(map[uint64]*json.RawMessage),
+		PeerInfo: peer, // Add peer information
 	}
 }
 
@@ -209,40 +256,58 @@ func (c *serverCodec) Close() error {
 }
 
 // ServeConn processes a single RPC connection and starts serving the RPC codec.
-func ServeConn(conn io.ReadWriteCloser) {
-	// Serve the connection using the NewServerCodec to handle RPC requests and responses
-	rpc.ServeCodec(NewServerCodec(conn))
+func ServeConn(conn io.ReadWriteCloser, peer PeerInfo) {
+	// Pass PeerInfo to NewServerCodec
+	rpc.ServeCodec(NewServerCodec(conn, peer))
 }
 
 // HandleRPC processes incoming HTTP requests and serves RPC over HTTP.
+// It performs several critical tasks, such as ensuring the HTTP method is POST,
+// extracting client connection details, and serving the connection as an RPC server.
 func HandleRPC(w http.ResponseWriter, r *http.Request) {
-	// Only accept HTTP POST requests for JSON-RPC
+	// Ensure that the incoming HTTP request uses the POST method.
+	// JSON-RPC over HTTP strictly requires POST for sending requests.
 	if r.Method != http.MethodPost {
-		// Return an error if the request method is not POST
 		http.Error(w, "JSON-RPC server only accepts POST requests", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Check if the response writer supports hijacking (needed for raw socket control)
+	// Check if the ResponseWriter supports connection hijacking.
+	// Hijacking is required to take control of the connection for raw socket communication.
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
-		// If hijacking is not supported, return an internal error
+		// If the server does not support hijacking, respond with an internal server error.
 		http.Error(w, "Server does not support connection hijacking", http.StatusInternalServerError)
 		return
 	}
 
-	// Hijack the connection to gain control over it for raw communication
+	// Hijack the HTTP connection to take control of the underlying TCP connection.
+	// This is necessary for bypassing the standard HTTP handling to process JSON-RPC requests.
 	conn, _, err := hijacker.Hijack()
 	if err != nil {
-		// Return an error if hijacking the connection fails
+		// If hijacking the connection fails, respond with an error.
 		http.Error(w, "Failed to hijack connection: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Log the new incoming connection for monitoring
-	log.Printf("New RPC connection: %s", conn.RemoteAddr())
-	// Process the hijacked connection asynchronously for handling RPC requests
-	go rpc.ServeConn(conn)
+	// Populate the PeerInfo struct with details about the client connection.
+	// This information is useful for logging, debugging, and tracking connections.
+	peer := PeerInfo{
+		Transport:  "http",                     // Specify the transport protocol used (HTTP in this case).
+		RemoteAddr: conn.RemoteAddr().String(), // Get the client's remote address (IP and port).
+	}
+	peer.HTTP.Version = r.Proto               // Extract the HTTP protocol version (e.g., "HTTP/1.1").
+	peer.HTTP.UserAgent = r.UserAgent()       // Extract the User-Agent header sent by the client.
+	peer.HTTP.Origin = r.Header.Get("Origin") // Extract the Origin header, if present (useful for CORS).
+	peer.HTTP.Host = r.Host                   // Get the host value from the HTTP request.
+
+	// Log the client connection details for monitoring and debugging purposes.
+	// This provides visibility into who is connecting to the server.
+	log.Printf("New RPC connection from: %+v", peer)
+
+	// Process the hijacked connection as an RPC connection in a separate goroutine.
+	// The ServeConn function handles incoming RPC requests over the connection.
+	go ServeConn(conn, peer)
 }
 
 // Graceful shutdown function to handle server shutdown with a timeout.
