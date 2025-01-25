@@ -217,7 +217,10 @@ func (c *serverCodec) ReadRequestHeader(r *rpc.Request) error {
 
 	// Check if this is a batch request
 	if isBatch(*c.req.Params) {
-		// Handle batch request logic here
+		var batchRequests []serverRequest
+		if err := json.Unmarshal(*c.req.Params, &batchRequests); err != nil {
+			return err
+		}
 		log.Printf("Batch request detected")
 	}
 
@@ -249,20 +252,28 @@ func (c *serverCodec) ReadRequestHeader(r *rpc.Request) error {
 
 // ReadRequestBody unmarshals the body of the request (parameters) into the provided value.
 func (c *serverCodec) ReadRequestBody(x any) error {
-	// If the provided value is nil, return without doing anything
+	// Lock the mutex to ensure thread-safe access to the shared state (c.req and c.req.Params).
+	c.mutex.Lock()
+	// Ensure the mutex is unlocked once the function exits, even if an error occurs.
+	defer c.mutex.Unlock()
+
+	// If the provided value (x) is nil, there is no need to proceed, so return nil.
 	if x == nil {
 		return nil
 	}
-	// If no parameters are provided in the request, return an error
+
+	// If the request parameters (c.req.Params) are nil, return an error indicating missing parameters.
 	if c.req.Params == nil {
 		return errMissingParams
 	}
 
-	// Prepare a single-element array to hold the unmarshalled parameters
+	// Create a temporary array to hold the unmarshalled parameters.
 	var params [1]any
-	// Assign the provided value to the first element of the array
+	// Assign the provided value (x) to the first element of the params array.
 	params[0] = x
-	// Unmarshal the JSON parameters into the array
+
+	// Unmarshal the JSON-encoded request parameters into the params array.
+	// The "Params" field in the request is expected to be a raw JSON message, so it's unmarshalled into the params.
 	return json.Unmarshal(*c.req.Params, &params)
 }
 
