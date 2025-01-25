@@ -41,6 +41,13 @@ var (
 	errInvalidSeq    = errors.New("invalid sequence number in response")  // Error for invalid sequence numbers in responses
 )
 
+type ServerCodec interface {
+	ReadRequestHeader(*rpc.Request) error
+	ReadRequestBody(interface{}) error
+	WriteResponse(*rpc.Response, interface{}) error
+	Close() error
+}
+
 // PeerInfo struct for storing information about client connections based on RFC 2-like protocols
 type PeerInfo struct {
 	// Transport indicates the protocol used for communication (e.g., HTTP, WebSocket, or IPC).
@@ -84,6 +91,18 @@ type PeerInfo struct {
 
 // Null value is used for invalid or empty requests
 var null = json.RawMessage([]byte("null"))
+
+// isBatch returns true when the first non-whitespace characters is '['
+func isBatch(raw json.RawMessage) bool {
+	for _, c := range raw {
+		// skip insignificant whitespace (http://www.ietf.org/rfc/rfc4627.txt)
+		if c == 0x20 || c == 0x09 || c == 0x0a || c == 0x0d {
+			continue
+		}
+		return c == '['
+	}
+	return false
+}
 
 // CreateHTTPClient configures and returns a custom HTTP client
 func CreateHTTPClient() *http.Client {
@@ -193,6 +212,12 @@ func (c *serverCodec) ReadRequestHeader(r *rpc.Request) error {
 		// Log an error message if unmarshalling the raw message into serverRequest fails.
 		log.Printf("Error unmarshalling message into serverRequest: %v", err)
 		return err // Return the error to the caller.
+	}
+
+	// Check if this is a batch request
+	if isBatch(*c.req.Params) {
+		// Handle batch request logic here
+		log.Printf("Batch request detected")
 	}
 
 	// Once unmarshalled, set the service method in the rpc.Request object.
