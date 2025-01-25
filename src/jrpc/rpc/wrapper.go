@@ -23,12 +23,20 @@
 package rpc
 
 import (
+	"net/http"
+
 	"github.com/gorilla/websocket"
 )
 
 // WebSocketConnWrapper is a wrapper around *websocket.Conn that implements io.ReadWriteCloser.
 type WebSocketConnWrapper struct {
 	*websocket.Conn
+}
+
+// ClientCodecWebSocket is the client-side codec for handling WebSocket RPC communication.
+type ClientCodecWebSocket struct {
+	conn   *websocket.Conn
+	client *http.Client
 }
 
 // NewWebSocketConnWrapper creates a new WebSocketConnWrapper.

@@ -76,12 +76,6 @@ type clientResponse struct {
 	Error  any              `json:"error"`  // Any error that occurred during the call
 }
 
-// ClientCodecWebSocket is the client-side codec for handling WebSocket RPC communication.
-type ClientCodecWebSocket struct {
-	conn   *websocket.Conn
-	client *http.Client
-}
-
 // reset prepares the response structure for reuse by clearing its fields.
 func (r *clientResponse) reset() {
 	r.Id = 0
