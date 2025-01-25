@@ -41,10 +41,11 @@ var (
 	errInvalidSeq    = errors.New("invalid sequence number in response")  // Error for invalid sequence numbers in responses
 )
 
+// ServerCodec interface defines methods to read, write, and close an RPC connection
 type ServerCodec interface {
-	ReadRequestHeader(*rpc.Request) error
-	ReadRequestBody(interface{}) error
-	WriteResponse(*rpc.Response, interface{}) error
+	ReadRequestHeader(*rpc.Request) error           // Reads and decodes the header of an RPC request, extracting method info
+	ReadRequestBody(interface{}) error              // Reads and decodes the body of an RPC request, extracting the parameters
+	WriteResponse(*rpc.Response, interface{}) error // Serializes and sends back the response for an RPC call
 	Close() error
 }
 
