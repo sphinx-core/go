@@ -161,6 +161,49 @@ func isBatch(raw json.RawMessage) bool {
 	return false
 }
 
+// ProcessBatch handles a batch of JSON-RPC requests.
+// It validates whether the input is a batch request, unmarshals the requests,
+// executes them via the BatchRequest function, and processes the results.
+func ProcessBatch(client *rpc.Client, raw json.RawMessage) error {
+	// Check if the input JSON is a batch request
+	if !isBatch(raw) {
+		return errors.New("input JSON is not a batch request")
+	}
+
+	// Parse the batch requests from the raw JSON
+	var requests []rpc.Request
+	if err := json.Unmarshal(raw, &requests); err != nil {
+		return errors.New("failed to parse batch requests: " + err.Error())
+	}
+
+	// Initialize slices for storing results and arguments for each request
+	results := make([]any, len(requests))
+	args := make([]any, len(requests))
+
+	// Populate arguments for each request
+	// In a real-world use case, this should be customized to initialize arguments correctly
+	for i := range args {
+		args[i] = map[string]any{} // Placeholder for argument initialization
+	}
+
+	// Execute the batch requests using the BatchRequest function
+	if err := BatchRequest(client, requests, results, args); err != nil {
+		return err // Return an error if any request fails
+	}
+
+	// Process the results of each request
+	for _, result := range results {
+		// Serialize the result to JSON and print it (example behavior)
+		if resJSON, err := json.Marshal(result); err == nil {
+			println(string(resJSON)) // Output the result as a JSON string
+		} else {
+			return errors.New("failed to process result: " + err.Error()) // Handle serialization error
+		}
+	}
+
+	return nil // Return nil if all requests and results were successfully processed
+}
+
 // CreateHTTPClient configures and returns a custom HTTP client
 func CreateHTTPClient() *http.Client {
 	// Create and configure the HTTP transport layer with connection pooling and timeouts
