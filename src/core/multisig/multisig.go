@@ -25,6 +25,7 @@ package multisig
 import (
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/holiman/uint256"
 	"github.com/sphinx-core/go/src/core/hashtree"
@@ -33,289 +34,272 @@ import (
 	sign "github.com/sphinx-core/go/src/core/sphincs/sign/backend"
 )
 
-// MultisigManager manages the SPHINCS+ multisig functionalities, including key generation, signing, and verification
+// MultisigManager manages the SPHINCS+ multisig functionalities, including key generation, signing, and verification.
 type MultisigManager struct {
-	km         *key.KeyManager      // Key manager for handling cryptographic keys
-	manager    *sign.SphincsManager // SPHINCS+ manager for signing and verifying signatures
+	km         *key.KeyManager      // Key manager for handling cryptographic keys (key management system)
+	manager    *sign.SphincsManager // SPHINCS+ manager for signing and verifying signatures (handles SPHINCS+ operations)
 	quorum     int                  // Quorum: minimum number of signatures required for validity
-	signatures map[string][]byte    // Store signatures from each participant
-	partyPK    map[string][]byte    // Store public keys of the participants
-	proofs     map[string][]byte    // Store proofs for each participant
+	signatures map[string][]byte    // Store signatures from each participant, indexed by party ID
+	partyPK    map[string][]byte    // Store public keys of the participants, indexed by party ID
+	proofs     map[string][]byte    // Store proof for each participant, indexed by party ID
 	keys       [][]byte             // Store the public keys of all participants in a list for index retrieval
+	mu         sync.RWMutex         // Mutex to protect the state of the multisig manager, ensuring thread-safety
 }
 
-// NewMultisig initializes a new multisig with a specified number of participants.
-// It creates the necessary key management and signing infrastructure for multisig functionality.
-// The function will return a new instance of MultisigManager that manages the multisig signatures and associated operations.
+// NewMultiSig initializes a new multisig with a specified number of participants.
+// It creates a KeyManager and a SPHINCS+ manager and prepares the multisig structure.
 func NewMultiSig(n int) (*MultisigManager, error) {
-	// Step 1: Initialize the KeyManager with default SPHINCS+ parameters.
-	// The KeyManager handles key generation, serialization, and cryptographic operations.
+	// Initialize the KeyManager to handle cryptographic operations
 	km, err := key.NewKeyManager()
 	if err != nil {
-		// If initialization fails, return an error with a message indicating the failure.
+		// Return an error if the KeyManager cannot be initialized
 		return nil, fmt.Errorf("error initializing KeyManager: %v", err)
 	}
 
-	// Step 2: Retrieve SPHINCS+ parameters from the KeyManager.
-	// These parameters will be used for the signing process and cryptographic operations.
+	// Get the SPHINCS+ parameters required for the SPHINCS manager
 	parameters := km.GetSPHINCSParameters()
 
-	// Step 3: Initialize the SphincsManager with the given parameters and KeyManager.
-	// The SphincsManager is responsible for managing SPHINCS+ signatures and verifying them.
+	// Initialize the SPHINCS+ manager with the parameters and key manager
 	manager := sign.NewSphincsManager(nil, km, parameters)
 
-	// Step 4: Initialize the multisig manager with the specified number of participants (n).
-	// The multisig manager tracks signatures, keys, and the quorum required for validation.
+	// Return a new instance of MultisigManager with the initialized components
 	return &MultisigManager{
-		km:         km,                      // Store the KeyManager for key operations
-		manager:    manager,                 // Store the SphincsManager for signing/verification
-		quorum:     n,                       // Set the quorum to the number of participants
-		signatures: make(map[string][]byte), // Initialize a map to store signatures by participant ID
-		partyPK:    make(map[string][]byte), // Initialize a map to store public keys of participants
-		proofs:     make(map[string][]byte), // Initialize a map to store proofs for each participant
-		keys:       make([][]byte, n),       // Allocate space for n participant keys
+		km:         km,                      // Set the key manager
+		manager:    manager,                 // Set the SPHINCS+ manager
+		quorum:     n,                       // Set the quorum value (minimum number of signatures)
+		signatures: make(map[string][]byte), // Initialize the signatures map
+		partyPK:    make(map[string][]byte), // Initialize the public key map
+		proofs:     make(map[string][]byte), // Initialize the proofs map
+		keys:       make([][]byte, n),       // Initialize the list of keys for n participants
 	}, nil
 }
 
 // GetIndex returns the index of a given public key (pk) in the list of participant keys.
-// If the public key is found, it returns the index, otherwise it returns -1 indicating the key is not in the list.
+// It is used to find the position of the public key in the keys array.
 func (m *MultisigManager) GetIndex(pk []byte) int {
-	// Loop through the list of participant keys to find the matching public key.
+	m.mu.RLock()         // Lock for reading to ensure thread-safety while accessing the keys
+	defer m.mu.RUnlock() // Unlock after the operation is complete
+
+	// Loop through the list of participant keys to find the index of the provided public key
 	for i, key := range m.keys {
-		// Compare the given public key with the stored key in the list.
-		// The public keys are compared by their hexadecimal representation (as strings).
 		if fmt.Sprintf("%x", key) == fmt.Sprintf("%x", pk) {
-			// If a match is found, return the index of the key in the list.
-			return i
+			return i // Return the index if the key matches
 		}
 	}
-	// If no match is found, return -1 to indicate the key is not present in the list.
-	return -1
+	return -1 // Return -1 if the key is not found
 }
 
-// AddSignature adds a signature to the multisig at the given index corresponding to a participant's public key.
-// It stores the signature in the `signatures` map, using the participant's public key (hexadecimal string) as the key.
+// AddSig adds a signature to the multisig at the given index corresponding to a participant's public key.
+// This method is used to record a signature from a participant in the multisig.
 func (m *MultisigManager) AddSig(index int, sig []byte) error {
-	// Step 1: Check if the provided index is valid.
-	// If the index is negative or exceeds the available keys, return an error indicating invalid index.
+	m.mu.Lock()         // Lock for writing to ensure thread-safety while modifying state
+	defer m.mu.Unlock() // Unlock after the operation is complete
+
+	// Check if the index is within the valid range of participants
 	if index < 0 || index >= len(m.keys) {
+		// Return an error if the index is invalid
 		return fmt.Errorf("invalid index %d", index)
 	}
 
-	// Step 2: Store the provided signature in the `signatures` map.
-	// The signature is stored using the participant's public key (converted to hexadecimal) as the key.
+	// Store the signature indexed by the participant's public key (converted to hex string)
 	m.signatures[fmt.Sprintf("%x", m.keys[index])] = sig
-
-	// Step 3: Return nil indicating successful signature addition.
 	return nil
 }
 
-// AddSignatureFromPubKey adds a signature to the multisig based on the provided public key (pubKey).
-// The function first looks up the public key in the list of participant keys, finds the corresponding index,
-// and then adds the signature at that index.
+// AddSigFromPubKey adds a signature to the multisig based on the provided public key (pubKey).
+// This method allows for signing directly using the public key instead of the index.
 func (m *MultisigManager) AddSigFromPubKey(pubKey []byte, sig []byte) error {
-	// Step 1: Retrieve the index of the provided public key.
-	// This checks the list of public keys and returns the index if the key is found.
+	// Retrieve the index for the given public key
 	index := m.GetIndex(pubKey)
-
-	// Step 2: If the public key is not found, return an error indicating the key is not part of the multisig.
 	if index == -1 {
+		// Return an error if the public key is not found in the list of keys
 		return fmt.Errorf("public key not found in multisig keys")
 	}
 
-	// Step 3: Add the signature to the corresponding index in the `signatures` map.
-	// The signature is stored at the found index.
+	// Call the AddSig method to add the signature at the correct index
 	return m.AddSig(index, sig)
 }
 
-// GenerateKeyPair generates a new SPHINCS key pair (private and public)
-// This function creates a new cryptographic key pair, serializes the keys,
-// and returns them for storage or use in signing messages.
+// GenerateKeyPair generates a new SPHINCS key pair (private and public) for the multisig participant.
 func (m *MultisigManager) GenerateKeyPair() ([]byte, []byte, error) {
-	// Step 1: Generate a new key pair using the KeyManager.
-	// The KeyManager is responsible for securely generating and managing keys.
-	// It returns the private key (sk), public key (pk), and any errors encountered.
+	// Generate a new key pair using the KeyManager (private and public keys)
 	sk, pk, err := m.km.GenerateKey()
 	if err != nil {
-		// Return an error if key generation fails, including the error message.
+		// Return an error if key generation fails
 		return nil, nil, fmt.Errorf("error generating keys: %v", err)
 	}
 
-	// Step 2: Serialize the generated key pair to byte slices.
-	// Serialization converts the private and public keys into byte slices, making them suitable for storage or transmission.
+	// Serialize the private and public keys into byte arrays
 	skBytes, pkBytes, err := m.km.SerializeKeyPair(sk, pk)
 	if err != nil {
-		// Return an error if serialization fails, including the error message.
+		// Return an error if serialization fails
 		return nil, nil, fmt.Errorf("error serializing key pair: %v", err)
 	}
 
-	// Step 3: Return the serialized private and public keys.
-	// These keys are now in byte slice form and can be safely stored or transmitted for future use.
+	// Return the serialized private and public keys
 	return skBytes, pkBytes, nil
 }
 
-// SignMessage signs a given message using a private key and stores the signature, Merkle root, and proof for the party
-// The function signs the message using the private key, stores necessary proof for verification later, and returns the signature.
+// SignMessage signs a given message using a private key and stores the signature, Merkle root, and proof for the party.
+// This method handles the signing of a message and storing the associated signature and proof.
 func (m *MultisigManager) SignMessage(message []byte, privateKey []byte, partyID string) ([]byte, []byte, error) {
-	// Step 1: Deserialize the private key from its byte representation.
-	// The private key is expected to be serialized (as byte slices), so we need to deserialize it into its original form.
-	// We are also deserializing the public key (though we don't use it here).
+	m.mu.Lock()         // Step 1: Lock the mutex for writing to ensure thread-safety while modifying the state.
+	defer m.mu.Unlock() // Step 2: Unlock after the operation is complete, ensuring other goroutines can access the data.
+
+	// Step 3: Deserialize the private key (public key is not needed here, so it's nil).
+	// Deserialize the key pair from the private key bytes.
 	sk, _, err := m.km.DeserializeKeyPair(privateKey, nil)
 	if err != nil {
-		// If deserialization fails, log the error and exit the function.
+		// Step 4: Log and terminate if the key deserialization fails.
 		log.Fatalf("Error deserializing key pair: %v", err)
 	}
 
-	// Step 2: Sign the message using the SPHINCS+ signing algorithm.
-	// The `SignMessage` function signs the message with the private key (sk).
-	// It also generates the Merkle root (used for proof) along with the signature.
+	// Step 5: Sign the message using the private key.
+	// Call the SignMessage method on the SPHINCS+ manager to generate the signature and Merkle root.
 	sig, merkleRoot, err := m.manager.SignMessage(message, sk)
 	if err != nil {
-		// Return error if signing the message fails, including the error message.
+		// Step 6: Return an error if signing the message fails.
 		return nil, nil, fmt.Errorf("failed to sign message: %v", err)
 	}
 
-	// Step 3: Serialize the signature to bytes for storage or transmission.
-	// The signature is serialized into a byte slice that can be saved or sent securely.
+	// Step 7: Serialize the generated signature into a byte slice.
+	// This converts the signature object into a byte slice for storage.
 	sigBytes, err := m.manager.SerializeSignature(sig)
 	if err != nil {
-		// Return error if signature serialization fails, including the error message.
+		// Step 8: Return an error if serialization of the signature fails.
 		return nil, nil, fmt.Errorf("failed to serialize signature: %v", err)
 	}
 
-	// Step 4: Convert the Merkle root into a byte slice.
-	// The Merkle root is an important part of the proof, so we convert it into a byte slice for storage.
+	// Step 9: Convert the Merkle root to bytes for storage.
+	// This is done by calling the `Bytes` method on the Merkle root hash.
 	merkleRootBytes := merkleRoot.Hash.Bytes()
 
-	// Step 5: Store the signature and public key of the participant in the manager's maps.
-	// `partyID` is used to associate the signature and public key with the specific participant.
+	// Step 10: Store the signature for the party identified by partyID.
+	// The signature is associated with the partyID in the signatures map.
 	m.signatures[partyID] = sigBytes
+	// Step 11: Store the public key (private key in this case) for the party.
+	// The public key is stored for later verification of the signature.
 	m.partyPK[partyID] = privateKey
 
-	// Step 6: Generate a proof for the signed message.
-	// The proof will be used later for verification of the message signature.
-	// It uses the message and the Merkle root to generate the proof for this participant.
+	// Step 12: Generate proof for the signature.
+	// Generate a Merkle proof for the signature using the message and the Merkle root.
 	proof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootBytes}, privateKey)
 	if err != nil {
-		// Return error if proof generation fails, including the error message.
+		// Step 13: Return an error if generating the proof fails.
 		return nil, nil, fmt.Errorf("failed to generate proof: %v", err)
 	}
 
-	// Step 7: Store the proof for the participant.
-	// The proof is stored in the `m.proofs` map, indexed by the participant's ID.
+	// Step 14: Store the generated proof for the party.
+	// The proof is associated with the partyID in the proofs map for later validation.
 	m.proofs[partyID] = proof
 
-	// Step 8: Return the serialized signature and Merkle root as byte slices.
-	// These byte slices can now be stored or transmitted securely for later use in the verification process.
+	// Step 15: Return the signature and Merkle root in byte form.
+	// These are returned so they can be used by other functions or processes.
 	return sigBytes, merkleRootBytes, nil
 }
 
-// VerifySignatures checks if enough signatures have been collected and if each signature is valid
-// The function returns true if the signatures meet the quorum and are valid, or an error otherwise.
+// VerifySignatures checks if enough signatures have been collected and if each signature is valid.
+// It ensures that the multisig operation can proceed by verifying all signatures and confirming the quorum.
 func (m *MultisigManager) VerifySignatures(message []byte) (bool, error) {
-	// Step 1: Check if there are enough signatures to meet the quorum.
-	// The quorum is the minimum number of signatures required to validate the recovery process.
+	m.mu.RLock()         // Step 1: Lock for reading to ensure thread-safety while accessing the signatures and state.
+	defer m.mu.RUnlock() // Step 2: Unlock after the operation is complete, ensuring other goroutines can access the data.
+
+	// Step 3: Check if the number of collected signatures is less than the quorum.
+	// If there are not enough signatures, return false with an error.
 	if len(m.signatures) < m.quorum {
-		// If not enough signatures are collected, return an error
 		return false, fmt.Errorf("not enough signatures, need at least %d", m.quorum)
 	}
 
-	// Step 2: Initialize a counter to track the number of valid signatures.
-	// This will help us ensure that enough valid signatures are collected to meet the quorum.
-	validSignatures := 0
+	validSignatures := 0 // Step 4: Initialize a counter to keep track of valid signatures.
 
-	// Step 3: Loop through each participant's signature to verify its validity.
-	// We will use the signatures from the `m.signatures` map, indexed by participant's ID (partyID).
+	// Step 5: Loop through each participant's signature in the signatures map.
 	for partyID, sig := range m.signatures {
-		// Step 4: Retrieve the public key associated with the participant.
-		// The public key is stored in the `partyPK` map, indexed by the participant's ID.
+		// Step 6: Retrieve the public key of the participant using their partyID.
+		// This allows verifying the signature associated with that participant.
 		publicKey := m.partyPK[partyID]
 
-		// Step 5: Deserialize the public key.
-		// The public key is stored in a serialized format, so we need to deserialize it into a usable form.
+		// Step 7: Deserialize the public key from the stored bytes.
+		// Convert the byte representation of the public key back into a usable public key object.
 		deserializedPK, err := m.km.DeserializePublicKey(publicKey)
 		if err != nil {
-			// Return an error if deserialization of the public key fails.
+			// Step 8: Return an error if the public key cannot be deserialized.
 			return false, fmt.Errorf("error deserializing public key for %s: %v", partyID, err)
 		}
 
-		// Step 6: Deserialize the signature.
-		// The signature is also stored in a serialized format and needs to be deserialized before we can verify it.
+		// Step 9: Deserialize the stored signature for the participant.
+		// Convert the byte representation of the signature back into a usable signature object.
 		sig, err := m.manager.DeserializeSignature(sig)
 		if err != nil {
-			// Return an error if deserialization of the signature fails.
+			// Step 10: Return an error if the signature cannot be deserialized.
 			return false, fmt.Errorf("error deserializing signature for %s: %v", partyID, err)
 		}
 
-		// Step 7: Retrieve the Merkle root hash for this participant.
-		// This hash is part of the proof that helps validate the participant's signature.
+		// Step 11: Retrieve the Merkle root hash from the stored signatures for the current party.
+		// The Merkle root is used in signature verification to ensure that the signature matches the correct data.
 		merkleRootBytes := m.signatures[partyID]
-
-		// Step 8: Convert the Merkle root hash into a HashTreeNode structure.
-		// The Merkle root is used to verify the integrity of the data and ensure that it hasn't been tampered with.
+		// Step 12: Create a HashTreeNode with the Merkle root bytes.
+		// This is necessary to build a verification tree for the signature.
 		merkleRoot := &hashtree.HashTreeNode{Hash: uint256.NewInt(0).SetBytes(merkleRootBytes)}
 
-		// Step 9: Verify the signature.
-		// The signature is verified using the message, the deserialized signature, the deserialized public key, and the Merkle root.
-		// This step ensures that the signature is valid and corresponds to the message.
+		// Step 13: Verify the signature using the SPHINCS+ manager's VerifySignature method.
+		// The message, signature, deserialized public key, and Merkle root are all required for verification.
 		isValidSig := m.manager.VerifySignature(message, sig, deserializedPK, merkleRoot)
 		if isValidSig {
-			// If the signature is valid, increment the validSignatures counter.
+			// Step 14: If the signature is valid, increment the validSignatures counter.
 			validSignatures++
 		} else {
-			// Return an error if the signature is invalid for this participant.
+			// Step 15: If the signature is invalid, return false with an error message.
 			return false, fmt.Errorf("signature from participant %s is invalid", partyID)
 		}
 	}
 
-	// Step 10: Ensure that the number of valid signatures meets the quorum.
-	// If the number of valid signatures is less than the quorum, return an error indicating failure.
+	// Step 16: After looping through all signatures, check if we have enough valid signatures to meet the quorum.
 	if validSignatures < m.quorum {
+		// Step 17: If not enough valid signatures, return false with an error message.
 		return false, fmt.Errorf("not enough valid signatures to meet the quorum")
 	}
 
-	// Step 11: If enough valid signatures are collected, return true.
-	// This indicates that the quorum has been reached and all signatures have been validated successfully.
-	// The wallet can now be recovered using the valid signatures.
+	// Step 18: If all checks pass, return true indicating that all signatures are valid.
 	return true, nil
 }
 
-// ValidateProof validates the proof for a specific participant by regenerating it and comparing it with the stored proof
-// It checks if the stored proof corresponds to the regenerated proof using the participant's signature and Merkle root.
+// ValidateProof validates the proof for a specific participant by regenerating it and comparing it with the stored proof.
+// This ensures that the proof matches the signature and Merkle root, confirming the integrity of the signature.
 func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, error) {
-	// Step 1: Retrieve the stored proof for the participant from the `proofs` map.
-	// This proof was previously generated and stored for this participant.
+	m.mu.RLock()         // Step 1: Lock for reading to ensure thread-safety while accessing the proofs and state.
+	defer m.mu.RUnlock() // Step 2: Unlock after the operation is complete, ensuring other goroutines can access the data.
+
+	// Step 3: Retrieve the stored proof for the given partyID.
+	// This proof should have been generated earlier during the signing process.
 	storedProof, exists := m.proofs[partyID]
 	if !exists {
-		// Return an error if no proof is found for the participant.
+		// Step 4: If no proof is found for the participant, return false with an error message.
 		return false, fmt.Errorf("no proof found for participant %s", partyID)
 	}
 
-	// Step 2: Retrieve the Merkle root hash for the participant from the `signatures` map.
-	// This Merkle root is associated with the participant's signature and will be used to regenerate the proof.
+	// Step 5: Retrieve the Merkle root hash stored for the party.
+	// This will be used for regenerating the proof.
 	merkleRootHash := m.signatures[partyID]
 
-	// Step 3: Regenerate the proof using the message and stored Merkle root hash.
-	// This is done by calling the `GenerateSigProof` function, which creates a proof based on the message and Merkle root.
+	// Step 6: Regenerate the proof by calling the sigproof.GenerateSigProof function.
+	// This uses the message, Merkle root hash, and the participant's public key to generate the proof.
 	regeneratedProof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootHash}, m.partyPK[partyID])
 	if err != nil {
-		// Return an error if proof regeneration fails.
+		// Step 7: Return an error if the proof regeneration fails.
 		return false, fmt.Errorf("failed to regenerate proof: %v", err)
 	}
 
-	// Step 4: Verify the regenerated proof by comparing it with the stored proof.
-	// This ensures that the proof is correct and valid.
+	// Step 8: Verify the stored proof by comparing it with the regenerated proof using the sigproof.VerifySigProof function.
 	isValidProof := sigproof.VerifySigProof(storedProof, regeneratedProof)
+	// Step 9: Log the result of the proof verification.
 	fmt.Printf("Proof verification for participant %s: %v\n", partyID, isValidProof)
 
-	// Step 5: If the proof is invalid, return an error.
-	// The proof must match the stored proof for the participant to be considered valid.
+	// Step 10: If the proof is invalid, return false with an error message.
 	if !isValidProof {
 		return false, fmt.Errorf("proof for participant %s is invalid", partyID)
 	}
 
-	// Step 6: Return true if the proof is valid.
-	// If the proof is valid, we can proceed with using the proof to finalize the wallet recovery process.
+	// Step 11: If the proof is valid, return true indicating successful validation.
 	return true, nil
 }
 
