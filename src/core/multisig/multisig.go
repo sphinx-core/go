@@ -303,7 +303,7 @@ func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, e
 	return true, nil
 }
 
-// RecoverWallet allows Alice to recover her wallet using proofs from other participants.
+// RecoveryKey allows Alice to recover her wallet using proofs from other participants.
 // The function takes two parameters:
 // - message: The message or data that needs to be signed by the participants for wallet recovery.
 // - requiredParticipants: A list of participants whose signatures and proofs are required to perform the recovery.
@@ -311,57 +311,68 @@ func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, e
 // The function will return the recovery proof (combination of valid signatures and proofs from participants) if successful,
 // or an error if the process fails.
 func (m *MultisigManager) RecoveryKey(message []byte, requiredParticipants []string) ([]byte, error) {
-	// Step 1: Initialize an empty slice to store the recovery proof.
-	// The recovery proof will contain the signatures and proofs of the participants who signed the message.
+	// Step 1: Lock the mutex to ensure thread-safety during recovery.
+	// This prevents other goroutines from modifying the state of the multisig manager
+	// while the recovery process is happening, ensuring that the recovery process
+	// happens without interference.
+	m.mu.Lock()
+	// Step 2: Unlock the mutex after the recovery process is completed.
+	// This ensures other operations can proceed after the recovery is done.
+	defer m.mu.Unlock()
+
+	// Step 3: Initialize an empty slice to store the recovery proof.
+	// This recovery proof will accumulate the valid signatures and proofs from the required participants.
 	var recoveryProof []byte
 
-	// Step 2: Loop through each participant in the requiredParticipants list
-	// We are going to gather the signatures and proofs from all the required participants.
+	// Step 4: Loop through each participant in the requiredParticipants list.
+	// We need to collect the signatures and proofs for each participant involved in the recovery process.
 	for _, partyID := range requiredParticipants {
-		// Step 3: Check if the participant has signed the message.
+		// Step 5: Check if the participant has signed the message.
 		// The signatures map holds the signatures for each participant, indexed by their partyID.
-		// If the participant has not signed, return an error.
+		// If the participant has not signed, return an error indicating the missing signature.
 		sig, exists := m.signatures[partyID]
 		if !exists {
-			// Return an error if the participant's signature is missing
+			// Step 6: Return an error if no signature is found for the participant.
+			// This ensures that all required signatures are present for the recovery process.
 			return nil, fmt.Errorf("no signature found for participant %s", partyID)
 		}
 
-		// Step 4: Check if the proof for the participant exists.
+		// Step 7: Check if the proof for the participant exists.
 		// The proofs map holds the proof for each participant, indexed by their partyID.
-		// If the proof is missing, return an error.
+		// If the proof is missing, return an error indicating the missing proof.
 		proof, exists := m.proofs[partyID]
 		if !exists {
-			// Return an error if the participant's proof is missing
+			// Step 8: Return an error if no proof is found for the participant.
+			// This ensures that all necessary proofs are available for the recovery process.
 			return nil, fmt.Errorf("no proof found for participant %s", partyID)
 		}
 
-		// Step 5: Validate the proof for this participant.
-		// The ValidateProof method checks if the provided proof for the participant is valid.
-		// This step ensures that the participant's proof is correct before adding their signature and proof to the recovery process.
+		// Step 9: Validate the proof for the participant.
+		// The ValidateProof method checks if the proof is valid by comparing it to the signature and Merkle root.
+		// If the proof is invalid or there is an error during validation, return an error indicating the invalid proof.
 		valid, err := m.ValidateProof(partyID, message)
 		if err != nil || !valid {
-			// If the proof is invalid or there's an error in validation, return an error indicating invalid proof.
+			// Step 10: Return an error if the proof is invalid or the validation failed.
 			return nil, fmt.Errorf("invalid proof for participant %s", partyID)
 		}
 
-		// Step 6: If the proof is valid, append the signature and proof to the recovery proof.
-		// The recovery proof is a combination of valid signatures and proofs from the participants.
-		// These will be used to reconstruct the wallet later.
-		recoveryProof = append(recoveryProof, sig...)   // Append the participant's signature to the proof
-		recoveryProof = append(recoveryProof, proof...) // Append the participant's proof to the proof
+		// Step 11: Append the signature and proof to the recovery proof.
+		// If both the signature and proof are valid, they are appended to the recoveryProof slice.
+		// The recoveryProof is the combination of all valid signatures and proofs from participants.
+		recoveryProof = append(recoveryProof, sig...)   // Append valid signature
+		recoveryProof = append(recoveryProof, proof...) // Append valid proof
 	}
 
-	// Step 7: Check if enough signatures have been collected.
-	// The wallet recovery requires a minimum number of signatures as defined by the quorum.
-	// If not enough signatures are gathered, return an error.
+	// Step 12: Check if enough signatures have been collected to meet the quorum.
+	// The quorum is the minimum number of signatures required for the recovery process.
+	// If there aren't enough signatures, return an error indicating the shortage.
 	if len(recoveryProof) < m.quorum {
+		// Step 13: Return an error if not enough signatures have been collected for recovery.
 		return nil, fmt.Errorf("not enough signatures to recover the wallet, need at least %d signatures", m.quorum)
 	}
 
-	// Step 8: Return the recovery proof.
-	// After collecting and validating the necessary signatures and proofs from the required participants,
-	// the recovery proof (a combination of all signatures and proofs) is returned.
-	// This proof can now be used to complete the wallet recovery process.
+	// Step 14: Return the recovery proof.
+	// After collecting the signatures and proofs from all required participants and validating them,
+	// the recoveryProof is returned. This proof can now be used to recover the wallet.
 	return recoveryProof, nil
 }
