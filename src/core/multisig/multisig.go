@@ -176,22 +176,25 @@ func (m *MultisigManager) SignMessage(message []byte, privateKey []byte, partyID
 
 	// Step 10: Store the signature for the party identified by partyID.
 	// The signature is associated with the partyID in the signatures map.
-	m.signatures[partyID] = sigBytes
-	// Step 11: Store the public key (private key in this case) for the party.
-	// The public key is stored for later verification of the signature.
-	m.partyPK[partyID] = privateKey
+	// We are introducing the goroutine here.
+	go func() {
+		// Store the signature and public key in the respective maps concurrently.
+		m.signatures[partyID] = sigBytes
+		m.partyPK[partyID] = privateKey
 
-	// Step 12: Generate proof for the signature.
-	// Generate a Merkle proof for the signature using the message and the Merkle root.
-	proof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootBytes}, privateKey)
-	if err != nil {
-		// Step 13: Return an error if generating the proof fails.
-		return nil, nil, fmt.Errorf("failed to generate proof: %v", err)
-	}
+		// Step 12: Generate proof for the signature.
+		// Generate a Merkle proof for the signature using the message and the Merkle root.
+		proof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootBytes}, privateKey)
+		if err != nil {
+			// Handle error in generating proof
+			log.Printf("Failed to generate proof for partyID %s: %v", partyID, err)
+			return
+		}
 
-	// Step 14: Store the generated proof for the party.
-	// The proof is associated with the partyID in the proofs map for later validation.
-	m.proofs[partyID] = proof
+		// Step 14: Store the generated proof for the party.
+		// The proof is associated with the partyID in the proofs map for later validation.
+		m.proofs[partyID] = proof
+	}()
 
 	// Step 15: Return the signature and Merkle root in byte form.
 	// These are returned so they can be used by other functions or processes.
@@ -321,58 +324,54 @@ func (m *MultisigManager) RecoveryKey(message []byte, requiredParticipants []str
 	defer m.mu.Unlock()
 
 	// Step 3: Initialize an empty slice to store the recovery proof.
-	// This recovery proof will accumulate the valid signatures and proofs from the required participants.
 	var recoveryProof []byte
 
-	// Step 4: Loop through each participant in the requiredParticipants list.
-	// We need to collect the signatures and proofs for each participant involved in the recovery process.
+	// Step 4: Initialize a WaitGroup to synchronize goroutines.
+	var wg sync.WaitGroup
+	// Step 5: Create a mutex to protect access to shared recoveryProof.
+	var proofMutex sync.Mutex
+
+	// Step 6: Loop through each participant in the requiredParticipants list.
 	for _, partyID := range requiredParticipants {
-		// Step 5: Check if the participant has signed the message.
-		// The signatures map holds the signatures for each participant, indexed by their partyID.
-		// If the participant has not signed, return an error indicating the missing signature.
-		sig, exists := m.signatures[partyID]
-		if !exists {
-			// Step 6: Return an error if no signature is found for the participant.
-			// This ensures that all required signatures are present for the recovery process.
-			return nil, fmt.Errorf("no signature found for participant %s", partyID)
-		}
+		wg.Add(1)
+		go func(partyID string) {
+			defer wg.Done()
 
-		// Step 7: Check if the proof for the participant exists.
-		// The proofs map holds the proof for each participant, indexed by their partyID.
-		// If the proof is missing, return an error indicating the missing proof.
-		proof, exists := m.proofs[partyID]
-		if !exists {
-			// Step 8: Return an error if no proof is found for the participant.
-			// This ensures that all necessary proofs are available for the recovery process.
-			return nil, fmt.Errorf("no proof found for participant %s", partyID)
-		}
+			// Step 7: Check if the participant has signed the message.
+			sig, exists := m.signatures[partyID]
+			if !exists {
+				return // no signature found for participant, skip this goroutine
+			}
 
-		// Step 9: Validate the proof for the participant.
-		// The ValidateProof method checks if the proof is valid by comparing it to the signature and Merkle root.
-		// If the proof is invalid or there is an error during validation, return an error indicating the invalid proof.
-		valid, err := m.ValidateProof(partyID, message)
-		if err != nil || !valid {
-			// Step 10: Return an error if the proof is invalid or the validation failed.
-			return nil, fmt.Errorf("invalid proof for participant %s", partyID)
-		}
+			// Step 8: Check if the proof for the participant exists.
+			proof, exists := m.proofs[partyID]
+			if !exists {
+				return // no proof found for participant, skip this goroutine
+			}
 
-		// Step 11: Append the signature and proof to the recovery proof.
-		// If both the signature and proof are valid, they are appended to the recoveryProof slice.
-		// The recoveryProof is the combination of all valid signatures and proofs from participants.
-		recoveryProof = append(recoveryProof, sig...)   // Append valid signature
-		recoveryProof = append(recoveryProof, proof...) // Append valid proof
+			// Step 9: Validate the proof for the participant.
+			valid, err := m.ValidateProof(partyID, message)
+			if err != nil || !valid {
+				return // invalid proof, skip this goroutine
+			}
+
+			// Step 10: Append the signature and proof to the recovery proof.
+			// Use the mutex to ensure safe concurrent writes to the recoveryProof slice.
+			proofMutex.Lock()
+			recoveryProof = append(recoveryProof, sig...)
+			recoveryProof = append(recoveryProof, proof...)
+			proofMutex.Unlock()
+		}(partyID)
 	}
 
+	// Step 11: Wait for all goroutines to finish processing.
+	wg.Wait()
+
 	// Step 12: Check if enough signatures have been collected to meet the quorum.
-	// The quorum is the minimum number of signatures required for the recovery process.
-	// If there aren't enough signatures, return an error indicating the shortage.
 	if len(recoveryProof) < m.quorum {
-		// Step 13: Return an error if not enough signatures have been collected for recovery.
 		return nil, fmt.Errorf("not enough signatures to recover the wallet, need at least %d signatures", m.quorum)
 	}
 
-	// Step 14: Return the recovery proof.
-	// After collecting the signatures and proofs from all required participants and validating them,
-	// the recoveryProof is returned. This proof can now be used to recover the wallet.
+	// Step 13: Return the recovery proof.
 	return recoveryProof, nil
 }
