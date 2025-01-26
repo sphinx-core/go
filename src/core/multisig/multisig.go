@@ -268,15 +268,22 @@ func (m *MultisigManager) VerifySignatures(message []byte) (bool, error) {
 
 // ValidateProof validates the proof for a specific participant by regenerating it and comparing it with the stored proof.
 // This ensures that the proof matches the signature and Merkle root, confirming the integrity of the signature.
+// ValidateProof validates the proof for a specific participant by regenerating it and comparing it with the stored proof.
+// This ensures that the proof matches the signature and Merkle root, confirming the integrity of the signature.
 func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, error) {
-	m.mu.RLock()         // Step 1: Lock for reading to ensure thread-safety while accessing the proofs and state.
-	defer m.mu.RUnlock() // Step 2: Unlock after the operation is complete, ensuring other goroutines can access the data.
+	// Step 1: Lock for reading to ensure thread-safety while accessing the proofs and state.
+	// The RLock allows multiple goroutines to read concurrently, but no writing can occur while it's held.
+	m.mu.RLock()
+
+	// Step 2: Defer the unlocking of the mutex until after the function completes, ensuring no other goroutines are blocked
+	// when this function finishes execution.
+	defer m.mu.RUnlock()
 
 	// Step 3: Retrieve the stored proof for the given partyID.
 	// This proof should have been generated earlier during the signing process.
 	storedProof, exists := m.proofs[partyID]
 	if !exists {
-		// Step 4: If no proof is found for the participant, return false with an error message.
+		// Step 4: If no proof is found for the participant, return false with an error message indicating no proof exists.
 		return false, fmt.Errorf("no proof found for participant %s", partyID)
 	}
 
@@ -284,25 +291,45 @@ func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, e
 	// This will be used for regenerating the proof.
 	merkleRootHash := m.signatures[partyID]
 
-	// Step 6: Regenerate the proof by calling the sigproof.GenerateSigProof function.
-	// This uses the message, Merkle root hash, and the participant's public key to generate the proof.
-	regeneratedProof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootHash}, m.partyPK[partyID])
-	if err != nil {
-		// Step 7: Return an error if the proof regeneration fails.
-		return false, fmt.Errorf("failed to regenerate proof: %v", err)
-	}
+	// Step 6: Initialize a WaitGroup to manage concurrency.
+	// This is required since we're using goroutines for parallel processing.
+	var wg sync.WaitGroup
 
-	// Step 8: Verify the stored proof by comparing it with the regenerated proof using the sigproof.VerifySigProof function.
-	isValidProof := sigproof.VerifySigProof(storedProof, regeneratedProof)
-	// Step 9: Log the result of the proof verification.
-	fmt.Printf("Proof verification for participant %s: %v\n", partyID, isValidProof)
+	// Step 7: Initialize a variable to store the result of the proof validation.
+	// This will be set to true if the regenerated proof matches the stored proof, indicating validity.
+	// If the proof doesn't match, it will remain false, indicating an invalid proof.
+	var isValidProof bool
 
-	// Step 10: If the proof is invalid, return false with an error message.
+	// Step 8: Add one task to the WaitGroup for the goroutine.
+	wg.Add(1)
+	// Step 9: Start a new goroutine to regenerate the proof and verify it.
+	go func() {
+		defer wg.Done() // Mark the task as done when the goroutine completes
+
+		// Step 10: Regenerate the proof using the message, Merkle root hash, and the participant's public key.
+		regeneratedProof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootHash}, m.partyPK[partyID])
+		if err != nil {
+			// Step 11: Log an error if proof regeneration fails for the participant.
+			log.Printf("Failed to regenerate proof for participant %s: %v", partyID, err)
+			return
+		}
+
+		// Step 12: Use the generated proof and the stored proof to verify the integrity of the proof.
+		isValidProof = sigproof.VerifySigProof(storedProof, regeneratedProof)
+
+		// Step 13: Log the result of the proof verification for debugging purposes.
+		log.Printf("Proof verification for participant %s: %v\n", partyID, isValidProof)
+	}()
+
+	// Step 14: Wait for all goroutines to complete before proceeding further.
+	wg.Wait() // Wait for the goroutine to complete
+
+	// Step 15: If the proof is not valid, return false with an error message indicating the invalid proof.
 	if !isValidProof {
 		return false, fmt.Errorf("proof for participant %s is invalid", partyID)
 	}
 
-	// Step 11: If the proof is valid, return true indicating successful validation.
+	// Step 16: If the proof is valid, return true indicating the proof is valid.
 	return true, nil
 }
 
