@@ -15,7 +15,7 @@ Please note that as the project matures, we will provide a list of stable versio
 
 We take the security of our project seriously. If you discover a vulnerability, please report it as follows:
 
-1. **Contact Information**: Send an email to our dedicated security team at [security@projectdomain.com](mailto:security@projectdomain.com). Ensure the subject line includes "Security Vulnerability Report."
+1. **Contact Information**: Send an email to our dedicated security team at [foundersphinx@gmail.com](mailto:foundersphinx@gmail.com). Ensure the subject line includes "Security Vulnerability Report."
 
 2. **Provide Detailed Information**: Include the following details in your report:
    - A description of the vulnerability.
