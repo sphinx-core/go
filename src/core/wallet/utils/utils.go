@@ -25,9 +25,11 @@ package utils
 import (
 	"encoding/base32"
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/sphinx-core/go/src/common"
+	"github.com/sphinx-core/go/src/core/multisig"
 )
 
 // Mutex to protect access to memoryStore - ensures thread-safe access
@@ -153,4 +155,23 @@ func VerifyChainCode(decodepasskey []byte, macKey []byte) (bool, error) {
 
 	// If the chain codes don't match, return verification failure
 	return false, fmt.Errorf("chain code verification failed")
+}
+
+// RecoverWalletUtility is a utility function to recover a wallet
+func RecoverWalletUtility(message []byte, requiredParticipants []string, quorum int) ([]byte, error) {
+	// Initialize the MultisigManager with the given quorum
+	multisigManager, err := multisig.NewMultisigManager(quorum)
+	if err != nil {
+		log.Fatalf("Error initializing MultisigManager: %v", err)
+		return nil, err
+	}
+
+	// Call the RecoverWallet method with the required message and participants
+	recoveryProof, err := multisigManager.RecoverWallet(message, requiredParticipants)
+	if err != nil {
+		return nil, fmt.Errorf("error recovering wallet: %v", err)
+	}
+
+	// Return the recovery proof
+	return recoveryProof, nil
 }

@@ -220,3 +220,42 @@ func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, e
 	// Return true if the proof is valid
 	return true, nil
 }
+
+// RecoverWallet allows Alice to recover her wallet using proofs from other participants
+func (m *MultisigManager) RecoverWallet(message []byte, requiredParticipants []string) ([]byte, error) {
+	// Prepare the recovery proof
+	var recoveryProof []byte
+
+	// Loop through each participant and gather their signature and proof
+	for _, partyID := range requiredParticipants {
+		// Check if the participant has signed the message
+		sig, exists := m.signatures[partyID]
+		if !exists {
+			return nil, fmt.Errorf("no signature found for participant %s", partyID)
+		}
+
+		// Check if the proof exists for this participant
+		proof, exists := m.proofs[partyID]
+		if !exists {
+			return nil, fmt.Errorf("no proof found for participant %s", partyID)
+		}
+
+		// Validate the proof for this participant
+		valid, err := m.ValidateProof(partyID, message)
+		if err != nil || !valid {
+			return nil, fmt.Errorf("invalid proof for participant %s", partyID)
+		}
+
+		// If valid, add the signature and proof to the recovery proof
+		recoveryProof = append(recoveryProof, sig...)
+		recoveryProof = append(recoveryProof, proof...)
+	}
+
+	// Check if enough signatures are collected
+	if len(recoveryProof) < m.quorum {
+		return nil, fmt.Errorf("not enough signatures to recover the wallet, need at least %d signatures", m.quorum)
+	}
+
+	// Return the recovery proof (combination of signatures and proofs)
+	return recoveryProof, nil
+}
