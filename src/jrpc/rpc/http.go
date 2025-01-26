@@ -72,31 +72,31 @@ func (c *clientCodecHTTP) WriteRequest(r *Request, param any) error {
 	c.mutex.Unlock()
 
 	// Set the fields of the client request struct
-	c.req.Method = r.ServiceMethod
-	c.req.Params[0] = param
-	c.req.Id = r.Seq
+	c.req.Method = r.ServiceMethod // Assign the service method to the request
+	c.req.Params[0] = param        // Assign the parameter to the request
+	c.req.Id = r.Seq               // Assign the sequence ID to the request
 
-	// Encode the request and prepare an HTTP POST request
+	// Encode the request into JSON and prepare an HTTP POST request
 	body, err := json.Marshal(&c.req)
 	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
+		return fmt.Errorf("failed to marshal request: %w", err) // Handle marshaling error
 	}
 	req, err := http.NewRequest("POST", c.url, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("failed to create HTTP request: %w", err)
+		return fmt.Errorf("failed to create HTTP request: %w", err) // Handle HTTP request creation error
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json") // Set the appropriate content type
 
-	// Send the HTTP request using the client
+	// Send the HTTP request using the HTTP client
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send HTTP request: %w", err)
+		return fmt.Errorf("failed to send HTTP request: %w", err) // Handle HTTP request error
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() // Ensure the response body is closed after processing
 
-	// Decode the response body
-	c.dec = json.NewDecoder(resp.Body)
-	return nil
+	// Initialize the JSON decoder for the response body
+	c.dec = json.NewDecoder(resp.Body) // Assign the decoder to the response body
+	return nil                         // Return nil if the request was successful
 }
 
 // ReadResponseHeader reads the response header from the HTTP response and fills the custom Response structure.
