@@ -184,7 +184,7 @@ func (m *MultisigManager) VerifySignatures(message []byte) (bool, error) {
 		return false, fmt.Errorf("not enough valid signatures to meet the quorum")
 	}
 
-	// **Reached here when enough valid signatures (t) are collected**
+	// **Reached here when enough valid signatures t=sig(n_1,...,n_t)) are collected**
 	// If we have enough valid signatures, return true
 	return true, nil
 }
