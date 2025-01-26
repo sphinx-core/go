@@ -95,9 +95,8 @@ func (m *MultisigManager) AddSig(index int, sig []byte) error {
 	m.mu.Lock()         // Lock for writing to ensure thread-safety while modifying state
 	defer m.mu.Unlock() // Unlock after the operation is complete
 
-	// Check if the index is within the valid range of participants
 	if index < 0 || index >= len(m.keys) {
-		// Return an error if the index is invalid
+		log.Printf("Invalid index %d, keys length: %d", index, len(m.keys))
 		return fmt.Errorf("invalid index %d", index)
 	}
 
@@ -268,6 +267,7 @@ func (m *MultisigManager) VerifySignatures(message []byte) (bool, error) {
 
 // ValidateProof validates the proof for a specific participant by regenerating it and comparing it with the stored proof.
 // This ensures that the proof matches the signature and Merkle root, confirming the integrity of the signature.
+// ValidateProof validates the proof for a specific participant by regenerating it and comparing it with the stored proof.
 func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, error) {
 	// Step 1: Lock for reading to ensure thread-safety while accessing the proofs and state.
 	// The RLock allows multiple goroutines to read concurrently, but no writing can occur while it's held.
@@ -289,45 +289,36 @@ func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, e
 	// This will be used for regenerating the proof.
 	merkleRootHash := m.signatures[partyID]
 
-	// Step 6: Initialize a WaitGroup to manage concurrency.
-	// This is required since we're using goroutines for parallel processing.
-	var wg sync.WaitGroup
+	// Step 6: Initialize a channel to collect proof validation results.
+	resultChan := make(chan bool, 1)
 
-	// Step 7: Initialize a variable to store the result of the proof validation.
-	// This will be set to true if the regenerated proof matches the stored proof, indicating validity.
-	// If the proof doesn't match, it will remain false, indicating an invalid proof.
-	var isValidProof bool
-
-	// Step 8: Add one task to the WaitGroup for the goroutine.
-	wg.Add(1)
-	// Step 9: Start a new goroutine to regenerate the proof and verify it.
+	// Step 7: Start a new goroutine to regenerate the proof and verify it.
 	go func() {
-		defer wg.Done() // Mark the task as done when the goroutine completes
-
-		// Step 10: Regenerate the proof using the message, Merkle root hash, and the participant's public key.
+		// Step 8: Regenerate the proof using the message, Merkle root hash, and the participant's public key.
 		regeneratedProof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootHash}, m.partyPK[partyID])
 		if err != nil {
-			// Step 11: Log an error if proof regeneration fails for the participant.
+			// Log an error if proof regeneration fails for the participant.
 			log.Printf("Failed to regenerate proof for participant %s: %v", partyID, err)
+			resultChan <- false
 			return
 		}
 
-		// Step 12: Use the generated proof and the stored proof to verify the integrity of the proof.
-		isValidProof = sigproof.VerifySigProof(storedProof, regeneratedProof)
+		// Step 9: Verify the proof.
+		isValidProof := sigproof.VerifySigProof(storedProof, regeneratedProof)
 
-		// Step 13: Log the result of the proof verification for debugging purposes.
-		log.Printf("Proof verification for participant %s: %v\n", partyID, isValidProof)
+		// Step 10: Send the result through the channel.
+		resultChan <- isValidProof
 	}()
 
-	// Step 14: Wait for all goroutines to complete before proceeding further.
-	wg.Wait() // Wait for the goroutine to complete
+	// Step 11: Wait for the goroutine to complete and retrieve the validation result.
+	isValidProof := <-resultChan
 
-	// Step 15: If the proof is not valid, return false with an error message indicating the invalid proof.
+	// Step 12: If the proof is not valid, return false with an error message indicating the invalid proof.
 	if !isValidProof {
 		return false, fmt.Errorf("proof for participant %s is invalid", partyID)
 	}
 
-	// Step 16: If the proof is valid, return true indicating the proof is valid.
+	// Step 13: If the proof is valid, return true indicating the proof is valid.
 	return true, nil
 }
 
@@ -335,67 +326,57 @@ func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, e
 // The function takes two parameters:
 // - message: The message or data that needs to be signed by the participants for wallet recovery.
 // - requiredParticipants: A list of participants whose signatures and proofs are required to perform the recovery.
-
-// The function will return the recovery proof (combination of valid signatures and proofs from participants) if successful,
-// or an error if the process fails.
-// The function will return the recovery proof (combination of valid signatures and proofs from participants) if successful,
-// or an error if the process fails.
 func (m *MultisigManager) RecoveryKey(message []byte, requiredParticipants []string) ([]byte, error) {
 	// Step 1: Lock the mutex to ensure thread-safety during recovery.
-	// This prevents other goroutines from modifying the state of the multisig manager
-	// while the recovery process is happening, ensuring that the recovery process
-	// happens without interference.
 	m.mu.Lock()
-	// Step 2: Unlock the mutex after the recovery process is completed.
-	// This ensures other operations can proceed after the recovery is done.
 	defer m.mu.Unlock()
 
-	// Step 3: Initialize a sync.Map to store the recovery proof.
-	var recoveryProof sync.Map
+	// Step 2: Initialize a channel to collect signatures and proofs from goroutines.
+	proofChan := make(chan []byte, len(requiredParticipants))
 
-	// Step 4: Initialize a WaitGroup to synchronize goroutines.
+	// Step 3: Initialize a WaitGroup to synchronize goroutines.
 	var wg sync.WaitGroup
 
-	// Step 5: Loop through each participant in the requiredParticipants list.
+	// Step 4: Loop through each participant in the requiredParticipants list.
 	for _, partyID := range requiredParticipants {
 		wg.Add(1)
 		go func(partyID string) {
 			defer wg.Done()
 
-			// Step 6: Check if the participant has signed the message.
+			// Step 5: Check if the participant has signed the message.
 			sig, exists := m.signatures[partyID]
 			if !exists {
 				return // no signature found for participant, skip this goroutine
 			}
 
-			// Step 7: Check if the proof for the participant exists.
+			// Step 6: Check if the proof for the participant exists.
 			proof, exists := m.proofs[partyID]
 			if !exists {
 				return // no proof found for participant, skip this goroutine
 			}
 
-			// Step 8: Validate the proof for the participant.
+			// Step 7: Validate the proof for the participant.
 			valid, err := m.ValidateProof(partyID, message)
 			if err != nil || !valid {
 				return // invalid proof, skip this goroutine
 			}
 
-			// Step 9: Append the signature and proof to the recovery proof using sync.Map.
-			// The key is a combination of the participant ID and a unique key (e.g., partyID+signature)
-			// to avoid conflicts in the map.
-			recoveryProof.Store(partyID, append(sig, proof...))
+			// Step 8: Send the combined signature and proof to the channel.
+			proofChan <- append(sig, proof...)
 		}(partyID)
 	}
 
-	// Step 10: Wait for all goroutines to finish processing.
+	// Step 9: Wait for all goroutines to finish processing.
 	wg.Wait()
 
-	// Step 11: Combine the results stored in the sync.Map into a single recovery proof slice.
+	// Step 10: Close the channel after all goroutines are done.
+	close(proofChan)
+
+	// Step 11: Combine the results from the channel into a single recovery proof slice.
 	var finalProof []byte
-	recoveryProof.Range(func(key, value interface{}) bool {
-		finalProof = append(finalProof, value.([]byte)...)
-		return true
-	})
+	for proof := range proofChan {
+		finalProof = append(finalProof, proof...)
+	}
 
 	// Step 12: Check if enough signatures have been collected to meet the quorum.
 	if len(finalProof) < m.quorum {
