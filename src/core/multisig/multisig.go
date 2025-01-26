@@ -26,159 +26,197 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/holiman/uint256"
 	"github.com/sphinx-core/go/src/core/hashtree"
 	sigproof "github.com/sphinx-core/go/src/core/proof"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 	sign "github.com/sphinx-core/go/src/core/sphincs/sign/backend"
-	"github.com/sphinx-core/go/src/core/wallet/utils"
 )
 
-// MultisigManager manages the SPHINCS+ multisig functionalities
+// MultisigManager manages the SPHINCS+ multisig functionalities, including key generation, signing, and verification
 type MultisigManager struct {
-	db            *utils.WalletConfig // Corrected to use the exported type
-	km            *key.KeyManager
-	manager       *sign.SphincsManager
-	threshold     int
-	signatures    map[string][]byte // Store signatures from participants
-	participantPK map[string][]byte // Store public keys of participants
-	proofs        map[string][]byte // Store proofs for each participant
+	km         *key.KeyManager      // Key manager for handling cryptographic keys
+	manager    *sign.SphincsManager // SPHINCS+ manager for signing and verifying signatures
+	quorum     int                  // Quorum: minimum number of signatures required for validity
+	signatures map[string][]byte    // Store signatures from each participant
+	partyPK    map[string][]byte    // Store public keys of the participants
+	proofs     map[string][]byte    // Store proofs for each participant
 }
 
-// NewMultisigManager initializes a new multisig manager
-func NewMultisigManager(threshold int) (*MultisigManager, error) {
-	// Initialize the walletConfig from utils (this will manage the database)
-	db, err := utils.NewWalletConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize wallet config: %v", err)
-	}
-
+// NewMultisigManager initializes a new multisig manager with quorum logic
+func NewMultisigManager(quorum int) (*MultisigManager, error) {
 	// Initialize the KeyManager with default SPHINCS+ parameters.
+	// This will be used for cryptographic key management (generation, serialization, etc.)
 	km, err := key.NewKeyManager()
 	if err != nil {
+		// If initialization fails, return an error with a descriptive message
 		return nil, fmt.Errorf("error initializing KeyManager: %v", err)
 	}
 
-	// Initialize the SPHINCS+ parameters
+	// Retrieve the SPHINCS+ parameters from the KeyManager
+	// These parameters will be used for the signing process
 	parameters := km.GetSPHINCSParameters()
 
-	// Initialize the SphincsManager with walletConfig and KeyManager
-	manager := sign.NewSphincsManager(db.GetDB(), km, parameters) // Use GetDB() method
+	// Initialize the SphincsManager for signing and verification of messages
+	// The SphincsManager will handle the SPHINCS+ signature creation and validation
+	manager := sign.NewSphincsManager(nil, km, parameters) // 'nil' DB, replace if needed
 
+	// Return the new MultisigManager instance with initialized components
 	return &MultisigManager{
-		db:            db,
-		km:            km,
-		manager:       manager,
-		threshold:     threshold,
-		signatures:    make(map[string][]byte),
-		participantPK: make(map[string][]byte),
-		proofs:        make(map[string][]byte),
+		km:         km,                      // KeyManager instance
+		manager:    manager,                 // SphincsManager instance
+		quorum:     quorum,                  // Threshold for the number of signatures required
+		signatures: make(map[string][]byte), // Map to store signatures from participants
+		partyPK:    make(map[string][]byte), // Map to store public keys of participants
+		proofs:     make(map[string][]byte), // Map to store proof for each participant
 	}, nil
 }
 
-// GenerateKeyPair generates a new SPHINCS key pair
+// GenerateKeyPair generates a new SPHINCS key pair (private and public)
 func (m *MultisigManager) GenerateKeyPair() ([]byte, []byte, error) {
+	// Generate a new key pair using the KeyManager
 	sk, pk, err := m.km.GenerateKey()
 	if err != nil {
+		// Return error if key generation fails
 		return nil, nil, fmt.Errorf("error generating keys: %v", err)
 	}
 
-	// Serialize the key pair to bytes
+	// Serialize the generated key pair to byte slices (for storage or transmission)
 	skBytes, pkBytes, err := m.km.SerializeKeyPair(sk, pk)
 	if err != nil {
+		// Return error if serialization fails
 		return nil, nil, fmt.Errorf("error serializing key pair: %v", err)
 	}
 
+	// Return the serialized private and public keys
 	return skBytes, pkBytes, nil
 }
 
-// SignMessage signs a message with a given private key
-func (m *MultisigManager) SignMessage(message []byte, privateKey []byte, participantID string) ([]byte, *hashtree.HashTreeNode, error) {
-	// Deserialize the private key
+// SignMessage signs a given message using a private key and stores the signature, Merkle root, and proof for the party
+func (m *MultisigManager) SignMessage(message []byte, privateKey []byte, partyID string) ([]byte, []byte, error) {
+	// Deserialize the private key from its byte representation
 	sk, _, err := m.km.DeserializeKeyPair(privateKey, nil)
 	if err != nil {
 		log.Fatalf("Error deserializing key pair: %v", err)
 	}
 
-	// Sign the message using the SphincsManager
+	// Sign the message using the SphincsManager (SPHINCS+ signing algorithm)
 	sig, merkleRoot, err := m.manager.SignMessage(message, sk)
 	if err != nil {
+		// Return error if signing fails
 		return nil, nil, fmt.Errorf("failed to sign message: %v", err)
 	}
 
-	// Serialize the signature
+	// Serialize the signature to bytes for storage or transmission
 	sigBytes, err := m.manager.SerializeSignature(sig)
 	if err != nil {
+		// Return error if signature serialization fails
 		return nil, nil, fmt.Errorf("failed to serialize signature: %v", err)
 	}
 
-	// Store the signature and public key of the participant
-	m.signatures[participantID] = sigBytes
-	m.participantPK[participantID] = privateKey
+	// Convert Merkle root to byte slice
+	merkleRootBytes := merkleRoot.Hash.Bytes()
 
-	// Generate the proof for the signed message
-	merkleRootHash := merkleRoot.Hash.Bytes()
-	proof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootHash}, privateKey)
+	// Store the signature and public key of the participant in the manager's maps
+	m.signatures[partyID] = sigBytes
+	m.partyPK[partyID] = privateKey
+
+	// Generate a proof for the signed message (used for later verification)
+	proof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootBytes}, privateKey)
 	if err != nil {
+		// Return error if proof generation fails
 		return nil, nil, fmt.Errorf("failed to generate proof: %v", err)
 	}
 
 	// Store the proof for the participant
-	m.proofs[participantID] = proof
+	m.proofs[partyID] = proof
 
-	return sigBytes, merkleRoot, nil
+	// Return the serialized signature and Merkle root (as byte slices)
+	return sigBytes, merkleRootBytes, nil
 }
 
-// VerifySignatures checks if enough signatures have been collected and if the final signature is valid
+// VerifySignatures checks if enough signatures have been collected and if each signature is valid
 func (m *MultisigManager) VerifySignatures(message []byte) (bool, error) {
-	// Check if we have enough signatures
-	if len(m.signatures) < m.threshold {
-		return false, fmt.Errorf("not enough signatures, need at least %d", m.threshold)
+	// Check if we have enough signatures to meet the quorum
+	if len(m.signatures) < m.quorum {
+		return false, fmt.Errorf("not enough signatures, need at least %d", m.quorum)
 	}
 
-	// Combine signatures (simple concatenation for example)
-	var combinedSignature []byte
-	for _, sig := range m.signatures {
-		combinedSignature = append(combinedSignature, sig...)
-	}
+	// Initialize a counter for valid signatures
+	validSignatures := 0
 
-	// Verify the combined signature
-	for participantID, sig := range m.signatures {
-		publicKey := m.participantPK[participantID]
+	// Loop through each participant's signature and verify its validity
+	for partyID, sig := range m.signatures {
+		// Retrieve the public key of the participant
+		publicKey := m.partyPK[partyID]
 		deserializedPK, err := m.km.DeserializePublicKey(publicKey)
 		if err != nil {
-			return false, fmt.Errorf("error deserializing public key: %v", err)
+			// Return error if public key deserialization fails
+			return false, fmt.Errorf("error deserializing public key for %s: %v", partyID, err)
 		}
 
-		// Deserialize the signature (sig is expected to be serialized)
-		deserializedSig, err := m.manager.DeserializeSignature(sig)
+		// Deserialize the signature from its byte representation
+		sig, err := m.manager.DeserializeSignature(sig)
 		if err != nil {
-			return false, fmt.Errorf("error deserializing signature: %v", err)
+			// Return error if signature deserialization fails
+			return false, fmt.Errorf("error deserializing signature for %s: %v", partyID, err)
 		}
 
-		// Verify the signature using the SphincsManager
-		isValidSig := m.manager.VerifySignature(message, deserializedSig, deserializedPK, nil) // Merkle root can be passed if necessary
-		if !isValidSig {
-			return false, fmt.Errorf("signature from participant %s is invalid", participantID)
+		// Retrieve the Merkle root hash associated with this signature
+		merkleRootBytes := m.signatures[partyID]
+
+		// Convert Merkle root hash to a *HashTreeNode
+		merkleRoot := &hashtree.HashTreeNode{Hash: uint256.NewInt(0).SetBytes(merkleRootBytes)}
+
+		// Verify the signature using the message, signature, public key, and Merkle root
+		isValidSig := m.manager.VerifySignature(message, sig, deserializedPK, merkleRoot)
+		if isValidSig {
+			// If the signature is valid, increment the counter
+			validSignatures++
+		} else {
+			// Return error if the signature is invalid
+			return false, fmt.Errorf("signature from participant %s is invalid", partyID)
 		}
 	}
 
+	// Ensure that the number of valid signatures meets the quorum
+	if validSignatures < m.quorum {
+		return false, fmt.Errorf("not enough valid signatures to meet the quorum")
+	}
+
+	// **Reached here when enough valid signatures (t) are collected**
+	// If we have enough valid signatures, return true
 	return true, nil
 }
 
-// SaveRootHash saves the Merkle root hash to a file
-func (m *MultisigManager) SaveRootHash(merkleRoot *hashtree.HashTreeNode) error {
-	err := hashtree.SaveRootHashToFile(merkleRoot, "root_hashtree/merkle_root_hash.bin")
-	if err != nil {
-		return fmt.Errorf("failed to save root hash to file: %v", err)
-	}
-	return nil
-}
-
-// GenerateProof generates a proof for the signed message
-func (m *MultisigManager) GenerateProof(participantID string) ([]byte, error) {
-	proof, exists := m.proofs[participantID]
+// ValidateProof validates the proof for a specific participant by regenerating it and comparing it with the stored proof
+func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, error) {
+	// Retrieve the stored proof for the participant
+	storedProof, exists := m.proofs[partyID]
 	if !exists {
-		return nil, fmt.Errorf("no proof found for participant %s", participantID)
+		// Return error if no proof exists for the participant
+		return false, fmt.Errorf("no proof found for participant %s", partyID)
 	}
-	return proof, nil
+
+	// Retrieve the Merkle root hash associated with the participant's signature
+	merkleRootHash := m.signatures[partyID]
+
+	// Regenerate the proof using the message and stored Merkle root hash
+	regeneratedProof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootHash}, m.partyPK[partyID])
+	if err != nil {
+		// Return error if proof regeneration fails
+		return false, fmt.Errorf("failed to regenerate proof: %v", err)
+	}
+
+	// Verify the proof by comparing the stored proof with the regenerated proof
+	isValidProof := sigproof.VerifySigProof(storedProof, regeneratedProof)
+	fmt.Printf("Proof verification for participant %s: %v\n", partyID, isValidProof)
+
+	// If the proof is invalid, return error
+	if !isValidProof {
+		return false, fmt.Errorf("proof for participant %s is invalid", partyID)
+	}
+
+	// Return true if the proof is valid
+	return true, nil
 }
