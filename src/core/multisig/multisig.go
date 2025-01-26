@@ -41,35 +41,91 @@ type MultisigManager struct {
 	signatures map[string][]byte    // Store signatures from each participant
 	partyPK    map[string][]byte    // Store public keys of the participants
 	proofs     map[string][]byte    // Store proofs for each participant
+	keys       [][]byte             // Store the public keys of all participants in a list for index retrieval
 }
 
-// NewMultisigManager initializes a new multisig manager with quorum logic
-func NewMultisigManager(quorum int) (*MultisigManager, error) {
-	// Initialize the KeyManager with default SPHINCS+ parameters.
-	// This will be used for cryptographic key management (generation, serialization, etc.)
+// NewMultisig initializes a new multisig with a specified number of participants.
+// It creates the necessary key management and signing infrastructure for multisig functionality.
+// The function will return a new instance of MultisigManager that manages the multisig signatures and associated operations.
+func NewMultiSig(n int) (*MultisigManager, error) {
+	// Step 1: Initialize the KeyManager with default SPHINCS+ parameters.
+	// The KeyManager handles key generation, serialization, and cryptographic operations.
 	km, err := key.NewKeyManager()
 	if err != nil {
-		// If initialization fails, return an error with a descriptive message
+		// If initialization fails, return an error with a message indicating the failure.
 		return nil, fmt.Errorf("error initializing KeyManager: %v", err)
 	}
 
-	// Retrieve the SPHINCS+ parameters from the KeyManager
-	// These parameters will be used for the signing process
+	// Step 2: Retrieve SPHINCS+ parameters from the KeyManager.
+	// These parameters will be used for the signing process and cryptographic operations.
 	parameters := km.GetSPHINCSParameters()
 
-	// Initialize the SphincsManager for signing and verification of messages
-	// The SphincsManager will handle the SPHINCS+ signature creation and validation
-	manager := sign.NewSphincsManager(nil, km, parameters) // 'nil' DB, replace if needed
+	// Step 3: Initialize the SphincsManager with the given parameters and KeyManager.
+	// The SphincsManager is responsible for managing SPHINCS+ signatures and verifying them.
+	manager := sign.NewSphincsManager(nil, km, parameters)
 
-	// Return the new MultisigManager instance with initialized components
+	// Step 4: Initialize the multisig manager with the specified number of participants (n).
+	// The multisig manager tracks signatures, keys, and the quorum required for validation.
 	return &MultisigManager{
-		km:         km,                      // KeyManager instance
-		manager:    manager,                 // SphincsManager instance
-		quorum:     quorum,                  // Threshold for the number of signatures required
-		signatures: make(map[string][]byte), // Map to store signatures from participants
-		partyPK:    make(map[string][]byte), // Map to store public keys of participants
-		proofs:     make(map[string][]byte), // Map to store proof for each participant
+		km:         km,                      // Store the KeyManager for key operations
+		manager:    manager,                 // Store the SphincsManager for signing/verification
+		quorum:     n,                       // Set the quorum to the number of participants
+		signatures: make(map[string][]byte), // Initialize a map to store signatures by participant ID
+		partyPK:    make(map[string][]byte), // Initialize a map to store public keys of participants
+		proofs:     make(map[string][]byte), // Initialize a map to store proofs for each participant
+		keys:       make([][]byte, n),       // Allocate space for n participant keys
 	}, nil
+}
+
+// GetIndex returns the index of a given public key (pk) in the list of participant keys.
+// If the public key is found, it returns the index, otherwise it returns -1 indicating the key is not in the list.
+func (m *MultisigManager) GetIndex(pk []byte) int {
+	// Loop through the list of participant keys to find the matching public key.
+	for i, key := range m.keys {
+		// Compare the given public key with the stored key in the list.
+		// The public keys are compared by their hexadecimal representation (as strings).
+		if fmt.Sprintf("%x", key) == fmt.Sprintf("%x", pk) {
+			// If a match is found, return the index of the key in the list.
+			return i
+		}
+	}
+	// If no match is found, return -1 to indicate the key is not present in the list.
+	return -1
+}
+
+// AddSignature adds a signature to the multisig at the given index corresponding to a participant's public key.
+// It stores the signature in the `signatures` map, using the participant's public key (hexadecimal string) as the key.
+func (m *MultisigManager) AddSig(index int, sig []byte) error {
+	// Step 1: Check if the provided index is valid.
+	// If the index is negative or exceeds the available keys, return an error indicating invalid index.
+	if index < 0 || index >= len(m.keys) {
+		return fmt.Errorf("invalid index %d", index)
+	}
+
+	// Step 2: Store the provided signature in the `signatures` map.
+	// The signature is stored using the participant's public key (converted to hexadecimal) as the key.
+	m.signatures[fmt.Sprintf("%x", m.keys[index])] = sig
+
+	// Step 3: Return nil indicating successful signature addition.
+	return nil
+}
+
+// AddSignatureFromPubKey adds a signature to the multisig based on the provided public key (pubKey).
+// The function first looks up the public key in the list of participant keys, finds the corresponding index,
+// and then adds the signature at that index.
+func (m *MultisigManager) AddSigFromPubKey(pubKey []byte, sig []byte) error {
+	// Step 1: Retrieve the index of the provided public key.
+	// This checks the list of public keys and returns the index if the key is found.
+	index := m.GetIndex(pubKey)
+
+	// Step 2: If the public key is not found, return an error indicating the key is not part of the multisig.
+	if index == -1 {
+		return fmt.Errorf("public key not found in multisig keys")
+	}
+
+	// Step 3: Add the signature to the corresponding index in the `signatures` map.
+	// The signature is stored at the found index.
+	return m.AddSig(index, sig)
 }
 
 // GenerateKeyPair generates a new SPHINCS key pair (private and public)

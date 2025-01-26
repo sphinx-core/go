@@ -217,7 +217,7 @@ func Recovery(message []byte, requiredParticipants []string, quorum int, passkey
 	// Step 5: Initialize the MultisigManager with the given quorum
 	// The MultisigManager is responsible for managing the multi-signature process.
 	// We initialize it with the quorum (minimum number of signatures required for wallet recovery).
-	multisigManager, err := multisig.NewMultisigManager(quorum)
+	multisigManager, err := multisig.NewMultiSig(quorum)
 	if err != nil {
 		// If the multisig manager cannot be initialized, log the error and return it.
 		log.Fatalf("Error initializing MultisigManager: %v", err)
