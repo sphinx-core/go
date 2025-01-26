@@ -174,10 +174,17 @@ func (m *MultisigManager) SignMessage(message []byte, privateKey []byte, partyID
 	// This is done by calling the `Bytes` method on the Merkle root hash.
 	merkleRootBytes := merkleRoot.Hash.Bytes()
 
-	// Step 10: Store the signature for the party identified by partyID.
+	// Step 10: Create a WaitGroup to wait for the goroutine to finish.
+	var wg sync.WaitGroup
+	wg.Add(1) // We will wait for one goroutine to finish
+
+	// Step 11: Store the signature for the party identified by partyID.
 	// The signature is associated with the partyID in the signatures map.
 	// We are introducing the goroutine here.
 	go func() {
+		// Ensure we call Done once the goroutine has finished
+		defer wg.Done()
+
 		// Store the signature and public key in the respective maps concurrently.
 		m.signatures[partyID] = sigBytes
 		m.partyPK[partyID] = privateKey
@@ -195,6 +202,9 @@ func (m *MultisigManager) SignMessage(message []byte, privateKey []byte, partyID
 		// The proof is associated with the partyID in the proofs map for later validation.
 		m.proofs[partyID] = proof
 	}()
+
+	// Step 13: Wait for the goroutine to complete before returning the result.
+	wg.Wait()
 
 	// Step 15: Return the signature and Merkle root in byte form.
 	// These are returned so they can be used by other functions or processes.
@@ -215,54 +225,76 @@ func (m *MultisigManager) VerifySignatures(message []byte) (bool, error) {
 
 	validSignatures := 0 // Step 4: Initialize a counter to keep track of valid signatures.
 
-	// Step 5: Loop through each participant's signature in the signatures map.
+	// Step 5: Create a WaitGroup to wait for the completion of all signature verifications.
+	var wg sync.WaitGroup
+
+	// Step 6: Mutex for protecting the validSignatures counter.
+	var mu sync.Mutex
+
+	// Step 7: Loop through each participant's signature in the signatures map.
 	for partyID, sig := range m.signatures {
-		// Step 6: Retrieve the public key of the participant using their partyID.
-		// This allows verifying the signature associated with that participant.
-		publicKey := m.partyPK[partyID]
+		// Step 8: Add to the WaitGroup for each verification.
+		wg.Add(1)
 
-		// Step 7: Deserialize the public key from the stored bytes.
-		// Convert the byte representation of the public key back into a usable public key object.
-		deserializedPK, err := m.km.DeserializePublicKey(publicKey)
-		if err != nil {
-			// Step 8: Return an error if the public key cannot be deserialized.
-			return false, fmt.Errorf("error deserializing public key for %s: %v", partyID, err)
-		}
+		// Step 9: Start a goroutine to verify the signature for each party.
+		go func(partyID string, sig []byte) {
+			// Ensure we call Done once the goroutine has finished
+			defer wg.Done()
 
-		// Step 9: Deserialize the stored signature for the participant.
-		// Convert the byte representation of the signature back into a usable signature object.
-		sig, err := m.manager.DeserializeSignature(sig)
-		if err != nil {
-			// Step 10: Return an error if the signature cannot be deserialized.
-			return false, fmt.Errorf("error deserializing signature for %s: %v", partyID, err)
-		}
+			// Step 10: Retrieve the public key of the participant using their partyID.
+			// This allows verifying the signature associated with that participant.
+			publicKey := m.partyPK[partyID]
 
-		// Step 11: Retrieve the Merkle root hash from the stored signatures for the current party.
-		// The Merkle root is used in signature verification to ensure that the signature matches the correct data.
-		merkleRootBytes := m.signatures[partyID]
-		// Step 12: Create a HashTreeNode with the Merkle root bytes.
-		// This is necessary to build a verification tree for the signature.
-		merkleRoot := &hashtree.HashTreeNode{Hash: uint256.NewInt(0).SetBytes(merkleRootBytes)}
+			// Step 11: Deserialize the public key from the stored bytes.
+			// Convert the byte representation of the public key back into a usable public key object.
+			deserializedPK, err := m.km.DeserializePublicKey(publicKey)
+			if err != nil {
+				// Step 12: Return an error if the public key cannot be deserialized.
+				log.Printf("Error deserializing public key for %s: %v", partyID, err)
+				return
+			}
 
-		// Step 13: Verify the signature using the SPHINCS+ manager's VerifySignature method.
-		// The message, signature, deserialized public key, and Merkle root are all required for verification.
-		isValidSig := m.manager.VerifySignature(message, sig, deserializedPK, merkleRoot)
-		if isValidSig {
-			// Step 14: If the signature is valid, increment the validSignatures counter.
-			validSignatures++
-		} else {
-			// Step 15: If the signature is invalid, return false with an error message.
-			return false, fmt.Errorf("signature from participant %s is invalid", partyID)
-		}
+			// Step 13: Deserialize the stored signature for the participant.
+			// Convert the byte representation of the signature back into a usable signature object.
+			sigObj, err := m.manager.DeserializeSignature(sig)
+			if err != nil {
+				// Step 14: Return an error if the signature cannot be deserialized.
+				log.Printf("Error deserializing signature for %s: %v", partyID, err)
+				return
+			}
+
+			// Step 15: Retrieve the Merkle root hash from the stored signatures for the current party.
+			// The Merkle root is used in signature verification to ensure that the signature matches the correct data.
+			merkleRootBytes := m.signatures[partyID]
+			// Step 16: Create a HashTreeNode with the Merkle root bytes.
+			// This is necessary to build a verification tree for the signature.
+			merkleRoot := &hashtree.HashTreeNode{Hash: uint256.NewInt(0).SetBytes(merkleRootBytes)}
+
+			// Step 17: Verify the signature using the SPHINCS+ manager's VerifySignature method.
+			// The message, signature, deserialized public key, and Merkle root are all required for verification.
+			isValidSig := m.manager.VerifySignature(message, sigObj, deserializedPK, merkleRoot)
+			if isValidSig {
+				// Step 18: If the signature is valid, increment the validSignatures counter.
+				mu.Lock()
+				validSignatures++
+				mu.Unlock()
+			} else {
+				// Step 19: If the signature is invalid, return false with an error message.
+				log.Printf("Signature from participant %s is invalid", partyID)
+			}
+		}(partyID, sig)
 	}
 
-	// Step 16: After looping through all signatures, check if we have enough valid signatures to meet the quorum.
+	// Step 20: Wait for all the goroutines to complete before proceeding.
+	wg.Wait()
+
+	// Step 21: After looping through all signatures, check if we have enough valid signatures to meet the quorum.
 	if validSignatures < m.quorum {
-		// Step 17: If not enough valid signatures, return false with an error message.
+		// Step 22: If not enough valid signatures, return false with an error message.
 		return false, fmt.Errorf("not enough valid signatures to meet the quorum")
 	}
 
-	// Step 18: If all checks pass, return true indicating that all signatures are valid.
+	// Step 23: If all checks pass, return true indicating that all signatures are valid.
 	return true, nil
 }
 
@@ -284,26 +316,51 @@ func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, e
 	// This will be used for regenerating the proof.
 	merkleRootHash := m.signatures[partyID]
 
-	// Step 6: Regenerate the proof by calling the sigproof.GenerateSigProof function.
-	// This uses the message, Merkle root hash, and the participant's public key to generate the proof.
-	regeneratedProof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootHash}, m.partyPK[partyID])
-	if err != nil {
-		// Step 7: Return an error if the proof regeneration fails.
-		return false, fmt.Errorf("failed to regenerate proof: %v", err)
-	}
+	// Step 6: Create a WaitGroup to handle potential concurrency in proof validation.
+	var wg sync.WaitGroup
+	wg.Add(1) // We are validating one proof, so we add 1 to the WaitGroup.
 
-	// Step 8: Verify the stored proof by comparing it with the regenerated proof using the sigproof.VerifySigProof function.
-	isValidProof := sigproof.VerifySigProof(storedProof, regeneratedProof)
-	// Step 9: Log the result of the proof verification.
-	fmt.Printf("Proof verification for participant %s: %v\n", partyID, isValidProof)
+	// Step 7: Mutex for protecting shared resources during proof regeneration.
+	var mu sync.Mutex
 
-	// Step 10: If the proof is invalid, return false with an error message.
-	if !isValidProof {
-		return false, fmt.Errorf("proof for participant %s is invalid", partyID)
-	}
+	// Step 8: Goroutine to regenerate proof and validate it concurrently.
+	go func() {
+		// Ensure we call Done once the goroutine has finished
+		defer wg.Done()
 
-	// Step 11: If the proof is valid, return true indicating successful validation.
-	return true, nil
+		// Step 9: Regenerate the proof by calling the sigproof.GenerateSigProof function.
+		// This uses the message, Merkle root hash, and the participant's public key to generate the proof.
+		regeneratedProof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootHash}, m.partyPK[partyID])
+		if err != nil {
+			// Step 10: Return an error if the proof regeneration fails.
+			log.Printf("Failed to regenerate proof for participant %s: %v", partyID, err)
+			return
+		}
+
+		// Step 11: Verify the stored proof by comparing it with the regenerated proof using the sigproof.VerifySigProof function.
+		isValidProof := sigproof.VerifySigProof(storedProof, regeneratedProof)
+		// Step 12: Log the result of the proof verification.
+		fmt.Printf("Proof verification for participant %s: %v\n", partyID, isValidProof)
+
+		// Step 13: Mutex to ensure thread-safety when updating shared state or logging.
+		mu.Lock()
+		defer mu.Unlock()
+
+		// Step 14: If the proof is invalid, return false with an error message.
+		if !isValidProof {
+			log.Printf("Proof for participant %s is invalid", partyID)
+			return
+		}
+
+		// Step 15: If the proof is valid, return true indicating successful validation.
+		log.Printf("Proof for participant %s is valid", partyID)
+	}()
+
+	// Step 16: Wait for the goroutine to complete before returning the result.
+	wg.Wait()
+
+	// Step 17: If no valid proof was found, return false and an error.
+	return false, fmt.Errorf("proof for participant %s is invalid", partyID)
 }
 
 // RecoveryKey allows Alice to recover her wallet using proofs from other participants.
