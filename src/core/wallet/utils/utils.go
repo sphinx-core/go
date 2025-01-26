@@ -158,56 +158,82 @@ func VerifyChainCode(decodepasskey []byte, macKey []byte) (bool, error) {
 	return false, fmt.Errorf("chain code verification failed")
 }
 
-// Recovery is a utility function to recover a wallet's key
+// Recovery is a utility function to recover a wallet's key using a multi-signature scheme.
+// It takes in the following parameters:
+// - message: The message or data to be signed for the recovery process
+// - requiredParticipants: List of participants whose signatures are required for recovery
+// - quorum: The minimum number of signatures needed to successfully recover the wallet
+// - passkey: A base32 encoded passkey used for authentication
+// - passphrase: A passphrase used to further verify the user's identity (along with passkey)
+//
+// The function will return a recovery proof (e.g., a multi-signature wallet key) if successful, or an error if the recovery fails.
 func Recovery(message []byte, requiredParticipants []string, quorum int, passkey, passphrase string) ([]byte, error) {
-	// Verify the fingerprint using the provided passkey and passphrase
+	// Step 1: Verify the fingerprint using the provided passkey and passphrase
+	// This is to ensure that the user providing the passkey and passphrase is authorized to perform recovery.
 	isValidFingerPrint, err := auth.VerifyFingerPrint(passkey, passphrase)
 	if err != nil {
+		// If there was an error during fingerprint verification, log it and return the error.
 		log.Printf("Fingerprint verification failed: %v", err)
 		return nil, err
 	}
+	// If the fingerprint is invalid, return an error.
 	if !isValidFingerPrint {
 		return nil, fmt.Errorf("invalid fingerprint")
 	}
 
-	// Decode the passkey to verify the chain code
+	// Step 2: Decode the passkey to verify the chain code
+	// The passkey is expected to be in base32 encoding, so we decode it to obtain the original key data.
 	decodedPasskey, err := DecodeBase32(passkey)
 	if err != nil {
+		// If the passkey cannot be decoded, log the error and return it.
 		log.Printf("Failed to decode passkey: %v", err)
 		return nil, err
 	}
 
-	// Retrieve the stored MacKey and ChainCode from memory
+	// Step 3: Retrieve the stored MacKey and ChainCode from memory
+	// We call VerifyBase32Passkey to check if the provided passkey is valid and retrieve the associated MacKey and ChainCode.
+	// The function also verifies if the passkey matches the expected MacKey and chain code in memory.
 	isValidMacKey, macKey, _, err := VerifyBase32Passkey(passkey)
 	if err != nil {
+		// If there's an error during verification, log it and return the error.
 		log.Printf("Failed to verify passkey: %v", err)
 		return nil, err
 	}
-
+	// If the MacKey verification fails, return an error.
 	if !isValidMacKey {
 		return nil, fmt.Errorf("failed to verify passkey")
 	}
 
-	// Verify the chain code stored in memory matches the one generated
+	// Step 4: Verify the chain code stored in memory matches the one generated
+	// After decoding the passkey, we use the MacKey to regenerate the chain code.
+	// We then compare the generated chain code with the one stored in memory.
 	isValidChainCode, err := VerifyChainCode(decodedPasskey, macKey)
 	if err != nil || !isValidChainCode {
+		// If the chain code verification fails, log the error and return a failure message.
 		log.Printf("Chain code verification failed: %v", err)
 		return nil, fmt.Errorf("invalid chain code")
 	}
 
-	// Initialize the MultisigManager with the given quorum
+	// Step 5: Initialize the MultisigManager with the given quorum
+	// The MultisigManager is responsible for managing the multi-signature process.
+	// We initialize it with the quorum (minimum number of signatures required for wallet recovery).
 	multisigManager, err := multisig.NewMultisigManager(quorum)
 	if err != nil {
+		// If the multisig manager cannot be initialized, log the error and return it.
 		log.Fatalf("Error initializing MultisigManager: %v", err)
 		return nil, err
 	}
 
-	// Call the RecoverWallet method with the required message and participants
+	// Step 6: Call the RecoverWallet method with the required message and participants
+	// The recovery process requires the specified message and a list of participants who need to sign the recovery.
+	// The recovery proof is the result of this multi-signature process.
 	recoveryProof, err := multisigManager.RecoveryKey(message, requiredParticipants)
 	if err != nil {
+		// If there's an error during the recovery process, return the error.
 		return nil, fmt.Errorf("error recovering wallet: %v", err)
 	}
 
-	// Return the recovery proof
+	// Step 7: Return the recovery proof
+	// After the recovery process is complete and successful, return the recovery proof (e.g., multi-signature wallet key).
 	return recoveryProof, nil
 }
