@@ -30,6 +30,7 @@ import (
 
 	"github.com/sphinx-core/go/src/common"
 	"github.com/sphinx-core/go/src/core/multisig"
+	"github.com/sphinx-core/go/src/core/wallet/auth"
 )
 
 // Mutex to protect access to memoryStore - ensures thread-safe access
@@ -157,8 +158,43 @@ func VerifyChainCode(decodepasskey []byte, macKey []byte) (bool, error) {
 	return false, fmt.Errorf("chain code verification failed")
 }
 
-// RecoverWalletUtility is a utility function to recover a wallet
-func Recovery(message []byte, requiredParticipants []string, quorum int) ([]byte, error) {
+// Recovery is a utility function to recover a wallet's key
+func Recovery(message []byte, requiredParticipants []string, quorum int, passkey, passphrase string) ([]byte, error) {
+	// Verify the fingerprint using the provided passkey and passphrase
+	isValidFingerPrint, err := auth.VerifyFingerPrint(passkey, passphrase)
+	if err != nil {
+		log.Printf("Fingerprint verification failed: %v", err)
+		return nil, err
+	}
+	if !isValidFingerPrint {
+		return nil, fmt.Errorf("invalid fingerprint")
+	}
+
+	// Decode the passkey to verify the chain code
+	decodedPasskey, err := DecodeBase32(passkey)
+	if err != nil {
+		log.Printf("Failed to decode passkey: %v", err)
+		return nil, err
+	}
+
+	// Retrieve the stored MacKey and ChainCode from memory
+	isValidMacKey, macKey, _, err := VerifyBase32Passkey(passkey)
+	if err != nil {
+		log.Printf("Failed to verify passkey: %v", err)
+		return nil, err
+	}
+
+	if !isValidMacKey {
+		return nil, fmt.Errorf("failed to verify passkey")
+	}
+
+	// Verify the chain code stored in memory matches the one generated
+	isValidChainCode, err := VerifyChainCode(decodedPasskey, macKey)
+	if err != nil || !isValidChainCode {
+		log.Printf("Chain code verification failed: %v", err)
+		return nil, fmt.Errorf("invalid chain code")
+	}
+
 	// Initialize the MultisigManager with the given quorum
 	multisigManager, err := multisig.NewMultisigManager(quorum)
 	if err != nil {
