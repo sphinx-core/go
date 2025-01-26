@@ -268,8 +268,6 @@ func (m *MultisigManager) VerifySignatures(message []byte) (bool, error) {
 
 // ValidateProof validates the proof for a specific participant by regenerating it and comparing it with the stored proof.
 // This ensures that the proof matches the signature and Merkle root, confirming the integrity of the signature.
-// ValidateProof validates the proof for a specific participant by regenerating it and comparing it with the stored proof.
-// This ensures that the proof matches the signature and Merkle root, confirming the integrity of the signature.
 func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, error) {
 	// Step 1: Lock for reading to ensure thread-safety while accessing the proofs and state.
 	// The RLock allows multiple goroutines to read concurrently, but no writing can occur while it's held.
