@@ -37,14 +37,18 @@ import (
 // https://github.com/sphinx-core/sips/wiki/SIPS0004
 // https://github.com/sphinx-core/sips/wiki/SIPS0005
 
-// walletConfig handles the storage and retrieval of keys in the keystore directory.
-type walletConfig struct {
+// WalletConfig handles the storage and retrieval of keys in the keystore directory.
+type WalletConfig struct {
 	db *leveldb.DB // LevelDB database instance for storing keys.
 }
 
-// NewWalletConfig initializes a new walletConfig with a LevelDB instance for key storage.
-// It creates the keystore directory if it doesn't exist.
-func NewWalletConfig() (*walletConfig, error) {
+// Get database
+func (config *WalletConfig) GetDB() *leveldb.DB {
+	return config.db
+}
+
+// NewWalletConfig initializes a new WalletConfig with a LevelDB instance for key storage.
+func NewWalletConfig() (*WalletConfig, error) {
 	// Define the path to the LevelDB database and keystore directory
 	keystoreDir := "src/accounts/keystore"
 
@@ -62,12 +66,12 @@ func NewWalletConfig() (*walletConfig, error) {
 		return nil, fmt.Errorf("failed to open LevelDB: %v", err)
 	}
 
-	// Return the walletConfig with the LevelDB instance
-	return &walletConfig{db: db}, nil
+	// Return the WalletConfig with the LevelDB instance
+	return &WalletConfig{db: db}, nil
 }
 
 // SaveKeyPair saves the combined encrypted data in LevelDB and as a .dat file
-func (config *walletConfig) SaveKeyPair(combinedData []byte, pk []byte) error {
+func (config *WalletConfig) SaveKeyPair(combinedData []byte, pk []byte) error {
 	if combinedData == nil || pk == nil {
 		return errors.New("combined data or public key is nil")
 	}
@@ -101,7 +105,7 @@ func (config *walletConfig) SaveKeyPair(combinedData []byte, pk []byte) error {
 }
 
 // LoadKeyPair retrieves the combined data and splits it back into SK and PK.
-func (config *walletConfig) LoadKeyPair() ([]byte, []byte, error) {
+func (config *WalletConfig) LoadKeyPair() ([]byte, []byte, error) {
 	// Define the key used to retrieve the combined data
 	key := []byte("sphinxKeys")
 
@@ -130,7 +134,7 @@ func (config *walletConfig) LoadKeyPair() ([]byte, []byte, error) {
 }
 
 // Close closes the LevelDB database when done.
-func (config *walletConfig) Close() {
+func (config *WalletConfig) Close() {
 	if err := config.db.Close(); err != nil {
 		log.Fatal("Failed to close LevelDB:", err)
 	}
