@@ -222,7 +222,7 @@ func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, e
 }
 
 // RecoverWallet allows Alice to recover her wallet using proofs from other participants
-func (m *MultisigManager) RecoverWallet(message []byte, requiredParticipants []string) ([]byte, error) {
+func (m *MultisigManager) RecoveryKey(message []byte, requiredParticipants []string) ([]byte, error) {
 	// Prepare the recovery proof
 	var recoveryProof []byte
 

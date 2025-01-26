@@ -158,7 +158,7 @@ func VerifyChainCode(decodepasskey []byte, macKey []byte) (bool, error) {
 }
 
 // RecoverWalletUtility is a utility function to recover a wallet
-func RecoverWalletUtility(message []byte, requiredParticipants []string, quorum int) ([]byte, error) {
+func Recovery(message []byte, requiredParticipants []string, quorum int) ([]byte, error) {
 	// Initialize the MultisigManager with the given quorum
 	multisigManager, err := multisig.NewMultisigManager(quorum)
 	if err != nil {
@@ -167,7 +167,7 @@ func RecoverWalletUtility(message []byte, requiredParticipants []string, quorum 
 	}
 
 	// Call the RecoverWallet method with the required message and participants
-	recoveryProof, err := multisigManager.RecoverWallet(message, requiredParticipants)
+	recoveryProof, err := multisigManager.RecoveryKey(message, requiredParticipants)
 	if err != nil {
 		return nil, fmt.Errorf("error recovering wallet: %v", err)
 	}
