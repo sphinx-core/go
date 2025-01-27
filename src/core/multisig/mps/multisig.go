@@ -35,20 +35,20 @@ import (
 )
 
 // MultisigManager manages the SPHINCS+ multisig functionalities, including key generation, signing, and verification.
-type MultisigManager struct {
+type MultiSigManager struct {
 	km         *key.KeyManager      // Key manager for handling cryptographic keys (key management system)
 	manager    *sign.SphincsManager // SPHINCS+ manager for signing and verifying signatures (handles SPHINCS+ operations)
 	quorum     int                  // Quorum: minimum number of signatures required for validity
 	signatures map[string][]byte    // Store signatures from each participant, indexed by party ID
 	partyPK    map[string][]byte    // Store public keys of the participants, indexed by party ID
 	proofs     map[string][]byte    // Store proof for each participant, indexed by party ID
-	keys       [][]byte             // Store the public keys of all participants in a list for index retrieval
+	Keys       [][]byte             // Store the public keys of all participants in a list for index retrieval
 	mu         sync.RWMutex         // Mutex to protect the state of the multisig manager, ensuring thread-safety
 }
 
 // NewMultiSig initializes a new multisig with a specified number of participants.
 // It creates a KeyManager and a SPHINCS+ manager and prepares the multisig structure.
-func NewMultiSig(n int) (*MultisigManager, error) {
+func NewMultiSig(n int) (*MultiSigManager, error) {
 	// Initialize the KeyManager to handle cryptographic operations
 	km, err := key.NewKeyManager()
 	if err != nil {
@@ -63,25 +63,25 @@ func NewMultiSig(n int) (*MultisigManager, error) {
 	manager := sign.NewSphincsManager(nil, km, parameters)
 
 	// Return a new instance of MultisigManager with the initialized components
-	return &MultisigManager{
+	return &MultiSigManager{
 		km:         km,                      // Set the key manager
 		manager:    manager,                 // Set the SPHINCS+ manager
 		quorum:     n,                       // Set the quorum value (minimum number of signatures)
 		signatures: make(map[string][]byte), // Initialize the signatures map
 		partyPK:    make(map[string][]byte), // Initialize the public key map
 		proofs:     make(map[string][]byte), // Initialize the proofs map
-		keys:       make([][]byte, n),       // Initialize the list of keys for n participants
+		Keys:       make([][]byte, n),       // Initialize the list of keys for n participants
 	}, nil
 }
 
 // GetIndex returns the index of a given public key (pk) in the list of participant keys.
 // It is used to find the position of the public key in the keys array.
-func (m *MultisigManager) GetIndex(pk []byte) int {
+func (m *MultiSigManager) GetIndex(pk []byte) int {
 	m.mu.RLock()         // Lock for reading to ensure thread-safety while accessing the keys
 	defer m.mu.RUnlock() // Unlock after the operation is complete
 
 	// Loop through the list of participant keys to find the index of the provided public key
-	for i, key := range m.keys {
+	for i, key := range m.Keys {
 		if fmt.Sprintf("%x", key) == fmt.Sprintf("%x", pk) {
 			return i // Return the index if the key matches
 		}
@@ -91,23 +91,23 @@ func (m *MultisigManager) GetIndex(pk []byte) int {
 
 // AddSig adds a signature to the multisig at the given index corresponding to a participant's public key.
 // This method is used to record a signature from a participant in the multisig.
-func (m *MultisigManager) AddSig(index int, sig []byte) error {
+func (m *MultiSigManager) AddSig(index int, sig []byte) error {
 	m.mu.Lock()         // Lock for writing to ensure thread-safety while modifying state
 	defer m.mu.Unlock() // Unlock after the operation is complete
 
-	if index < 0 || index >= len(m.keys) {
-		log.Printf("Invalid index %d, keys length: %d", index, len(m.keys))
+	if index < 0 || index >= len(m.Keys) {
+		log.Printf("Invalid index %d, keys length: %d", index, len(m.Keys))
 		return fmt.Errorf("invalid index %d", index)
 	}
 
 	// Store the signature indexed by the participant's public key (converted to hex string)
-	m.signatures[fmt.Sprintf("%x", m.keys[index])] = sig
+	m.signatures[fmt.Sprintf("%x", m.Keys[index])] = sig
 	return nil
 }
 
 // AddSigFromPubKey adds a signature to the multisig based on the provided public key (pubKey).
 // This method allows for signing directly using the public key instead of the index.
-func (m *MultisigManager) AddSigFromPubKey(pubKey []byte, sig []byte) error {
+func (m *MultiSigManager) AddSigFromPubKey(pubKey []byte, sig []byte) error {
 	// Retrieve the index for the given public key
 	index := m.GetIndex(pubKey)
 	if index == -1 {
@@ -120,7 +120,7 @@ func (m *MultisigManager) AddSigFromPubKey(pubKey []byte, sig []byte) error {
 }
 
 // GenerateKeyPair generates a new SPHINCS key pair (private and public) for the multisig participant.
-func (m *MultisigManager) GenerateKeyPair() ([]byte, []byte, error) {
+func (m *MultiSigManager) GenerateKeyPair() ([]byte, []byte, error) {
 	// Generate a new key pair using the KeyManager (private and public keys)
 	sk, pk, err := m.km.GenerateKey()
 	if err != nil {
@@ -141,7 +141,7 @@ func (m *MultisigManager) GenerateKeyPair() ([]byte, []byte, error) {
 
 // SignMessage signs a given message using a private key and stores the signature, Merkle root, and proof for the party.
 // This method handles the signing of a message and storing the associated signature and proof.
-func (m *MultisigManager) SignMessage(message []byte, privateKey []byte, partyID string) ([]byte, []byte, error) {
+func (m *MultiSigManager) SignMessage(message []byte, privateKey []byte, partyID string) ([]byte, []byte, error) {
 	m.mu.Lock()         // Step 1: Lock the mutex for writing to ensure thread-safety while modifying the state.
 	defer m.mu.Unlock() // Step 2: Unlock after the operation is complete, ensuring other goroutines can access the data.
 
@@ -202,7 +202,7 @@ func (m *MultisigManager) SignMessage(message []byte, privateKey []byte, partyID
 
 // VerifySignatures checks if enough signatures have been collected and if each signature is valid.
 // It ensures that the multisig operation can proceed by verifying all signatures and confirming the quorum.
-func (m *MultisigManager) VerifySignatures(message []byte) (bool, error) {
+func (m *MultiSigManager) VerifySignatures(message []byte) (bool, error) {
 	m.mu.RLock()         // Step 1: Lock for reading to ensure thread-safety while accessing the signatures and state.
 	defer m.mu.RUnlock() // Step 2: Unlock after the operation is complete, ensuring other goroutines can access the data.
 
@@ -268,7 +268,7 @@ func (m *MultisigManager) VerifySignatures(message []byte) (bool, error) {
 // ValidateProof validates the proof for a specific participant by regenerating it and comparing it with the stored proof.
 // This ensures that the proof matches the signature and Merkle root, confirming the integrity of the signature.
 // ValidateProof validates the proof for a specific participant by regenerating it and comparing it with the stored proof.
-func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, error) {
+func (m *MultiSigManager) ValidateProof(partyID string, message []byte) (bool, error) {
 	// Step 1: Lock for reading to ensure thread-safety while accessing the proofs and state.
 	// The RLock allows multiple goroutines to read concurrently, but no writing can occur while it's held.
 	m.mu.RLock()
@@ -326,7 +326,7 @@ func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, e
 // The function takes two parameters:
 // - message: The message or data that needs to be signed by the participants for wallet recovery.
 // - requiredParticipants: A list of participants whose signatures and proofs are required to perform the recovery.
-func (m *MultisigManager) RecoveryKey(message []byte, requiredParticipants []string) ([]byte, error) {
+func (m *MultiSigManager) RecoveryKey(message []byte, requiredParticipants []string) ([]byte, error) {
 	// Step 1: Lock the mutex to ensure thread-safety during recovery.
 	m.mu.Lock()
 	defer m.mu.Unlock()

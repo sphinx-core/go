@@ -26,7 +26,7 @@ import (
 	"fmt"
 	"log"
 
-	"multisig"
+	multisig "github.com/sphinx-core/go/src/core/multisig/mps"
 )
 
 func main() {
@@ -47,7 +47,7 @@ func main() {
 		}
 		privateKeys = append(privateKeys, sk)
 		publicKeys = append(publicKeys, pk)
-		manager.keys[i] = pk // Add the public key to the manager
+		manager.Keys[i] = pk // Add the public key to the manager
 	}
 
 	// Step 3: Sign a message using each participant's private key
