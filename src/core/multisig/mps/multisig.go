@@ -23,6 +23,7 @@
 package multisig
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"sync"
@@ -90,6 +91,23 @@ func NewMultiSig(n int) (*MultisigManager, error) {
 		// Output each participant's keys (debugging)
 		log.Printf("Participant %d Public Key: %x", i+1, pkBytes)
 		log.Printf("Participant %d Private Key: %x", i+1, skBytes)
+
+		// Deserialize the keys to ensure they are correctly serialized/deserialized
+		deserializedSK, deserializedPK, err := km.DeserializeKeyPair(skBytes, pkBytes)
+		if err != nil {
+			// Return an error if deserialization fails
+			return nil, fmt.Errorf("error deserializing key pair for participant %d: %v", i, err)
+		}
+
+		// Verify the deserialized keys match the original keys
+		if !bytes.Equal(deserializedSK.SKseed, sk.SKseed) || !bytes.Equal(deserializedSK.SKprf, sk.SKprf) ||
+			!bytes.Equal(deserializedSK.PKseed, sk.PKseed) || !bytes.Equal(deserializedSK.PKroot, sk.PKroot) {
+			return nil, fmt.Errorf("deserialized private key does not match original for participant %d", i)
+		}
+		if !bytes.Equal(deserializedPK.PKseed, pk.PKseed) || !bytes.Equal(deserializedPK.PKroot, pk.PKroot) {
+			return nil, fmt.Errorf("deserialized public key does not match original for participant %d", i)
+		}
+		log.Printf("Deserialization check passed for participant %d!", i+1)
 	}
 
 	// Return a new instance of MultisigManager with the initialized components
