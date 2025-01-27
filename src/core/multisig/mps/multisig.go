@@ -107,6 +107,8 @@ func (m *MultisigManager) SignMessage(message []byte, privateKey []byte, partyID
 
 	// Step 3: Deserialize the private key (public key is not needed here, so it's nil).
 	// Deserialize the key pair from the private key bytes.
+	// Deserialize the private key (public key is not needed here, so it's nil).
+	log.Printf("Deserializing private key with length: %d", len(privateKey))
 	sk, _, err := m.km.DeserializeKeyPair(privateKey, nil)
 	if err != nil {
 		// Step 4: Log and terminate if the key deserialization fails.
