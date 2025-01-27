@@ -46,25 +46,17 @@ func main() {
 	}
 
 	// Step 2: Retrieve key pairs for participants from the MultisigManager
-	privateKeys := make([][]byte, 0, quorum) // Initialize slices with a capacity equal to the quorum
-	publicKeys := make([][]byte, 0, quorum)
+	privKeys := make([][]byte, 0, quorum) // Initialize slices with a capacity equal to the quorum
 	for i := 0; i < quorum; i++ {
 		// Access keys from the manager
-		privateKeys = append(privateKeys, manager.Keys[i]) // Assuming manager.Keys stores private keys
-		publicKeys = append(publicKeys, manager.Keys[i])   // Assuming manager.Keys stores public keys (adjust if separate)
-	}
-
-	// Step 3: Output generated keys
-	for i, pk := range publicKeys {
-		fmt.Printf("Participant %d Public Key: %x\n", i+1, pk)
-		fmt.Printf("Participant %d Private Key: %x\n", i+1, privateKeys[i])
+		privKeys = append(privKeys, manager.Keys[i]) // Assuming manager.Keys stores private keys
 	}
 
 	// Step 4: Sign a message using each participant's private key
 	message := []byte("This is a test message.")
 	for i := 0; i < quorum; i++ {
 		partyID := fmt.Sprintf("Participant%d", i+1)
-		sig, merkleRoot, err := manager.SignMessage(message, privateKeys[i], partyID)
+		sig, merkleRoot, err := manager.SignMessage(message, privKeys[i], partyID)
 		if err != nil {
 			log.Fatalf("Error signing message for %s: %v", partyID, err)
 		}

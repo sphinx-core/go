@@ -67,6 +67,7 @@ func NewMultiSig(n int) (*MultisigManager, error) {
 	pubKeys := make([][]byte, n)
 	privKeys := make([][]byte, n)
 
+	// Generate a key pair for each participant
 	for i := 0; i < n; i++ {
 		// Generate a new key pair for each participant
 		sk, pk, err := km.GenerateKey()
@@ -85,6 +86,10 @@ func NewMultiSig(n int) (*MultisigManager, error) {
 		// Store the public and private keys in separate arrays
 		pubKeys[i] = pkBytes
 		privKeys[i] = skBytes
+
+		// Output each participant's keys (debugging)
+		log.Printf("Participant %d Public Key: %x", i+1, pkBytes)
+		log.Printf("Participant %d Private Key: %x", i+1, skBytes)
 	}
 
 	// Return a new instance of MultisigManager with the initialized components
