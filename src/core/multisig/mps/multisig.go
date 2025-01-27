@@ -35,6 +35,8 @@ import (
 	sign "github.com/sphinx-core/go/src/core/sphincs/sign/backend"
 )
 
+//SIPS0008 https://github.com/sphinx-core/sips/wiki/SIPS0008
+
 // MultisigManager manages the SPHINCS+ multisig functionalities, including key generation, signing, and verification.
 type MultisigManager struct {
 	km         *key.KeyManager      // Key manager for handling cryptographic keys (key management system)
