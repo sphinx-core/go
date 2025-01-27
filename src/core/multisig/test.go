@@ -30,6 +30,13 @@ import (
 )
 
 func main() {
+	// Initialize a wallet config for saving/loading keys
+	walletConfig, err := config.NewWalletConfig() // Initialize the wallet configuration with LevelDB
+	if err != nil {
+		log.Fatal("Failed to initialize wallet config:", err) // Log and exit if initialization fails
+	}
+	defer walletConfig.Close() // Ensure the database is closed when done
+
 	// Step 1: Initialize the MultisigManager with a quorum value (e.g., 3 participants)
 	quorum := 3
 	manager, err := multisig.NewMultiSig(quorum)
