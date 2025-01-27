@@ -49,7 +49,6 @@ type MultisigManager struct {
 // NewMultiSig initializes a new multisig with a specified number of participants.
 // It creates a KeyManager, generates keys for all participants, and prepares the multisig structure.
 // NewMultiSig initializes a new multisig with a specified number of participants.
-// It creates a KeyManager, generates keys for all participants, and prepares the multisig structure.
 func NewMultiSig(n int) (*MultisigManager, error) {
 	// Initialize the KeyManager to handle cryptographic operations
 	km, err := key.NewKeyManager()
