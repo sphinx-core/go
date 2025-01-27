@@ -27,11 +27,12 @@ import (
 	"log"
 
 	multisig "github.com/sphinx-core/go/src/core/multisig/mps"
+	"github.com/sphinx-core/go/src/core/wallet/utils"
 )
 
 func main() {
 	// Initialize a wallet config for saving/loading keys
-	walletConfig, err := config.NewWalletConfig() // Initialize the wallet configuration with LevelDB
+	walletConfig, err := utils.NewWalletConfig() // Initialize the wallet configuration with LevelDB
 	if err != nil {
 		log.Fatal("Failed to initialize wallet config:", err) // Log and exit if initialization fails
 	}
@@ -45,13 +46,14 @@ func main() {
 	}
 
 	// Step 2: Generate key pairs for participants
-	var privateKeys [][]byte
-	var publicKeys [][]byte
+	privateKeys := make([][]byte, 0, quorum) // Initialize slices with a capacity equal to the quorum
+	publicKeys := make([][]byte, 0, quorum)
 	for i := 0; i < quorum; i++ {
 		sk, pk, err := manager.GenerateKeyPair()
 		if err != nil {
 			log.Fatalf("Error generating key pair for participant %d: %v", i, err)
 		}
+		// Append keys and reassign the result (necessary for Go's slice semantics)
 		privateKeys = append(privateKeys, sk)
 		publicKeys = append(publicKeys, pk)
 		manager.Keys[i] = pk // Add the public key to the manager
