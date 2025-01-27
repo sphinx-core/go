@@ -124,13 +124,13 @@ func NewMultiSig(n int) (*MultisigManager, error) {
 
 // SignMessage signs a given message using a private key and stores the signature, Merkle root, and proof for the party.
 // This method handles the signing of a message and storing the associated signature and proof.
-// SignMessage signs a given message using a private key and stores the signature, Merkle root, and proof for the party.
 func (m *MultisigManager) SignMessage(message []byte, privKey []byte, partyID string) ([]byte, []byte, error) {
 	m.mu.Lock()         // Step 1: Lock the mutex for writing to ensure thread-safety while modifying the state.
 	defer m.mu.Unlock() // Step 2: Unlock after the operation is complete, ensuring other goroutines can access the data.
 
 	// Step 3: Deserialize the private key (public key is not needed here, so it's nil).
 	// Deserialize the key pair from the private key bytes.
+	// Deserialize the private key (public key is not needed here, so it's nil).
 	log.Printf("Private Key Length: %d", len(privKey)) // Log the length of the private key
 	sk, _, err := m.km.DeserializeKeyPair(privKey, nil)
 	if err != nil {
@@ -138,45 +138,49 @@ func (m *MultisigManager) SignMessage(message []byte, privKey []byte, partyID st
 		return nil, nil, fmt.Errorf("failed to deserialize private key: %v", err)
 	}
 
-	// Step 4: Sign the message using the private key.
+	// Step 5: Sign the message using the private key.
 	// Call the SignMessage method on the SPHINCS+ manager to generate the signature and Merkle root.
 	sig, merkleRoot, err := m.manager.SignMessage(message, sk)
 	if err != nil {
-		// Step 5: Return an error if signing the message fails.
+		// Step 6: Return an error if signing the message fails.
 		return nil, nil, fmt.Errorf("failed to sign message: %v", err)
 	}
 
-	// Step 6: Serialize the generated signature into a byte slice.
+	// Step 7: Serialize the generated signature into a byte slice.
 	// This converts the signature object into a byte slice for storage.
 	sigBytes, err := m.manager.SerializeSignature(sig)
 	if err != nil {
-		// Step 7: Return an error if serialization of the signature fails.
+		// Step 8: Return an error if serialization of the signature fails.
 		return nil, nil, fmt.Errorf("failed to serialize signature: %v", err)
 	}
 
-	// Step 8: Convert the Merkle root to bytes for storage.
+	// Step 9: Convert the Merkle root to bytes for storage.
 	// This is done by calling the `Bytes` method on the Merkle root hash.
 	merkleRootBytes := merkleRoot.Hash.Bytes()
 
-	// Step 9: Store the signature for the party identified by partyID.
+	// Step 10: Store the signature for the party identified by partyID.
 	// The signature is associated with the partyID in the signatures map.
-	m.signatures[partyID] = sigBytes
-	m.partyPK[partyID] = privKey
+	// We are introducing the goroutine here.
+	go func() {
+		// Store the signature and public key in the respective maps concurrently.
+		m.signatures[partyID] = sigBytes
+		m.partyPK[partyID] = privKey
 
-	// Step 10: Generate proof for the signature.
-	// Generate a Merkle proof for the signature using the message and the Merkle root.
-	proof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootBytes}, privKey)
-	if err != nil {
-		// Handle error in generating proof
-		log.Printf("Failed to generate proof for partyID %s: %v", partyID, err)
-		return nil, nil, fmt.Errorf("failed to generate proof: %v", err)
-	}
+		// Step 12: Generate proof for the signature.
+		// Generate a Merkle proof for the signature using the message and the Merkle root.
+		proof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootBytes}, privKey)
+		if err != nil {
+			// Handle error in generating proof
+			log.Printf("Failed to generate proof for partyID %s: %v", partyID, err)
+			return
+		}
 
-	// Step 11: Store the generated proof for the party.
-	// The proof is associated with the partyID in the proofs map for later validation.
-	m.proofs[partyID] = proof
+		// Step 14: Store the generated proof for the party.
+		// The proof is associated with the partyID in the proofs map for later validation.
+		m.proofs[partyID] = proof
+	}()
 
-	// Step 12: Return the signature and Merkle root in byte form.
+	// Step 15: Return the signature and Merkle root in byte form.
 	// These are returned so they can be used by other functions or processes.
 	return sigBytes, merkleRootBytes, nil
 }
