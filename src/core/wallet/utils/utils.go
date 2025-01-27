@@ -29,6 +29,7 @@ import (
 	"sync"
 
 	"github.com/sphinx-core/go/src/common"
+
 	multisig "github.com/sphinx-core/go/src/core/multisig/mps"
 	"github.com/sphinx-core/go/src/core/wallet/auth"
 )
