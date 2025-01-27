@@ -74,51 +74,6 @@ func NewMultiSig(n int) (*MultisigManager, error) {
 	}, nil
 }
 
-// GetIndex returns the index of a given public key (pk) in the list of participant keys.
-// It is used to find the position of the public key in the keys array.
-func (m *MultisigManager) GetIndex(pk []byte) int {
-	m.mu.RLock()         // Lock for reading to ensure thread-safety while accessing the keys
-	defer m.mu.RUnlock() // Unlock after the operation is complete
-
-	// Loop through the list of participant keys to find the index of the provided public key
-	for i, key := range m.Keys {
-		if fmt.Sprintf("%x", key) == fmt.Sprintf("%x", pk) {
-			return i // Return the index if the key matches
-		}
-	}
-	return -1 // Return -1 if the key is not found
-}
-
-// AddSig adds a signature to the multisig at the given index corresponding to a participant's public key.
-// This method is used to record a signature from a participant in the multisig.
-func (m *MultisigManager) AddSig(index int, sig []byte) error {
-	m.mu.Lock()         // Lock for writing to ensure thread-safety while modifying state
-	defer m.mu.Unlock() // Unlock after the operation is complete
-
-	if index < 0 || index >= len(m.Keys) {
-		log.Printf("Invalid index %d, keys length: %d", index, len(m.Keys))
-		return fmt.Errorf("invalid index %d", index)
-	}
-
-	// Store the signature indexed by the participant's public key (converted to hex string)
-	m.signatures[fmt.Sprintf("%x", m.Keys[index])] = sig
-	return nil
-}
-
-// AddSigFromPubKey adds a signature to the multisig based on the provided public key (pubKey).
-// This method allows for signing directly using the public key instead of the index.
-func (m *MultisigManager) AddSigFromPubKey(pubKey []byte, sig []byte) error {
-	// Retrieve the index for the given public key
-	index := m.GetIndex(pubKey)
-	if index == -1 {
-		// Return an error if the public key is not found in the list of keys
-		return fmt.Errorf("public key not found in multisig keys")
-	}
-
-	// Call the AddSig method to add the signature at the correct index
-	return m.AddSig(index, sig)
-}
-
 // GenerateKeyPair generates a new SPHINCS key pair (private and public) for the multisig participant.
 func (m *MultisigManager) GenerateKeyPair() ([]byte, []byte, error) {
 	// Generate a new key pair using the KeyManager (private and public keys)
