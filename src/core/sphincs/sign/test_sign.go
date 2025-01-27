@@ -165,6 +165,10 @@ func main() {
 		fmt.Printf("Alice's Proof: %x\n", receivedProof)     // Print the proof in hex format
 		fmt.Printf("Alice's Message: %s\n", receivedMessage) // Print the received message
 		fmt.Printf("Alice's RootHash: %x\n", merkleRootHash) // Corrected fmt.Printf here
+
+		// Print total size in bytes
+		totalSize := len(receivedPK) + len(receivedProof) + len(receivedMessage) + len(merkleRootHash)
+		fmt.Printf("Total Size in Bytes: %d\n", totalSize) // Output the total size
 	} else {
 		// Do not print anything when the proof is invalid
 		fmt.Println("Invalid proof.")
