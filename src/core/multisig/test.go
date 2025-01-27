@@ -45,21 +45,22 @@ func main() {
 		log.Fatalf("Error initializing MultisigManager: %v", err)
 	}
 
-	// Step 2: Generate key pairs for participants
+	// Step 2: Retrieve key pairs for participants from the MultisigManager
 	privateKeys := make([][]byte, 0, quorum) // Initialize slices with a capacity equal to the quorum
 	publicKeys := make([][]byte, 0, quorum)
 	for i := 0; i < quorum; i++ {
-		sk, pk, err := manager.GenerateKeyPair()
-		if err != nil {
-			log.Fatalf("Error generating key pair for participant %d: %v", i, err)
-		}
-		// Append keys and reassign the result (necessary for Go's slice semantics)
-		privateKeys = append(privateKeys, sk)
-		publicKeys = append(publicKeys, pk)
-		manager.Keys[i] = pk // Add the public key to the manager
+		// Access keys from the manager
+		privateKeys = append(privateKeys, manager.Keys[i]) // Assuming manager.Keys stores private keys
+		publicKeys = append(publicKeys, manager.Keys[i])   // Assuming manager.Keys stores public keys (adjust if separate)
 	}
 
-	// Step 3: Sign a message using each participant's private key
+	// Step 3: Output generated keys
+	for i, pk := range publicKeys {
+		fmt.Printf("Participant %d Public Key: %x\n", i+1, pk)
+		fmt.Printf("Participant %d Private Key: %x\n", i+1, privateKeys[i])
+	}
+
+	// Step 4: Sign a message using each participant's private key
 	message := []byte("This is a test message.")
 	for i := 0; i < quorum; i++ {
 		partyID := fmt.Sprintf("Participant%d", i+1)
@@ -70,7 +71,7 @@ func main() {
 		fmt.Printf("%s signed the message. Signature: %x, Merkle Root: %x\n", partyID, sig, merkleRoot)
 	}
 
-	// Step 4: Verify the collected signatures
+	// Step 5: Verify the collected signatures
 	isValid, err := manager.VerifySignatures(message)
 	if err != nil {
 		log.Fatalf("Error verifying signatures: %v", err)
@@ -81,7 +82,7 @@ func main() {
 		fmt.Println("Signatures are not valid, or quorum has not been met.")
 	}
 
-	// Step 5: Test proof validation for a participant
+	// Step 6: Test proof validation for a participant
 	partyID := "Participant1"
 	isValidProof, err := manager.ValidateProof(partyID, message)
 	if err != nil {
@@ -93,7 +94,7 @@ func main() {
 		fmt.Printf("Proof for %s is invalid.\n", partyID)
 	}
 
-	// Step 6: Test wallet recovery using the required participants
+	// Step 7: Test wallet recovery using the required participants
 	requiredParticipants := []string{"Participant1", "Participant2", "Participant3"}
 	recoveryProof, err := manager.RecoveryKey(message, requiredParticipants)
 	if err != nil {

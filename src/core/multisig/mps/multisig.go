@@ -47,7 +47,9 @@ type MultisigManager struct {
 }
 
 // NewMultiSig initializes a new multisig with a specified number of participants.
-// It creates a KeyManager and a SPHINCS+ manager and prepares the multisig structure.
+// It creates a KeyManager, generates keys for all participants, and prepares the multisig structure.
+// NewMultiSig initializes a new multisig with a specified number of participants.
+// It creates a KeyManager, generates keys for all participants, and prepares the multisig structure.
 func NewMultiSig(n int) (*MultisigManager, error) {
 	// Initialize the KeyManager to handle cryptographic operations
 	km, err := key.NewKeyManager()
@@ -62,6 +64,30 @@ func NewMultiSig(n int) (*MultisigManager, error) {
 	// Initialize the SPHINCS+ manager with the parameters and key manager
 	manager := sign.NewSphincsManager(nil, km, parameters)
 
+	// Initialize the lists of public and private keys for n participants
+	pubKeys := make([][]byte, n)
+	privKeys := make([][]byte, n)
+
+	for i := 0; i < n; i++ {
+		// Generate a new key pair for each participant
+		sk, pk, err := km.GenerateKey()
+		if err != nil {
+			// Return an error if key generation fails
+			return nil, fmt.Errorf("error generating keys for participant %d: %v", i, err)
+		}
+
+		// Serialize the private and public keys into byte arrays
+		skBytes, pkBytes, err := km.SerializeKeyPair(sk, pk)
+		if err != nil {
+			// Return an error if serialization fails
+			return nil, fmt.Errorf("error serializing key pair for participant %d: %v", i, err)
+		}
+
+		// Store the public and private keys in separate arrays
+		pubKeys[i] = pkBytes
+		privKeys[i] = skBytes
+	}
+
 	// Return a new instance of MultisigManager with the initialized components
 	return &MultisigManager{
 		km:         km,                      // Set the key manager
@@ -70,28 +96,8 @@ func NewMultiSig(n int) (*MultisigManager, error) {
 		signatures: make(map[string][]byte), // Initialize the signatures map
 		partyPK:    make(map[string][]byte), // Initialize the public key map
 		proofs:     make(map[string][]byte), // Initialize the proofs map
-		Keys:       make([][]byte, n),       // Initialize the list of keys for n participants
+		Keys:       pubKeys,                 // Store the generated public keys
 	}, nil
-}
-
-// GenerateKeyPair generates a new SPHINCS key pair (private and public) for the multisig participant.
-func (m *MultisigManager) GenerateKeyPair() ([]byte, []byte, error) {
-	// Generate a new key pair using the KeyManager (private and public keys)
-	sk, pk, err := m.km.GenerateKey()
-	if err != nil {
-		// Return an error if key generation fails
-		return nil, nil, fmt.Errorf("error generating keys: %v", err)
-	}
-
-	// Serialize the private and public keys into byte arrays
-	skBytes, pkBytes, err := m.km.SerializeKeyPair(sk, pk)
-	if err != nil {
-		// Return an error if serialization fails
-		return nil, nil, fmt.Errorf("error serializing key pair: %v", err)
-	}
-
-	// Return the serialized private and public keys
-	return skBytes, pkBytes, nil
 }
 
 // SignMessage signs a given message using a private key and stores the signature, Merkle root, and proof for the party.
