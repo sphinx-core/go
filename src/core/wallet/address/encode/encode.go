@@ -37,10 +37,10 @@ const prefixByte = 0x78 // ASCII 'x'
 // pubKeyToHash hashes the public key twice using the SphinxHash algorithm
 func pubKeyToHash(pubKey []byte) []byte {
 	// First hash using SphinxHash
-	firstHash := common.SpxHash(pubKey)
+	h1 := common.SpxHash(pubKey)
 	// Second hash using SphinxHash on the first result
-	secondHash := common.SpxHash(firstHash)
-	return secondHash
+	h2 := common.SpxHash(h1)
+	return h2
 }
 
 // spxToRipemd160 applies RIPEMD-160 hashing to the SphinxHash result
