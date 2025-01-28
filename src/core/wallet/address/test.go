@@ -24,6 +24,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"log"
 
@@ -74,4 +75,11 @@ func main() {
 	// Generate an address from the public key using the encoding package
 	address := encode.GenerateAddress(pk.PKseed) // Use PKseed or PKroot as needed
 	fmt.Println("Generated Address:", address)
+
+	// Optionally, decode the address back into the public key bytes
+	decodedPubKey, err := encode.DecodeAddress(address)
+	if err != nil {
+		log.Fatalf("Failed to decode address: %v", err)
+	}
+	fmt.Println("Hashed Public Key:", hex.EncodeToString(decodedPubKey))
 }

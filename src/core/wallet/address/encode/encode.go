@@ -24,6 +24,7 @@ package encode
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/sphinx-core/go/src/common"
@@ -53,12 +54,16 @@ func spxToRipemd160(hashPubKey []byte) []byte {
 func ripemd160ToBase58(ripemd160PubKey []byte) string {
 	// Add prefix byte '0x78' (ASCII 'x') to the beginning of the address
 	addressBytes := append([]byte{prefixByte}, ripemd160PubKey...)
+
 	// Encode the address in Base58
 	encoded := base58.Encode(addressBytes)
 
-	// Remove '8' if the first character is '8' and prepend "x"
-	if encoded[0] == '8' {
-		encoded = "x" + encoded[1:] // Remove the '8' and prepend "x"
+	// Remove all occurrences of "8" in the encoded address
+	encoded = strings.ReplaceAll(encoded, "8", "")
+
+	// Ensure the encoded address starts with "x" (ASCII 0x78)
+	if len(encoded) > 0 && encoded[0] != 'x' {
+		encoded = "x" + encoded
 	}
 
 	return encoded
@@ -78,18 +83,24 @@ func GenerateAddress(pubKey []byte) string {
 
 // DecodeAddress decodes a Base58 encoded address and checks for the correct prefix byte
 func DecodeAddress(encodedAddress string) ([]byte, error) {
-	// Decode the Base58 encoded address using base58.Decode
+	// If the first character is "x", replace it with "8"
+	if len(encodedAddress) > 0 && encodedAddress[0] == 'x' {
+		encodedAddress = "8" + encodedAddress[1:] // Replace leading "x" with "8"
+	}
+
+	// Decode the Base58 encoded address
 	addressBytes := base58.Decode(encodedAddress)
 
+	// Check if the address is valid (non-empty)
 	if len(addressBytes) == 0 {
 		return nil, fmt.Errorf("invalid address: %s", encodedAddress)
 	}
 
-	// Check for the correct prefix byte (0x78)
+	// Check if the first byte is the expected prefix byte (ASCII 'x' or 0x78)
 	if addressBytes[0] != prefixByte {
-		return nil, fmt.Errorf("invalid address prefix")
+		return nil, fmt.Errorf("invalid address prefix, expected 'x' (0x78) but found: %x", addressBytes[0])
 	}
 
-	// Return the address without the prefix byte
+	// Remove the prefix byte and return the rest of the address
 	return addressBytes[1:], nil
 }
