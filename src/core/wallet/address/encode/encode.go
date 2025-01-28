@@ -54,7 +54,14 @@ func ripemd160ToBase58(ripemd160PubKey []byte) string {
 	// Add prefix byte '0x78' (ASCII 'x') to the beginning of the address
 	addressBytes := append([]byte{prefixByte}, ripemd160PubKey...)
 	// Encode the address in Base58
-	return base58.Encode(addressBytes)
+	encoded := base58.Encode(addressBytes)
+
+	// Remove '8' if the first character is '8' and prepend "x"
+	if encoded[0] == '8' {
+		encoded = "x" + encoded[1:] // Remove the '8' and prepend "x"
+	}
+
+	return encoded
 }
 
 // GenerateAddress generates an address from a public key by applying SphinxHash, RIPEMD-160, and Base58 encoding

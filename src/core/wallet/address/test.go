@@ -23,6 +23,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 
@@ -31,30 +32,46 @@ import (
 )
 
 func main() {
-	// Initialize the KeyManager
-	keyManager, err := key.NewKeyManager()
+	// Initialize the KeyManager with default SPHINCS+ parameters.
+	km, err := key.NewKeyManager()
 	if err != nil {
-		log.Fatalf("Failed to initialize KeyManager: %v", err)
+		log.Fatalf("Error initializing KeyManager: %v", err)
 	}
 
-	// Generate a new SPHINCS+ key pair
-	sk, pk, err := keyManager.GenerateKey()
+	// Generate a new SPHINCS key pair.
+	sk, pk, err := km.GenerateKey()
 	if err != nil {
-		log.Fatalf("Failed to generate key pair: %v", err)
+		log.Fatalf("Error generating keys: %v", err)
+	}
+	fmt.Println("Keys generated successfully!")
+
+	// Serialize the key pair.
+	// Serialize the key pair.
+	skBytes, pkBytes, err := km.SerializeKeyPair(sk, pk)
+	if err != nil {
+		log.Fatalf("Error serializing key pair: %v", err)
 	}
 
-	// Output the generated private and public keys in byte format
-	fmt.Println("Private Key (Serialized):", sk)
-	fmt.Println("Public Key (Serialized):", pk)
+	// Print the serialized keys and their sizes.
+	fmt.Printf("Serialized private key (%d bytes): %x\n", len(skBytes), skBytes)
+
+	// Deserialize the key pair.
+	deserializedSK, deserializedPK, err := km.DeserializeKeyPair(skBytes, pkBytes)
+	if err != nil {
+		log.Fatalf("Error deserializing key pair: %v", err)
+	}
+
+	// Confirm the deserialized keys match the original keys using bytes.Equal
+	if !bytes.Equal(deserializedSK.SKseed, sk.SKseed) || !bytes.Equal(deserializedSK.SKprf, sk.SKprf) ||
+		!bytes.Equal(deserializedSK.PKseed, sk.PKseed) || !bytes.Equal(deserializedSK.PKroot, sk.PKroot) {
+		log.Fatal("Deserialized private key does not match original!")
+	}
+
+	if !bytes.Equal(deserializedPK.PKseed, pk.PKseed) || !bytes.Equal(deserializedPK.PKroot, pk.PKroot) {
+		log.Fatal("Deserialized public key does not match original!")
+	}
 
 	// Generate an address from the public key using the encoding package
 	address := encode.GenerateAddress(pk.PKseed) // Use PKseed or PKroot as needed
 	fmt.Println("Generated Address:", address)
-
-	// Optionally, decode the address back into the public key bytes
-	decodedPubKey, err := encode.DecodeAddress(address)
-	if err != nil {
-		log.Fatalf("Failed to decode address: %v", err)
-	}
-	fmt.Println("Decoded Public Key:", decodedPubKey)
 }
