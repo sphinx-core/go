@@ -25,7 +25,6 @@ package seed
 import (
 	"bytes"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base32"
 	"encoding/binary"
 	"errors"
@@ -160,7 +159,7 @@ func GeneratePasskey(passphrase string, pk []byte) ([]byte, error) {
 
 	// Step 5: Combine the passphrase and double-hashed public key as input key material (IKM).
 	ikmHashInput := bytes.Join([][]byte{passphraseBytes, doubleHashedPk[:]}, []byte{}) // Concatenate passphraseBytes and doubleHashedPk[:]
-	ikm := sha256.Sum256(ikmHashInput)                                                 // Derive the initial key material using SHA-256.
+	ikm := sha3.Sum256(ikmHashInput)                                                   // Derive the initial key material using SHA-256.
 
 	// Step 6: Create a salt string using the double-hashed public key and passphrase.
 	salt := "passphrase" + string(doubleHashedPk)
@@ -392,15 +391,6 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		}
 		// After completing the inner loop, update combinedParts to the transformedParts.
 		combinedParts = transformedParts
-	}
-
-	// Initialize the combinedParts slice with byte values ranging from 0 to 127.
-	// This slice serves as a pool of 128 sequential bytes, where each element
-	// is assigned its respective value (e.g., combinedParts[0] = 0, combinedParts[1] = 1, etc.).
-	// These values can later be used for random selection or other operations.
-	combinedParts = make([]byte, 128)
-	for i := range combinedParts {
-		combinedParts[i] = byte(i) // Assign each element in the slice its corresponding byte value.
 	}
 
 	// Generate a random output length between 6 and 8 bytes.
