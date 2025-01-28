@@ -51,24 +51,50 @@ type clientCodec struct {
 }
 
 // clientRequest represents a JSON-RPC request structure.
+// This structure is used to send method calls from the client to the server.
+// - Method: Specifies the name of the method to be invoked on the server.
+// - Params: Contains the parameters required by the method. This is currently an array with one parameter.
+// - Id: A unique identifier for the request, allowing responses to be matched with their corresponding requests.
 type clientRequest struct {
-	Method string `json:"method"` // The method to be called
-	Params [1]any `json:"params"` // The parameters for the method
-	Id     uint64 `json:"id"`     // Unique request ID
+	Method string `json:"method"` // The method to be called on the server.
+	Params [1]any `json:"params"` // An array containing the parameters for the method (currently supports one parameter).
+	Id     uint64 `json:"id"`     // Unique identifier for the request, enabling tracking and matching with the response.
 }
 
 // clientResponse represents a JSON-RPC response structure.
+// This structure is used to receive responses from the server after a method call.
+// - Id: The unique identifier of the request, used to match the response to its corresponding request.
+// - Result: Holds the result of the method call if it was successful. It is a pointer to allow optional absence of a value.
+// - Error: Contains error information if the method call fails.
 type clientResponse struct {
-	Id     uint64           `json:"id"`     // Response ID
-	Result *json.RawMessage `json:"result"` // The result returned from the method
-	Error  any              `json:"error"`  // Any error that occurred during the call
+	Id     uint64           `json:"id"`     // Response ID, matching the request's ID.
+	Result *json.RawMessage `json:"result"` // Pointer to the result of the method call (nil if an error occurred).
+	Error  any              `json:"error"`  // Error information returned by the server (nil if the call was successful).
+}
+
+// Codec defines an interface for implementing various JSON-RPC codecs.
+// A codec is responsible for encoding requests, decoding responses, and managing the connection lifecycle.
+// - WriteRequest: Encodes and sends a JSON-RPC request.
+// - ReadResponseHeader: Reads and decodes the response header, identifying the associated method and handling errors.
+// - ReadResponseBody: Reads and decodes the response body, extracting the method's result.
+// - Close: Closes the underlying connection or resources used by the codec.
+type Codec interface {
+	WriteRequest(r *Request, param any) error // Encodes and sends a request to the server.
+	ReadResponseHeader(r *Response) error     // Decodes the response header from the server.
+	ReadResponseBody(x any) error             // Decodes the response body into the provided object.
+	Close() error                             // Closes the codec and its resources.
 }
 
 // reset prepares the response structure for reuse by clearing its fields.
+// This is useful for scenarios where the response object is reused multiple times
+// to avoid residual data from previous calls.
+// - Id: Reset to 0 to indicate a fresh state.
+// - Result: Reset to nil, clearing any previous method results.
+// - Error: Reset to nil, clearing any previous error information.
 func (r *clientResponse) reset() {
-	r.Id = 0
-	r.Result = nil
-	r.Error = nil
+	r.Id = 0       // Reset the response ID to its initial state.
+	r.Result = nil // Clear any existing result from previous calls.
+	r.Error = nil  // Clear any error details from previous calls.
 }
 
 // NewClientCodec initializes a new clientCodec, sets up the decoder, encoder, and connection.
@@ -199,11 +225,6 @@ func DialWithTimeout(network, address string, timeout time.Duration) (*rpc.Clien
 		return nil, err // Returns an error if the connection fails
 	}
 	return NewClient(conn, nil, nil), nil // Returns a new RPC client with the connection
-}
-
-// Call is a helper function for making synchronous JSON-RPC method calls.
-func Call(client *rpc.Client, method string, args any, result any) error {
-	return client.Call(method, args, result) // Calls the specified method with arguments and stores the result
 }
 
 // BatchRequest sends multiple requests in a single batch for efficiency.
