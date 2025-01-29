@@ -38,6 +38,28 @@ func (op OpCode) IsPush() bool {
 	}
 }
 
+// ExecuteOp processes an operation based on the given opcode (OpCode).
+func ExecuteOp(op OpCode, a, b uint64, n uint) uint64 {
+	switch op {
+	case Xor:
+		return XorOp(a, b)
+	case Or:
+		return OrOp(a, b)
+	case And:
+		return AndOp(a, b)
+	case Rot:
+		return RotOp(a, n)
+	case Not:
+		return NotOp(a)
+	case Shr:
+		return ShrOp(a, n)
+	case Add:
+		return AddOp(a, b)
+	default:
+		panic("Unknown opcode")
+	}
+}
+
 const (
 	// SphinxHash represents a hashing operation in the SVM.
 	SphinxHash OpCode = 0x10
