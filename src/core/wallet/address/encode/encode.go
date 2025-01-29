@@ -85,10 +85,10 @@ func shaToBase58Check(shaPubKey []byte) string {
 	checksum := Checksum(prefixedData)
 
 	// Combine the hash and checksum (exclude prefix byte for encoding)
-	fullData := append(shaPubKey, checksum...)
+	data := append(shaPubKey, checksum...)
 
 	// Encode the combined data in Base58 format
-	encoded := base58.Encode(fullData)
+	encoded := base58.Encode(data)
 
 	// Prepend "x" to the encoded string for consistency with the prefix
 	return "x" + encoded
