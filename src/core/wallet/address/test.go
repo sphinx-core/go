@@ -47,7 +47,6 @@ func main() {
 	fmt.Println("Keys generated successfully!")
 
 	// Serialize the key pair.
-	// Serialize the key pair.
 	skBytes, pkBytes, err := km.SerializeKeyPair(sk, pk)
 	if err != nil {
 		log.Fatalf("Error serializing key pair: %v", err)
