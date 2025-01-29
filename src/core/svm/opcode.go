@@ -41,11 +41,39 @@ func (op OpCode) IsPush() bool {
 const (
 	// SphinxHash represents a hashing operation in the SVM.
 	SphinxHash OpCode = 0x10
+
+	// Adding new opcodes for hashing functions
+	SHA3_256      OpCode = 0x11
+	SHA512_224    OpCode = 0x12
+	SHA512_256    OpCode = 0x13
+	SHA3_Shake256 OpCode = 0x14
+)
+
+const (
+	// Bitwise operation opcodes
+	Xor OpCode = 0x20
+	Or  OpCode = 0x21
+	And OpCode = 0x22
+	Rot OpCode = 0x23
+	Not OpCode = 0x24
+	Shr OpCode = 0x25
+	Add OpCode = 0x26
 )
 
 // stringToOp maps string representations of opcodes to their OpCode values.
 var stringToOp = map[string]OpCode{
-	"SphinxHash": SphinxHash,
+	"SphinxHash":    SphinxHash,
+	"SHA3_256":      SHA3_256,
+	"SHA512_224":    SHA512_224,
+	"SHA512_256":    SHA512_256,
+	"SHA3_Shake256": SHA3_Shake256,
+	"Xor":           Xor,
+	"Or":            Or,
+	"And":           And,
+	"Rot":           Rot,
+	"Not":           Not,
+	"Shr":           Shr,
+	"Add":           Add,
 }
 
 // OpCodeFromString returns the OpCode corresponding to a given string, or an error if not found.
