@@ -52,7 +52,12 @@ func ShrOp(a uint64, n uint) uint64 {
 	return a >> n
 }
 
-// Add (mod 264) operation (mod 2^64, equivalent to overflow behavior of uint64)
+// Add (mod 2^64) operation (mod 2^64, equivalent to overflow behavior of uint64)
 func AddOp(a, b uint64) uint64 {
 	return a + b // Go will naturally overflow here
+}
+
+// Add (mod 2^32) operation (mod 2^32, equivalent to overflow behavior of uint32)
+func AddOp32(a, b uint64) uint64 {
+	return (a + b) % (1 << 32) // mod 2^32
 }
