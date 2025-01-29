@@ -46,10 +46,10 @@ func main() {
 	}
 
 	// Step 2: Retrieve key pairs for participants from the MultisigManager
-	privKeys := make([][]byte, 0, quorum) // Initialize slices with a capacity equal to the quorum
+	privKeys := make([][]byte, quorum) // Initialize the slice with a fixed size equal to the quorum
 	for i := 0; i < quorum; i++ {
 		// Access keys from the manager
-		privKeys = append(privKeys, manager.Keys[i]) // Assuming manager.Keys stores private keys
+		privKeys[i] = manager.GetStoredPK()[i] // Access using the getter method
 	}
 
 	// Step 4: Sign a message using each participant's private key

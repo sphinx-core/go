@@ -45,8 +45,13 @@ type MultisigManager struct {
 	signatures map[string][]byte    // Store signatures from each participant, indexed by party ID
 	partyPK    map[string][]byte    // Store public keys of the participants, indexed by party ID
 	proofs     map[string][]byte    // Store proof for each participant, indexed by party ID
-	Keys       [][]byte             // Store the public keys of all participants in a list for index retrieval
+	storedPK   [][]byte             // Store the public keys of all participants in a list for index retrieval
 	mu         sync.RWMutex         // Mutex to protect the state of the multisig manager, ensuring thread-safety
+}
+
+// GetStoredPK returns the stored public keys of all participants
+func (m *MultisigManager) GetStoredPK() [][]byte {
+	return m.storedPK
 }
 
 // NewMultiSig initializes a new multisig with a specified number of participants.
@@ -120,7 +125,7 @@ func NewMultiSig(n int) (*MultisigManager, error) {
 		signatures: make(map[string][]byte), // Initialize the signatures map
 		partyPK:    make(map[string][]byte), // Initialize the public key map
 		proofs:     make(map[string][]byte), // Initialize the proofs map
-		Keys:       pubKeys,                 // Store the generated public keys
+		storedPK:   pubKeys,                 // Store the generated public keys
 	}, nil
 }
 

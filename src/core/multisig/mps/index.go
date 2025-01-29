@@ -34,7 +34,7 @@ func (m *MultisigManager) GetIndex(pk []byte) int {
 	defer m.mu.RUnlock() // Unlock after the operation is complete
 
 	// Loop through the list of participant keys to find the index of the provided public key
-	for i, key := range m.Keys {
+	for i, key := range m.storedPK {
 		if fmt.Sprintf("%x", key) == fmt.Sprintf("%x", pk) {
 			return i // Return the index if the key matches
 		}
@@ -48,13 +48,13 @@ func (m *MultisigManager) AddSig(index int, sig []byte) error {
 	m.mu.Lock()         // Lock for writing to ensure thread-safety while modifying state
 	defer m.mu.Unlock() // Unlock after the operation is complete
 
-	if index < 0 || index >= len(m.Keys) {
-		log.Printf("Invalid index %d, keys length: %d", index, len(m.Keys))
+	if index < 0 || index >= len(m.storedPK) {
+		log.Printf("Invalid index %d, keys length: %d", index, len(m.storedPK))
 		return fmt.Errorf("invalid index %d", index)
 	}
 
 	// Store the signature indexed by the participant's public key (converted to hex string)
-	m.signatures[fmt.Sprintf("%x", m.Keys[index])] = sig
+	m.signatures[fmt.Sprintf("%x", m.storedPK[index])] = sig
 	return nil
 }
 
