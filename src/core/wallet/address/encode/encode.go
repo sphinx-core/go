@@ -23,84 +23,121 @@
 package encode
 
 import (
-	"fmt"
-	"strings"
+	"crypto/sha256"
+	"crypto/sha512"
+	"errors"
 
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/sphinx-core/go/src/common"
-	"golang.org/x/crypto/ripemd160"
 )
 
-// Prefix byte for address generation
+// Prefix byte for internal processing (used only for checksum validation)
 const prefixByte = 0x78 // ASCII 'x'
 
+// Error definitions
+var (
+	ErrChecksum      = errors.New("checksum error")                                        // Error for invalid checksum
+	ErrInvalidFormat = errors.New("invalid format: version and/or checksum bytes missing") // Error for missing version or checksum bytes
+)
+
 // pubKeyToHash hashes the public key twice using the SphinxHash algorithm
+// First hash the public key using SpxHash, then hash the result again to generate the final hash
 func pubKeyToHash(pubKey []byte) []byte {
-	// First hash using SphinxHash
+	// Apply the SphinxHash algorithm twice to the public key
 	h1 := common.SpxHash(pubKey)
-	// Second hash using SphinxHash on the first result
 	h2 := common.SpxHash(h1)
-	return h2
+	return h2 // Return the second hash as the result
 }
 
-// spxToRipemd160 applies RIPEMD-160 hashing to the SphinxHash result
-func spxToRipemd160(hashPubKey []byte) []byte {
-	ripemd160Hash := ripemd160.New()
-	ripemd160Hash.Write(hashPubKey)
-	return ripemd160Hash.Sum(nil)
+// spxToSha applies SHA-512/224 hashing to the SphinxHash result
+// This is used to create a shorter, fixed-length hash from the public key hash
+func spxToSha(hashPubKey []byte) []byte {
+	// Initialize the SHA-512/224 hasher
+	sha512_224Hash := sha512.New512_224()
+
+	// Write the input data (public key hash) to the hasher
+	sha512_224Hash.Write(hashPubKey)
+
+	// Return the resulting hash as a byte slice
+	return sha512_224Hash.Sum(nil)
 }
 
-// ripemd160ToBase58 encodes the RIPEMD-160 hash with the prefix byte and applies Base58 encoding
-func ripemd160ToBase58(ripemd160PubKey []byte) string {
-	// Add prefix byte '0x78' (ASCII 'x') to the beginning of the address
-	addressBytes := append([]byte{prefixByte}, ripemd160PubKey...)
+// Checksum calculates the checksum by hashing the input twice with SHA-256
+// The checksum is the first 4 bytes of the second SHA-256 hash
+func Checksum(data []byte) []byte {
+	// First hash the input data with SHA-256
+	firstHash := sha256.Sum256(data)
 
-	// Encode the address in Base58
-	encoded := base58.Encode(addressBytes)
+	// Hash the result again to get a more secure checksum
+	secondHash := sha256.Sum256(firstHash[:])
 
-	// Remove all occurrences of "8" in the encoded address
-	encoded = strings.ReplaceAll(encoded, "8", "")
-
-	// Ensure the encoded address starts with "x" (ASCII 0x78)
-	if len(encoded) > 0 && encoded[0] != 'x' {
-		encoded = "x" + encoded
-	}
-
-	return encoded
+	// Return the first 4 bytes of the second hash as the checksum
+	return secondHash[:4]
 }
 
-// GenerateAddress generates an address from a public key by applying SphinxHash, RIPEMD-160, and Base58 encoding
+// shaToBase58Check encodes the hash with Base58 and prepends the "x" manually
+// This function applies a checksum to the data before encoding it in Base58
+func shaToBase58Check(shaPubKey []byte) string {
+	// Prepare data for checksum validation by adding the prefix byte
+	prefixedData := append([]byte{prefixByte}, shaPubKey...)
+
+	// Calculate checksum for the prefixed data
+	checksum := Checksum(prefixedData)
+
+	// Combine the hash and checksum (exclude prefix byte for encoding)
+	fullData := append(shaPubKey, checksum...)
+
+	// Encode the combined data in Base58 format
+	encoded := base58.Encode(fullData)
+
+	// Prepend "x" to the encoded string for consistency with the prefix
+	return "x" + encoded
+}
+
+// GenerateAddress generates an address from a public key
+// This function hashes the public key and applies the necessary encoding to generate a valid address
 func GenerateAddress(pubKey []byte) string {
-	// Step 1: Apply double hashing (SphinxHash) to the public key
+	// Hash the public key twice using the SphinxHash algorithm
 	hashedPubKey := pubKeyToHash(pubKey)
 
-	// Step 2: Apply RIPEMD-160 hashing to the result of the double hash
-	ripemd160PubKey := spxToRipemd160(hashedPubKey)
+	// Apply SHA-512/224 hashing to the result
+	shaPubKey := spxToSha(hashedPubKey)
 
-	// Step 3: Encode the address in Base58
-	return ripemd160ToBase58(ripemd160PubKey)
+	// Generate the final address by encoding the result in Base58 with checksum
+	return shaToBase58Check(shaPubKey)
 }
 
-// DecodeAddress decodes a Base58 encoded address and checks for the correct prefix byte
+// DecodeAddress decodes a Base58 encoded address, validates the checksum, and ensures the correct prefix
+// This function reverses the address generation process and checks the integrity of the address
 func DecodeAddress(encodedAddress string) ([]byte, error) {
-	// If the first character is "x", replace it with "8"
+	// Remove the "x" prefix before decoding, if present
 	if len(encodedAddress) > 0 && encodedAddress[0] == 'x' {
-		encodedAddress = "8" + encodedAddress[1:] // Replace leading "x" with "8"
+		encodedAddress = encodedAddress[1:]
 	}
 
 	// Decode the Base58 encoded address
-	addressBytes := base58.Decode(encodedAddress)
+	decoded := base58.Decode(encodedAddress)
 
-	// Check if the address is valid (non-empty)
-	if len(addressBytes) == 0 {
-		return nil, fmt.Errorf("invalid address: %s", encodedAddress)
+	// Ensure the decoded address contains the required checksum
+	if len(decoded) < 4 {
+		return nil, ErrInvalidFormat // Return an error if the address is too short
 	}
 
-	// Check if the first byte is the expected prefix byte (ASCII 'x' or 0x78)
-	if addressBytes[0] != prefixByte {
-		return nil, fmt.Errorf("invalid address prefix, expected 'x' (0x78) but found: %x", addressBytes[0])
+	// Split the decoded address into the payload (data) and checksum
+	payload := decoded[:len(decoded)-4]
+	checksum := decoded[len(decoded)-4:]
+
+	// Recreate the prefixed data (with "x" byte) for checksum validation
+	prefixedData := append([]byte{prefixByte}, payload...)
+
+	// Calculate the expected checksum from the prefixed data
+	expectedChecksum := Checksum(prefixedData)
+
+	// Validate the checksum by comparing it to the one in the decoded address
+	if string(checksum) != string(expectedChecksum) {
+		return nil, ErrChecksum // Return an error if the checksum is invalid
 	}
 
-	// Remove the prefix byte and return the rest of the address
-	return addressBytes[1:], nil
+	// Return the payload (address) without the prefix byte
+	return payload, nil
 }
