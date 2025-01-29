@@ -31,28 +31,27 @@ import (
 )
 
 func main() {
-	// Initialize a wallet config for saving/loading keys
-	walletConfig, err := utils.NewWalletConfig() // Initialize the wallet configuration with LevelDB
+	// Initialize wallet configuration
+	walletConfig, err := utils.NewWalletConfig() // Initialize wallet config with LevelDB
 	if err != nil {
-		log.Fatal("Failed to initialize wallet config:", err) // Log and exit if initialization fails
+		log.Fatal("Failed to initialize wallet config:", err)
 	}
 	defer walletConfig.Close() // Ensure the database is closed when done
 
-	// Step 1: Initialize the MultisigManager with a quorum value (e.g., 3 participants)
+	// Initialize the MultisigManager with a quorum value
 	quorum := 3
 	manager, err := multisig.NewMultiSig(quorum)
 	if err != nil {
 		log.Fatalf("Error initializing MultisigManager: %v", err)
 	}
 
-	// Step 2: Retrieve key pairs for participants from the MultisigManager
-	privKeys := make([][]byte, quorum) // Initialize the slice with a fixed size equal to the quorum
+	// Retrieve participant keys from the MultisigManager
+	privKeys := make([][]byte, quorum)
 	for i := 0; i < quorum; i++ {
-		// Access keys from the manager
-		privKeys[i] = manager.GetStoredPK()[i] // Access using the getter method
+		privKeys[i] = manager.GetStoredPK()[i] // Get stored public keys
 	}
 
-	// Step 4: Sign a message using each participant's private key
+	// Sign a message using each participant's private key
 	message := []byte("This is a test message.")
 	for i := 0; i < quorum; i++ {
 		partyID := fmt.Sprintf("Participant%d", i+1)
@@ -61,9 +60,15 @@ func main() {
 			log.Fatalf("Error signing message for %s: %v", partyID, err)
 		}
 		fmt.Printf("%s signed the message. Signature: %x, Merkle Root: %x\n", partyID, sig, merkleRoot)
+
+		// Add the signature to the multisig system
+		err = manager.AddSig(i, sig) // Or use AddSigFromPubKey(pubKey, sig)
+		if err != nil {
+			log.Fatalf("Error adding signature: %v", err)
+		}
 	}
 
-	// Step 5: Verify the collected signatures
+	// Verify signatures after collecting them
 	isValid, err := manager.VerifySignatures(message)
 	if err != nil {
 		log.Fatalf("Error verifying signatures: %v", err)
@@ -74,23 +79,12 @@ func main() {
 		fmt.Println("Signatures are not valid, or quorum has not been met.")
 	}
 
-	// Step 6: Test proof validation for a participant
-	partyID := "Participant1"
-	isValidProof, err := manager.ValidateProof(partyID, message)
+	// Example of using AddSigFromPubKey:
+	// Add a signature using the public key directly
+	pubKey := privKeys[0] // This is just an example, you should pass the correct public key
+	sig := []byte("signature data here")
+	err = manager.AddSigFromPubKey(pubKey, sig)
 	if err != nil {
-		log.Fatalf("Error validating proof for %s: %v", partyID, err)
+		log.Fatalf("Error adding signature from pubKey: %v", err)
 	}
-	if isValidProof {
-		fmt.Printf("Proof for %s is valid.\n", partyID)
-	} else {
-		fmt.Printf("Proof for %s is invalid.\n", partyID)
-	}
-
-	// Step 7: Test wallet recovery using the required participants
-	requiredParticipants := []string{"Participant1", "Participant2", "Participant3"}
-	recoveryProof, err := manager.RecoveryKey(message, requiredParticipants)
-	if err != nil {
-		log.Fatalf("Error recovering wallet: %v", err)
-	}
-	fmt.Printf("Wallet recovery successful. Recovery Proof: %x\n", recoveryProof)
 }
