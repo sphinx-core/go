@@ -40,7 +40,6 @@ func (op OpCode) IsPush() bool {
 
 const (
 	// SphinxHash represents a hashing operation in the SVM.
-	// This opcode is used for cryptographic hashing in smart contract execution.
 	SphinxHash OpCode = 0x10
 )
 
