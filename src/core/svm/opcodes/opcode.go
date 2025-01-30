@@ -82,20 +82,31 @@ const (
 	Add OpCode = 0x26
 )
 
+const (
+	OP_SPHINCS_MULTISIG_INIT   OpCode = 0xD0 // Initialize a new SPHINCS+ multisig
+	OP_SPHINCS_MULTISIG_SIGN   OpCode = 0xD1 // Sign a message in a multisig setup
+	OP_SPHINCS_MULTISIG_VERIFY OpCode = 0xD2 // Verify collected multisig signatures
+	OP_SPHINCS_MULTISIG_PROOF  OpCode = 0xD3 // Validate proof for a specific participant
+)
+
 // stringToOp maps string representations of opcodes to their OpCode values.
 var stringToOp = map[string]OpCode{
-	"SphinxHash":    SphinxHash,
-	"SHA3_256":      SHA3_256,
-	"SHA512_224":    SHA512_224,
-	"SHA512_256":    SHA512_256,
-	"SHA3_Shake256": SHA3_Shake256,
-	"Xor":           Xor,
-	"Or":            Or,
-	"And":           And,
-	"Rot":           Rot,
-	"Not":           Not,
-	"Shr":           Shr,
-	"Add":           Add,
+	"SphinxHash":              SphinxHash,
+	"SHA3_256":                SHA3_256,
+	"SHA512_224":              SHA512_224,
+	"SHA512_256":              SHA512_256,
+	"SHA3_Shake256":           SHA3_Shake256,
+	"Xor":                     Xor,
+	"Or":                      Or,
+	"And":                     And,
+	"Rot":                     Rot,
+	"Not":                     Not,
+	"Shr":                     Shr,
+	"Add":                     Add,
+	"SPHINCS_MULTISIG_INIT":   OP_SPHINCS_MULTISIG_INIT,
+	"SPHINCS_MULTISIG_SIGN":   OP_SPHINCS_MULTISIG_SIGN,
+	"SPHINCS_MULTISIG_VERIFY": OP_SPHINCS_MULTISIG_VERIFY,
+	"SPHINCS_MULTISIG_PROOF":  OP_SPHINCS_MULTISIG_PROOF,
 }
 
 // OpCodeFromString returns the OpCode corresponding to a given string, or an error if not found.
