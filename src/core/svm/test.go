@@ -46,6 +46,6 @@ func main() {
 
 	for _, test := range tests {
 		result := svm.ExecuteOp(test.op, test.a, test.b, test.n)
-		fmt.Printf("%s(%d, %d, %d) = %d\n", test.name, test.a, test.b, test.n, result)
+		fmt.Printf("%s(0x%x, 0x%x, 0x%x) = 0x%x (%d)\n", test.name, test.a, test.b, test.n, uint64(result), int64(result))
 	}
 }
