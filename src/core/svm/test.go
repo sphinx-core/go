@@ -24,7 +24,8 @@ package main
 
 import (
 	"fmt"
-	"svm"
+
+	svm "github.com/sphinx-core/go/src/core/svm/opcodes"
 )
 
 func main() {
