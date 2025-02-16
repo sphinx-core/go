@@ -23,6 +23,7 @@
 package main
 
 import (
+	"encoding/base32"
 	"fmt"
 	"log"
 
@@ -31,6 +32,10 @@ import (
 	"github.com/sphinx-core/go/src/core/wallet/crypter"
 	config "github.com/sphinx-core/go/src/core/wallet/utils"
 )
+
+func EncodeBase32(data []byte) string {
+	return base32.StdEncoding.WithPadding(base32.StdPadding).EncodeToString(data)
+}
 
 func main() {
 	// Initialize a wallet config for saving/loading keys
@@ -92,6 +97,11 @@ func main() {
 
 	// Convert passphrase and base32Passkey to []byte
 	passphraseBytes := []byte(passphrase)
+
+	decodedBase32Passkey, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(base32Passkey)
+	if err != nil {
+		log.Fatalf("Failed to decode base32Passkey: %v", err)
+	}
 	base32PasskeyBytes := []byte(base32Passkey)
 
 	// Set the encryption key using passphrase and base32 passkey
@@ -125,8 +135,8 @@ func main() {
 
 	// Decrypt the loaded data using passphrase and base32 passkey for key regeneration
 	// Set the decryption key using passphrase and base32 passkey
-	if !crypt.SetKeyFromPassphrase(passphraseBytes, salt, 1000) {
-		log.Fatalf("Failed to set key for decryption from passphrase and base32 passkey") // Log and exit if key setting fails
+	if !crypt.SetKeyFromPassphrase(passphraseBytes, decodedBase32Passkey, 1000) {
+		log.Fatalf("Failed to set key from passphrase and decoded base32 passkey")
 	}
 
 	// Decrypt the secret key
