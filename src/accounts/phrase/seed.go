@@ -52,6 +52,12 @@ const (
 	NonceSize   = 16  // 128 bits nonce size, adjustable as needed
 
 	// Argon2 parameters
+	// OWASP have published guidance on Argon2 at https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
+	// At time of writing (Jan 2023), this says:
+	// Argon2id should use one of the following configuration settings as a base minimum which includes the minimum memory size (m), the minimum number of iterations (t) and the degree of parallelism (p).
+	// m=37 MiB, t=1, p=1
+	// m=5 MiB, t=2, p=1
+	// Both of these configuration settings are equivalent in the defense they provide. The only difference is a trade off between CPU and RAM usage.
 	memory      = 64 * 1024 // Memory cost set to 64 KiB (64 * 1024 bytes) for demonstration purpose
 	iterations  = 2         // Number of iterations for Argon2id set to 2
 	parallelism = 1         // Degree of parallelism set to 1
