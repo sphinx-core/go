@@ -243,20 +243,15 @@ func (s *SphinxHash) Size() int {
 
 // BlockSize returns the hash block size based on the current bit size configuration.
 func (s *SphinxHash) BlockSize() int {
-	// Block size for SHA-512/256, SHA-384, SHA-512, and SHAKE256 can differ.
 	switch s.bitSize {
 	case 256:
-		// SHA-512/256 uses the same block size as SHA-512.
-		return 128 // SHA-512/256 block size is 128 bytes (1024 bits)
+		return 128 // SHA-512/256 block size is 128 bytes
 	case 384:
-		// SHA-384 block size is 128 bytes.
 		return 128 // SHA-384 block size is 128 bytes
 	case 512:
-		// SHA-512 block size is 128 bytes.
 		return 128 // SHA-512 block size is 128 bytes
 	default:
-		// Default to SHA-512/256 block size (128 bytes) if bitSize is unspecified
-		return 128 // Default to SHA-512/256 block size (128 bytes)
+		return 136 // SHAKE256 block size is 136 bytes (1088 bits)
 	}
 }
 
