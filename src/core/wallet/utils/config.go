@@ -76,27 +76,30 @@ func (config *WalletConfig) SaveKeyPair(combinedData []byte, pk []byte) error {
 		return errors.New("combined data or public key is nil")
 	}
 
-	// Define the key to store the combined data (you can use a unique identifier here)
+	// Use a separator to concatenate the encrypted secret key and public key
+	separator := []byte("|")
+	finalData := append(combinedData, separator...)
+	finalData = append(finalData, pk...)
+
 	key := []byte("sphinxKeys")
 
 	// Save the combined data in LevelDB
-	err := config.db.Put(key, combinedData, nil)
+	err := config.db.Put(key, finalData, nil)
 	if err != nil {
 		return fmt.Errorf("failed to save combined data in LevelDB: %v", err)
 	}
 
-	// Save the .dat file to the disk inside the keystoreDir
-	keystoreDir := "src/accounts/keystore"                   // The keystore directory
-	filePath := filepath.Join(keystoreDir, "sphinxkeys.dat") // Correct file path for sphinxkeys.dat
+	// Save the .dat file to the disk
+	keystoreDir := "src/accounts/keystore"
+	filePath := filepath.Join(keystoreDir, "sphinxkeys.dat")
 
-	// Ensure the directory exists
+	// Ensure directory exists
 	err = os.MkdirAll(keystoreDir, os.ModePerm)
 	if err != nil {
 		return fmt.Errorf("failed to create keystore directory %s: %v", keystoreDir, err)
 	}
 
-	// Save the combined data to a file in the keystore directory
-	err = os.WriteFile(filePath, combinedData, 0644)
+	err = os.WriteFile(filePath, finalData, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to save combined data to file %s: %v", filePath, err)
 	}

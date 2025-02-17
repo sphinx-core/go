@@ -23,9 +23,11 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/base32"
 	"fmt"
 	"log"
+	"regexp"
 
 	seed "github.com/sphinx-core/go/src/accounts/phrase"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
@@ -33,116 +35,107 @@ import (
 	config "github.com/sphinx-core/go/src/core/wallet/utils"
 )
 
-func EncodeBase32(data []byte) string {
-	return base32.StdEncoding.WithPadding(base32.StdPadding).EncodeToString(data)
-}
-
 func main() {
-	// Initialize a wallet config for saving/loading keys
-	walletConfig, err := config.NewWalletConfig() // Initialize the wallet configuration with LevelDB
+	// Initialize wallet config
+	walletConfig, err := config.NewWalletConfig()
 	if err != nil {
-		log.Fatal("Failed to initialize wallet config:", err) // Log and exit if initialization fails
+		log.Fatal("Failed to initialize wallet config:", err)
 	}
-	defer walletConfig.Close() // Ensure the database is closed when done
+	defer walletConfig.Close()
 
-	// Initialize a key manager for generating keys
+	// Initialize key manager
 	keyManager, err := key.NewKeyManager()
 	if err != nil {
-		log.Fatal("Failed to initialize KeyManager:", err) // Log and exit if key manager initialization fails
+		log.Fatal("Failed to initialize KeyManager:", err)
 	}
 
-	// Generate secret key (SK) and public key (PK) using the key manager
+	// Generate keys
 	sk, pk, err := keyManager.GenerateKey()
 	if err != nil {
-		log.Fatal("Failed to generate keys:", err) // Log and exit if key generation fails
+		log.Fatal("Failed to generate keys:", err)
 	}
 
-	// Serialize the secret key into bytes for storage or display
+	// Serialize secret key
 	skBytes, err := sk.SerializeSK()
 	if err != nil {
-		log.Fatal("Failed to serialize SK:", err) // Log and exit if serialization fails
+		log.Fatal("Failed to serialize SK:", err)
 	}
-	fmt.Printf("Secret Key (SK): %x\n", skBytes)                    // Print the secret key in hexadecimal format
-	fmt.Printf("Size of Secret Key (SK): %d bytes\n", len(skBytes)) // Print the size of the SK
 
-	// Serialize the public key into bytes for storage or display
+	// Serialize public key
 	pkBytes, err := pk.SerializePK()
 	if err != nil {
-		log.Fatal("Failed to serialize PK:", err) // Log and exit if serialization fails
+		log.Fatal("Failed to serialize PK:", err)
 	}
-	fmt.Printf("Public Key (PK): %x\n", pkBytes)                    // Print the public key in hexadecimal format
-	fmt.Printf("Size of Public Key (PK): %d bytes\n", len(pkBytes)) // Print the size of the PK
 
-	// Generate passphrase, base32 passkey, and other values from a seed
+	// Generate passphrase and base32 passkey
 	passphrase, base32Passkey, _, _, _, _, err := seed.GenerateKeys()
 	if err != nil {
-		log.Fatalf("Failed to generate keys from seed: %v", err) // Log and exit if key generation from seed fails
+		log.Fatalf("Failed to generate keys from seed: %v", err)
 	}
 
-	// Print the generated keys for reference
 	fmt.Printf("Passphrase: %s\n", passphrase)
 	fmt.Printf("Base32Passkey: %s\n", base32Passkey)
 
-	// Initialize crypter for encryption/decryption
-	crypt := &crypter.CCrypter{}
-	// Generate random salt for encryption
-	// Generate random salt for encryption with correct length (16 bytes)
-	salt, err := crypter.GenerateRandomBytes(crypter.WALLET_CRYPTO_IV_SIZE)
-	if err != nil {
-		log.Fatalf("Failed to generate salt: %v", err) // Log and exit if salt generation fails
-	}
-	if len(salt) != crypter.WALLET_CRYPTO_IV_SIZE {
-		log.Fatalf("Invalid salt length: expected %d, got %d", crypter.WALLET_CRYPTO_IV_SIZE, len(salt))
+	// Validate Base32 passkey
+	validBase32 := regexp.MustCompile("^[A-Z2-7=]+$")
+	if !validBase32.MatchString(base32Passkey) {
+		log.Fatalf("Invalid Base32 passkey: %s", base32Passkey)
 	}
 
-	// Convert passphrase and base32Passkey to []byte
-	passphraseBytes := []byte(passphrase)
-
+	// Decode Base32 passkey
 	decodedBase32Passkey, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(base32Passkey)
 	if err != nil {
-		log.Fatalf("Failed to decode base32Passkey: %v", err)
-	}
-	base32PasskeyBytes := []byte(base32Passkey)
-
-	// Set the encryption key using passphrase and base32 passkey
-	if !crypt.SetKeyFromPassphrase(passphraseBytes, base32PasskeyBytes, 1000) { // Only pass 3 arguments now
-		log.Fatalf("Failed to set key from passphrase and base32 passkey") // Log and exit if key setting fails
+		log.Fatalf("Base32 passkey decoding failed: %v", err)
 	}
 
-	// Encrypt the secret key with the generated key
+	// Ensure decodedBase32Passkey is exactly 16 bytes
+	if len(decodedBase32Passkey) < crypter.WALLET_CRYPTO_IV_SIZE {
+		hashed := sha256.Sum256(decodedBase32Passkey)
+		decodedBase32Passkey = hashed[:crypter.WALLET_CRYPTO_IV_SIZE]
+	}
+
+	// Generate salt from passphrase + decoded passkey
+	// Generate salt from passphrase + decoded passkey
+	combined := append([]byte(passphrase), decodedBase32Passkey...)
+	hash := sha256.Sum256(combined)
+	salt := hash[:crypter.WALLET_CRYPTO_IV_SIZE] // First 16 bytes
+
+	fmt.Printf("Derived Salt: %x\n", salt)
+
+	// Initialize crypter
+	crypt := &crypter.CCrypter{}
+
+	// Set encryption key
+	if !crypt.SetKeyFromPassphrase([]byte(passphrase), salt, 1000) {
+		log.Fatalf("Failed to set key from passphrase and salt")
+	}
+
+	// Encrypt secret key
 	encryptedSecretKey, err := crypt.Encrypt(skBytes)
 	if err != nil {
-		log.Fatalf("Failed to encrypt secret key: %v", err) // Log and exit if encryption fails
+		log.Fatalf("Failed to encrypt secret key: %v", err)
 	}
-	fmt.Printf("Encrypted Secret Key: %x\n", encryptedSecretKey) // Print the encrypted secret key in hexadecimal format
 
-	// Combine the encrypted secret key into a single data buffer
-	// No need to encrypt hashed passkey now
-	separator := []byte("|") // Define a custom separator
-	combinedData := append(encryptedSecretKey, separator...)
-
-	// Save the combined encrypted data using the walletConfig (from config package)
-	err = walletConfig.SaveKeyPair(combinedData, pkBytes) // Save the combined data using the config package
+	// Save encrypted secret key
+	err = walletConfig.SaveKeyPair(encryptedSecretKey, pkBytes)
 	if err != nil {
 		log.Fatalf("Failed to save key pair to LevelDB: %v", err)
 	}
 
-	// Load the combined data from LevelDB for later decryption
-	loadedSkBytes, _, err := walletConfig.LoadKeyPair() // Load the key pair from LevelDB
+	fmt.Printf("Stored Encrypted Secret Key: %x\n", encryptedSecretKey)
+
+	// Load the encrypted key
+	loadedSkBytes, _, err := walletConfig.LoadKeyPair()
 	if err != nil {
 		log.Fatalf("Failed to load key pair from LevelDB: %v", err)
 	}
 
-	// Decrypt the loaded data using passphrase and base32 passkey for key regeneration
-	// Set the decryption key using passphrase and base32 passkey
-	if !crypt.SetKeyFromPassphrase(passphraseBytes, decodedBase32Passkey, 1000) {
-		log.Fatalf("Failed to set key from passphrase and decoded base32 passkey")
-	}
+	fmt.Printf("Retrieved Encrypted Secret Key: %x\n", loadedSkBytes)
 
-	// Decrypt the secret key
 	decryptedSecretKey, err := crypt.Decrypt(loadedSkBytes)
 	if err != nil {
-		log.Fatalf("Failed to decrypt secret key: %v", err) // Log and exit if decryption fails
+		log.Fatalf("Failed to decrypt secret key: %v", err)
 	}
-	fmt.Printf("Decrypted Secret Key: %x\n", decryptedSecretKey) // Print the decrypted secret key in hexadecimal format
+
+	fmt.Printf("Decrypted Secret Key: %x\n", decryptedSecretKey)
 }
