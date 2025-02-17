@@ -95,7 +95,6 @@ func main() {
 	}
 
 	// Generate salt from passphrase + decoded passkey
-	// Generate salt from passphrase + decoded passkey
 	combined := append([]byte(passphrase), decodedBase32Passkey...)
 	hash := sha256.Sum256(combined)
 	salt := hash[:crypter.WALLET_CRYPTO_IV_SIZE] // First 16 bytes
