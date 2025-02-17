@@ -27,7 +27,6 @@ import (
 	"encoding/base32"
 	"fmt"
 	"log"
-	"regexp"
 
 	seed "github.com/sphinx-core/go/src/accounts/phrase"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
@@ -75,12 +74,6 @@ func main() {
 
 	fmt.Printf("Passphrase: %s\n", passphrase)
 	fmt.Printf("Base32Passkey: %s\n", base32Passkey)
-
-	// Validate Base32 passkey
-	validBase32 := regexp.MustCompile("^[A-Z2-7=]+$")
-	if !validBase32.MatchString(base32Passkey) {
-		log.Fatalf("Invalid Base32 passkey: %s", base32Passkey)
-	}
 
 	// Decode Base32 passkey
 	decodedBase32Passkey, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(base32Passkey)
