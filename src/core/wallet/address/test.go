@@ -24,61 +24,73 @@ package main
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"log"
 
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
-	"github.com/sphinx-core/go/src/core/wallet/address/encode"
+	encode "github.com/sphinx-core/go/src/core/wallet/address/encoding"
 )
 
 func main() {
-	// Initialize the KeyManager with default SPHINCS+ parameters.
+	// Initialize SPHINCS+ KeyManager
 	km, err := key.NewKeyManager()
 	if err != nil {
 		log.Fatalf("Error initializing KeyManager: %v", err)
 	}
 
-	// Generate a new SPHINCS key pair.
+	// Generate SPHINCS+ key pair
 	sk, pk, err := km.GenerateKey()
 	if err != nil {
 		log.Fatalf("Error generating keys: %v", err)
 	}
-	fmt.Println("Keys generated successfully!")
+	fmt.Println("✅ Keys generated successfully!")
 
-	// Serialize the key pair.
+	// Serialize keys
 	skBytes, pkBytes, err := km.SerializeKeyPair(sk, pk)
 	if err != nil {
-		log.Fatalf("Error serializing key pair: %v", err)
+		log.Fatalf("Error serializing keys: %v", err)
 	}
 
-	// Print the serialized keys and their sizes.
-	fmt.Printf("Serialized private key (%d bytes): %x\n", len(skBytes), skBytes)
+	// Print Secret Key details
+	fmt.Printf("\n🔐 Serialized Secret Key (%d bytes):\n%x\n", len(skBytes), skBytes)
 
-	// Deserialize the key pair.
+	// Print raw SPHINCS+ SK components
+	fmt.Printf("SKseed (%d bytes): %x\n", len(sk.SKseed), sk.SKseed)
+	fmt.Printf("SKprf  (%d bytes): %x\n", len(sk.SKprf), sk.SKprf)
+	fmt.Printf("PKseed (%d bytes): %x\n", len(sk.PKseed), sk.PKseed)
+	fmt.Printf("PKroot (%d bytes): %x\n", len(sk.PKroot), sk.PKroot)
+
+	// Print Public Key details
+	fmt.Printf("\n🟢 Serialized Public Key (%d bytes):\n%x\n", len(pkBytes), pkBytes)
+	fmt.Printf("PKseed (%d bytes): %x\n", len(pk.PKseed), pk.PKseed)
+	fmt.Printf("PKroot (%d bytes): %x\n", len(pk.PKroot), pk.PKroot)
+
+	// Deserialize and validate keys
 	deserializedSK, deserializedPK, err := km.DeserializeKeyPair(skBytes, pkBytes)
 	if err != nil {
-		log.Fatalf("Error deserializing key pair: %v", err)
+		log.Fatalf("Error deserializing keys: %v", err)
+	}
+	if !bytes.Equal(deserializedSK.SKseed, sk.SKseed) ||
+		!bytes.Equal(deserializedSK.SKprf, sk.SKprf) ||
+		!bytes.Equal(deserializedSK.PKseed, sk.PKseed) ||
+		!bytes.Equal(deserializedSK.PKroot, sk.PKroot) {
+		log.Fatal("❌ Deserialized private key does not match original!")
+	}
+	if !bytes.Equal(deserializedPK.PKseed, pk.PKseed) ||
+		!bytes.Equal(deserializedPK.PKroot, pk.PKroot) {
+		log.Fatal("❌ Deserialized public key does not match original!")
 	}
 
-	// Confirm the deserialized keys match the original keys using bytes.Equal
-	if !bytes.Equal(deserializedSK.SKseed, sk.SKseed) || !bytes.Equal(deserializedSK.SKprf, sk.SKprf) ||
-		!bytes.Equal(deserializedSK.PKseed, sk.PKseed) || !bytes.Equal(deserializedSK.PKroot, sk.PKroot) {
-		log.Fatal("Deserialized private key does not match original!")
-	}
+	fmt.Println("\n✅ Keys verified after deserialization")
 
-	if !bytes.Equal(deserializedPK.PKseed, pk.PKseed) || !bytes.Equal(deserializedPK.PKroot, pk.PKroot) {
-		log.Fatal("Deserialized public key does not match original!")
-	}
+	// Generate address
+	address := encode.GenerateAddress(pk.PKseed)
+	fmt.Printf("\n🏷️  Generated Address: %s\n", address)
 
-	// Generate an address from the public key using the encoding package
-	address := encode.GenerateAddress(pk.PKseed) // Use PKseed or PKroot as needed
-	fmt.Println("Generated Address:", address)
-
-	// Optionally, decode the address back into the public key bytes
+	// Decode back and show hashed pubkey
 	decodedPubKey, err := encode.DecodeAddress(address)
 	if err != nil {
-		log.Fatalf("Failed to decode address: %v", err)
+		log.Fatalf("Error decoding address: %v", err)
 	}
-	fmt.Println("Hashed Public Key:", hex.EncodeToString(decodedPubKey))
+	fmt.Printf("🔒 Hashed Public Key (%d bytes): %x\n", len(decodedPubKey), decodedPubKey)
 }
