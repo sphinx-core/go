@@ -36,14 +36,14 @@ import (
 
 // Simulating the communication between Alice and Charlie
 func main() {
-	// Create the root_hashtree directory inside src/core
-	err := os.MkdirAll("root_hashtree", os.ModePerm)
+	// Create the root_hashtree directory inside src/core/sphincs
+	err := os.MkdirAll("src/core/sphincs/hashtree", os.ModePerm)
 	if err != nil {
-		log.Fatal("Failed to create root_hashtree directory:", err)
+		log.Fatal("Failed to create hashtree directory:", err)
 	}
 
 	// Open LevelDB in the new directory
-	db, err := leveldb.OpenFile("root_hashtree/leaves_db", nil)
+	db, err := leveldb.OpenFile("src/core/sphincs/hashtree/leaves_db", nil)
 	if err != nil {
 		log.Fatal("Failed to open LevelDB:", err)
 	}
@@ -111,7 +111,7 @@ func main() {
 	fmt.Printf("Size of HashtreeTree (Root Hash): %d bytes\n", len(merkleRootHash))
 
 	// Save Merkle root hash to a file in the new directory
-	err = hashtree.SaveRootHashToFile(merkleRoot, "root_hashtree/merkle_root_hash.bin")
+	err = hashtree.SaveRootHashToFile(merkleRoot, "src/core/sphincs/hashtree/hashtree.bin")
 	if err != nil {
 		log.Fatal("Failed to save root hash to file:", err)
 	}
@@ -127,11 +127,11 @@ func main() {
 	sigproof.SetStoredProof(proof)
 	fmt.Println("Signature proof stored successfully in mutex-protected variable!")
 
-	// Now Alice verifies the signature locally  (using her device):
+	// Now Alice verifies the signature locally (using her device):
 	isValidSig := manager.VerifySignature(message, sig, deserializedPK, merkleRoot)
 	fmt.Printf("Alice verifies signature valid: %v\n", isValidSig)
 	if isValidSig {
-		fmt.Printf("Signed Message by alice: %s\n", message)
+		fmt.Printf("Signed Message by Alice: %s\n", message)
 	}
 
 	// --- Simulate sending data from Alice to Charlie ---
@@ -144,7 +144,7 @@ func main() {
 	receivedProof := proof
 	receivedMessage := message
 
-	// Charlie re-generates the proof from Alice's the received message, Merkle root hash, and Public key
+	// Charlie re-generates the proof from Alice's received message, Merkle root hash, and Public key
 	regeneratedProof, err := sigproof.GenerateSigProof([][]byte{receivedMessage}, [][]byte{merkleRootHash}, receivedPK)
 	if err != nil {
 		log.Fatalf("Failed to regenerate proof: %v", err)
