@@ -39,14 +39,15 @@ import (
 
 // MultisigManager manages the SPHINCS+ multisig functionalities, including key generation, signing, and verification.
 type MultisigManager struct {
-	km         *key.KeyManager      // Key manager for handling cryptographic keys (key management system)
-	manager    *sign.SphincsManager // SPHINCS+ manager for signing and verifying signatures (handles SPHINCS+ operations)
-	quorum     int                  // Quorum: minimum number of signatures required for validity
-	signatures map[string][]byte    // Store signatures from each participant, indexed by party ID
-	partyPK    map[string][]byte    // Store public keys of the participants, indexed by party ID
-	proofs     map[string][]byte    // Store proof for each participant, indexed by party ID
-	storedPK   [][]byte             // Store the public keys of all participants in a list for index retrieval
-	mu         sync.RWMutex         // Mutex to protect the state of the multisig manager, ensuring thread-safety
+	km         *key.KeyManager
+	manager    *sign.SphincsManager
+	quorum     int
+	signatures map[string][]byte
+	partyPK    map[string][]byte
+	proofs     map[string][]byte
+	storedPK   [][]byte // Public keys
+	storedSK   [][]byte // Private keys (new field)
+	mu         sync.RWMutex
 }
 
 // GetStoredPK returns the stored public keys of all participants
@@ -58,55 +59,39 @@ func (m *MultisigManager) GetStoredPK() [][]byte {
 // It creates a KeyManager, generates keys for all participants, and prepares the multisig structure.
 // NewMultiSig initializes a new multisig with a specified number of participants.
 func NewMultiSig(n int) (*MultisigManager, error) {
-	// Initialize the KeyManager to handle cryptographic operations
 	km, err := key.NewKeyManager()
 	if err != nil {
-		// Return an error if the KeyManager cannot be initialized
 		return nil, fmt.Errorf("error initializing KeyManager: %v", err)
 	}
 
-	// Get the SPHINCS+ parameters required for the SPHINCS manager
 	parameters := km.GetSPHINCSParameters()
-
-	// Initialize the SPHINCS+ manager with the parameters and key manager
 	manager := sign.NewSphincsManager(nil, km, parameters)
 
-	// Initialize the lists of public and private keys for n participants
 	pubKeys := make([][]byte, n)
 	privKeys := make([][]byte, n)
 
-	// Generate a key pair for each participant
 	for i := 0; i < n; i++ {
-		// Generate a new key pair for each participant
 		sk, pk, err := km.GenerateKey()
 		if err != nil {
-			// Return an error if key generation fails
 			return nil, fmt.Errorf("error generating keys for participant %d: %v", i, err)
 		}
 
-		// Serialize the private and public keys into byte arrays
 		skBytes, pkBytes, err := km.SerializeKeyPair(sk, pk)
 		if err != nil {
-			// Return an error if serialization fails
 			return nil, fmt.Errorf("error serializing key pair for participant %d: %v", i, err)
 		}
 
-		// Store the public and private keys in separate arrays
 		pubKeys[i] = pkBytes
-		privKeys[i] = skBytes
+		privKeys[i] = skBytes // Store private keys
 
-		// Output each participant's keys (debugging)
 		log.Printf("Participant %d Public Key: %x", i+1, pkBytes)
 		log.Printf("Participant %d Private Key: %x", i+1, skBytes)
 
-		// Deserialize the keys to ensure they are correctly serialized/deserialized
 		deserializedSK, deserializedPK, err := km.DeserializeKeyPair(skBytes, pkBytes)
 		if err != nil {
-			// Return an error if deserialization fails
 			return nil, fmt.Errorf("error deserializing key pair for participant %d: %v", i, err)
 		}
 
-		// Verify the deserialized keys match the original keys
 		if !bytes.Equal(deserializedSK.SKseed, sk.SKseed) || !bytes.Equal(deserializedSK.SKprf, sk.SKprf) ||
 			!bytes.Equal(deserializedSK.PKseed, sk.PKseed) || !bytes.Equal(deserializedSK.PKroot, sk.PKroot) {
 			return nil, fmt.Errorf("deserialized private key does not match original for participant %d", i)
@@ -117,78 +102,68 @@ func NewMultiSig(n int) (*MultisigManager, error) {
 		log.Printf("Deserialization check passed for participant %d!", i+1)
 	}
 
-	// Return a new instance of MultisigManager with the initialized components
 	return &MultisigManager{
-		km:         km,                      // Set the key manager
-		manager:    manager,                 // Set the SPHINCS+ manager
-		quorum:     n,                       // Set the quorum value (minimum number of signatures)
-		signatures: make(map[string][]byte), // Initialize the signatures map
-		partyPK:    make(map[string][]byte), // Initialize the public key map
-		proofs:     make(map[string][]byte), // Initialize the proofs map
-		storedPK:   pubKeys,                 // Store the generated public keys
+		km:         km,
+		manager:    manager,
+		quorum:     n,
+		signatures: make(map[string][]byte),
+		partyPK:    make(map[string][]byte),
+		proofs:     make(map[string][]byte),
+		storedPK:   pubKeys,
+		storedSK:   privKeys, // Initialize private keys
 	}, nil
+}
+
+func (m *MultisigManager) GetStoredSK() [][]byte {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.storedSK
 }
 
 // SignMessage signs a given message using a private key and stores the signature, Merkle root, and proof for the party.
 // This method handles the signing of a message and storing the associated signature and proof.
 func (m *MultisigManager) SignMessage(message []byte, privKey []byte, partyID string) ([]byte, []byte, error) {
-	m.mu.Lock()         // Step 1: Lock the mutex for writing to ensure thread-safety while modifying the state.
-	defer m.mu.Unlock() // Step 2: Unlock after the operation is complete, ensuring other goroutines can access the data.
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	// Step 3: Deserialize the private key (public key is not needed here, so it's nil).
-	// Deserialize the key pair from the private key bytes.
-	// Deserialize the private key (public key is not needed here, so it's nil).
-	log.Printf("Private Key Length: %d", len(privKey)) // Log the length of the private key
-	sk, _, err := m.km.DeserializeKeyPair(privKey, nil)
+	log.Printf("Private Key Length: %d", len(privKey))
+	sk, pk, err := m.km.DeserializeKeyPair(privKey, nil)
 	if err != nil {
 		log.Printf("Failed to deserialize private key: %v", err)
 		return nil, nil, fmt.Errorf("failed to deserialize private key: %v", err)
 	}
 
-	// Step 5: Sign the message using the private key.
-	// Call the SignMessage method on the SPHINCS+ manager to generate the signature and Merkle root.
 	sig, merkleRoot, err := m.manager.SignMessage(message, sk)
 	if err != nil {
-		// Step 6: Return an error if signing the message fails.
 		return nil, nil, fmt.Errorf("failed to sign message: %v", err)
 	}
 
-	// Step 7: Serialize the generated signature into a byte slice.
-	// This converts the signature object into a byte slice for storage.
 	sigBytes, err := m.manager.SerializeSignature(sig)
 	if err != nil {
-		// Step 8: Return an error if serialization of the signature fails.
 		return nil, nil, fmt.Errorf("failed to serialize signature: %v", err)
 	}
 
-	// Step 9: Convert the Merkle root to bytes for storage.
-	// This is done by calling the `Bytes` method on the Merkle root hash.
 	merkleRootBytes := merkleRoot.Hash.Bytes()
 
-	// Step 10: Store the signature for the party identified by partyID.
-	// The signature is associated with the partyID in the signatures map.
-	// We are introducing the goroutine here.
-	go func() {
-		// Store the signature and public key in the respective maps concurrently.
-		m.signatures[partyID] = sigBytes
-		m.partyPK[partyID] = privKey
+	// Serialize public key for storage
+	pkBytes, err := pk.SerializePK()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to serialize public key: %v", err)
+	}
 
-		// Step 12: Generate proof for the signature.
-		// Generate a Merkle proof for the signature using the message and the Merkle root.
-		proof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootBytes}, privKey)
+	go func() {
+		m.signatures[partyID] = sigBytes
+		m.partyPK[partyID] = pkBytes // Store public key
+
+		proof, err := sigproof.GenerateSigProof([][]byte{message}, [][]byte{merkleRootBytes}, pkBytes)
 		if err != nil {
-			// Handle error in generating proof
 			log.Printf("Failed to generate proof for partyID %s: %v", partyID, err)
 			return
 		}
 
-		// Step 14: Store the generated proof for the party.
-		// The proof is associated with the partyID in the proofs map for later validation.
 		m.proofs[partyID] = proof
 	}()
 
-	// Step 15: Return the signature and Merkle root in byte form.
-	// These are returned so they can be used by other functions or processes.
 	return sigBytes, merkleRootBytes, nil
 }
 

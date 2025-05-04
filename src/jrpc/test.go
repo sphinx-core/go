@@ -35,7 +35,7 @@ func main() {
 	wsServer := rpc.NewWebSocketServer()
 
 	// Register the WebSocket handler for the RPC endpoint
-	http.HandleFunc("/rpc", wsServer.HandleWebSocketUpgrade) // WebSocket upgrade handler
+	http.HandleFunc("/rpc", wsServer.HandleWebSocketUpgrade)
 
 	// Start the HTTP server on localhost:8080
 	log.Println("Starting server on http://localhost:8080/rpc")
@@ -45,13 +45,14 @@ func main() {
 		}
 	}()
 
+	// Create an HTTP client with custom headers
 	client := &http.Client{}
+	serverURL := "ws://localhost:8080/rpc"
 
-	// Define the server URL for WebSocket (ws:// instead of http://)
-	serverURL := "ws://localhost:8080/rpc" // WebSocket URL
-
-	// Create a new WebSocket client codec
-	clientCodec, err := rpc.NewClientCodecWebSocket(serverURL, client)
+	// Create a new WebSocket client codec with a custom header
+	clientCodec, err := rpc.NewClientCodecWebSocket(serverURL, client, map[string]string{
+		"X-Client-Header": "SGVsbG8gV29ybGQ=", // Base64-encoded "Hello World"
+	})
 	if err != nil {
 		log.Fatalf("Error creating client codec: %v", err)
 	}

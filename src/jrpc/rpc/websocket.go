@@ -24,8 +24,10 @@ package rpc
 
 import (
 	"encoding/base64"
+	"fmt"
 	"log"
 	"net/http"
+	"net/rpc"
 	"strings"
 	"time"
 
@@ -43,7 +45,6 @@ func NewWebSocketServer() *WebSocketServer {
 	return &WebSocketServer{
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
-				// Allow all origins for WebSocket connections
 				return true
 			},
 		},
@@ -52,14 +53,20 @@ func NewWebSocketServer() *WebSocketServer {
 }
 
 // HandleWebSocketUpgrade handles incoming HTTP requests and upgrades them to WebSocket connections.
-// HandleWebSocketUpgrade handles incoming HTTP requests and upgrades them to WebSocket connections.
 func (ws *WebSocketServer) HandleWebSocketUpgrade(w http.ResponseWriter, r *http.Request) {
 	// Get the Base64-encoded custom header from the HTTP request (if present)
 	encodedHeader := r.Header.Get("X-Client-Header")
 
-	// If the custom header exists, decode it from Base64
+	// If the custom header exists, validate and decode it
 	var decodedHeader string
 	if encodedHeader != "" {
+		// Validate that the header contains only valid Base64 characters
+		if !isValidBase64(encodedHeader) {
+			log.Printf("Invalid Base64 header: %s", encodedHeader)
+			http.Error(w, "Invalid Base64 header", http.StatusBadRequest)
+			return
+		}
+
 		// Ensure proper padding before decoding
 		if len(encodedHeader)%4 != 0 {
 			encodedHeader += strings.Repeat("=", 4-len(encodedHeader)%4)
@@ -72,7 +79,7 @@ func (ws *WebSocketServer) HandleWebSocketUpgrade(w http.ResponseWriter, r *http
 			http.Error(w, "Invalid Base64 header", http.StatusBadRequest)
 			return
 		}
-		decodedHeader = string(decodedData) // Store the decoded header
+		decodedHeader = string(decodedData)
 		log.Printf("Decoded client header: %s", decodedHeader)
 	}
 
@@ -88,10 +95,10 @@ func (ws *WebSocketServer) HandleWebSocketUpgrade(w http.ResponseWriter, r *http
 
 	// Populate the PeerInfo struct for the new connection
 	peer := PeerInfo{
-		Transport:  "ws",                       // Indicate WebSocket transport
-		RemoteAddr: conn.RemoteAddr().String(), // Get the client's remote address
-		Timestamp:  time.Now(),                 // Store the connection timestamp
-		HeaderInfo: decodedHeader,              // Store the decoded header info
+		Transport:  "ws",
+		RemoteAddr: conn.RemoteAddr().String(),
+		Timestamp:  time.Now(),
+		HeaderInfo: decodedHeader,
 	}
 
 	// Add the WebSocket connection to the client list
@@ -101,10 +108,19 @@ func (ws *WebSocketServer) HandleWebSocketUpgrade(w http.ResponseWriter, r *http
 	go ws.serveWebSocketConnection(conn, peer)
 }
 
+// isValidBase64 checks if the input string contains only valid Base64 characters.
+func isValidBase64(s string) bool {
+	for _, r := range s {
+		if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '+' || r == '/' || r == '=') {
+			return false
+		}
+	}
+	return true
+}
+
 // serveWebSocketConnection handles incoming WebSocket messages and processes RPC requests.
 func (ws *WebSocketServer) serveWebSocketConnection(conn *websocket.Conn, peer PeerInfo) {
 	defer func() {
-		// Cleanup the connection when it is closed
 		conn.Close()
 		delete(ws.clients, conn)
 		log.Printf("WebSocket connection closed: %s", conn.RemoteAddr())
@@ -116,32 +132,34 @@ func (ws *WebSocketServer) serveWebSocketConnection(conn *websocket.Conn, peer P
 
 	// Process incoming WebSocket messages as RPC requests
 	for {
-		// Read message from the WebSocket connection
-		var msg serverRequest
-		if err := conn.ReadJSON(&msg); err != nil {
+		// Read the RPC request header
+		req := &rpc.Request{}
+		if err := serverCodec.ReadRequestHeader(req); err != nil {
 			if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				// Connection closed, exit the loop
 				break
 			}
-			log.Printf("Error reading WebSocket message: %v", err)
-			continue
-		}
-
-		// Handle RPC request by serving it via the codec
-		if err := serverCodec.ReadRequestHeader(nil); err != nil {
 			log.Printf("Error reading RPC request header: %v", err)
 			continue
 		}
-		if err := serverCodec.ReadRequestBody(nil); err != nil {
+
+		// Read the request body
+		var args interface{}
+		if err := serverCodec.ReadRequestBody(&args); err != nil {
 			log.Printf("Error reading RPC request body: %v", err)
 			continue
 		}
 
-		// Process and respond with the result
-		// Make sure to send the response to the WebSocket connection
-		var result interface{}
-		if err := serverCodec.WriteResponse(nil, result); err != nil {
+		// Simulate processing the request
+		resp := &rpc.Response{
+			Seq:           req.Seq,
+			ServiceMethod: req.ServiceMethod,
+		}
+		result := "Processed: " + fmt.Sprintf("%v", args)
+
+		// Write the response
+		if err := serverCodec.WriteResponse(resp, result); err != nil {
 			log.Printf("Error writing RPC response: %v", err)
+			continue
 		}
 	}
 }
@@ -154,12 +172,9 @@ func (ws *WebSocketServer) CloseClientConnection(conn *websocket.Conn) {
 
 // Shutdown gracefully shuts down the WebSocket server.
 func (ws *WebSocketServer) Shutdown(timeout time.Duration) error {
-	// Close all active connections with a timeout
 	for conn := range ws.clients {
 		ws.CloseClientConnection(conn)
 	}
-
-	// Log and return shutdown success
 	log.Println("WebSocket server shut down successfully.")
 	return nil
 }

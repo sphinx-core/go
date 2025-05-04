@@ -31,24 +31,22 @@ import (
 )
 
 func main() {
-	// Initialize wallet configuration
-	walletConfig, err := utils.NewWalletConfig() // Initialize wallet config with LevelDB
+	walletConfig, err := utils.NewWalletConfig()
 	if err != nil {
 		log.Fatal("Failed to initialize wallet config:", err)
 	}
-	defer walletConfig.Close() // Ensure the database is closed when done
+	defer walletConfig.Close()
 
-	// Initialize the MultisigManager with a quorum value
 	quorum := 3
 	manager, err := multisig.NewMultiSig(quorum)
 	if err != nil {
 		log.Fatalf("Error initializing MultisigManager: %v", err)
 	}
 
-	// Retrieve participant keys from the MultisigManager
+	// Retrieve participant private keys from the MultisigManager
 	privKeys := make([][]byte, quorum)
 	for i := 0; i < quorum; i++ {
-		privKeys[i] = manager.GetStoredPK()[i] // Get stored public keys
+		privKeys[i] = manager.GetStoredSK()[i] // Get stored private keys
 	}
 
 	// Sign a message using each participant's private key
@@ -61,14 +59,12 @@ func main() {
 		}
 		fmt.Printf("%s signed the message. Signature: %x, Merkle Root: %x\n", partyID, sig, merkleRoot)
 
-		// Add the signature to the multisig system
-		err = manager.AddSig(i, sig) // Or use AddSigFromPubKey(pubKey, sig)
+		err = manager.AddSig(i, sig)
 		if err != nil {
 			log.Fatalf("Error adding signature: %v", err)
 		}
 	}
 
-	// Verify signatures after collecting them
 	isValid, err := manager.VerifySignatures(message)
 	if err != nil {
 		log.Fatalf("Error verifying signatures: %v", err)
@@ -79,9 +75,8 @@ func main() {
 		fmt.Println("Signatures are not valid, or quorum has not been met.")
 	}
 
-	// Example of using AddSigFromPubKey:
-	// Add a signature using the public key directly
-	pubKey := privKeys[0] // This is just an example, you should pass the correct public key
+	// Example of using AddSigFromPubKey
+	pubKey := manager.GetStoredPK()[0] // Use public key here
 	sig := []byte("signature data here")
 	err = manager.AddSigFromPubKey(pubKey, sig)
 	if err != nil {
