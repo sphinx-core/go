@@ -2,43 +2,58 @@ package wots
 
 import "fmt"
 
-// NewKeyManager initializes a KeyManager for Alice at registration
-func NewKeyManager(w int) (*KeyManager, error) {
-	params := NewWOTSParams(w)
+// Defines the NewKeyManager function that initializes a KeyManager and returns a pointer to it and an error
+func NewKeyManager() (*KeyManager, error) {
+	// Initializes WOTS parameters by calling NewWOTSParams for w=16
+	params := NewWOTSParams()
+	// Generates a private-public key pair using the initialized parameters
 	sk, pk, err := GenerateKeyPair(params)
+	// Checks if there was an error during key pair generation
 	if err != nil {
+		// Returns nil and a formatted error if key pair generation failed
 		return nil, fmt.Errorf("failed to generate initial key pair: %v", err)
 	}
+	// Returns a pointer to a new KeyManager struct with initialized fields
 	return &KeyManager{
-		Params:    params,
+		// Assigns the WOTS parameters to the KeyManager
+		Params: params,
+		// Assigns the generated private key as the current private key
 		CurrentSK: sk,
+		// Assigns the generated public key as the current public key
 		CurrentPK: pk,
-		NextPK:    nil, // No next public key yet
+		// Sets the next public key to nil, as no next key exists at initialization
+		NextPK: nil,
 	}, nil
 }
 
-// SignAndRotate signs a transaction and generates a new key pair
+// Defines the SignAndRotate method on KeyManager, which signs a message and rotates keys, returning a signature, current public key, next public key, and error
 func (km *KeyManager) SignAndRotate(message []byte) (*Signature, *PublicKey, *PublicKey, error) {
-	// Sign with current private key
+	// Signs the message using the current private key
 	sig, err := km.CurrentSK.Sign(message)
+	// Checks if there was an error during signing
 	if err != nil {
+		// Returns nil for all return values and a formatted error if signing failed
 		return nil, nil, nil, fmt.Errorf("failed to sign message: %v", err)
 	}
 
-	// Store current public key for return
+	// Stores the current public key for return, to be used for signature verification
 	currentPK := km.CurrentPK
 
-	// Generate new key pair (e.g., skB, pkB after signing with skA)
+	// Generates a new private-public key pair using the KeyManager's parameters
 	newSK, newPK, err := GenerateKeyPair(km.Params)
+	// Checks if there was an error during new key pair generation
 	if err != nil {
+		// Returns nil for all return values and a formatted error if key pair generation failed
 		return nil, nil, nil, fmt.Errorf("failed to generate new key pair: %v", err)
 	}
 
-	// Update KeyManager with new key pair
+	// Updates the KeyManager's current private key with the new private key
 	km.CurrentSK = newSK
+	// Updates the KeyManager's current public key with the new public key
 	km.CurrentPK = newPK
-	km.NextPK = newPK // Store new public key for next transaction verification
+	// Stores the new public key as the next public key for future transaction verification
+	km.NextPK = newPK
 
-	// Return signature, current public key (for verification), and next public key (for system)
+	// Returns the signature, current public key (for verification), new public key (for system registration), and nil error
 	return sig, currentPK, newPK, nil
 }

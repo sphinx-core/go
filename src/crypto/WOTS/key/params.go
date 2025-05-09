@@ -1,22 +1,33 @@
 package wots
 
-import "math"
-
-// NewWOTSParams initializes WOTS parameters
-func NewWOTSParams(w int) WOTSParams {
-	n := 32 // SHA-256 output size in bytes
-	logW := int(math.Log2(float64(w)))
-	t1 := int(math.Ceil(float64(256) / float64(logW)))
-	checksumBits := int(math.Ceil(math.Log2(float64(t1 * int(math.Pow(2, float64(logW))-1)))))
-	t2 := int(math.Ceil(float64(checksumBits) / float64(logW)))
+// Defines the NewWOTSParams function that returns a WOTSParams struct
+func NewWOTSParams() WOTSParams {
+	// Sets the Winternitz parameter to 16 (fixed)
+	w := 16
+	// Sets the hash output size to 32 bytes (256 bits for SHAKE256)
+	n := 32
+	// Sets T1 to 64, calculated as ceil(256 / 4) for w=16
+	t1 := 64
+	// Sets checksumBits to 11, calculated as ceil(log2(t1 * (w-1))) = ceil(log2(64 * 15))
+	checksumBits := 11
+	// Sets T2 to 3, calculated as ceil(checksumBits / 4) = ceil(11 / 4)
+	t2 := 3
+	// Sets T to t1 + t2 (64 + 3 = 67)
 	t := t1 + t2
 
+	// Returns a WOTSParams struct with the calculated parameters
 	return WOTSParams{
-		W:        w,
-		N:        n,
-		T:        t,
-		T1:       t1,
-		T2:       t2,
+		// Assigns the Winternitz parameter (w=16)
+		W: w,
+		// Assigns the hash output size (n=32)
+		N: n,
+		// Assigns the total number of hash chains (t=67)
+		T: t,
+		// Assigns the number of message chains (t1=64)
+		T1: t1,
+		// Assigns the number of checksum chains (t2=3)
+		T2: t2,
+		// Assigns the checksum size in bits (checksumBits=11)
 		Checksum: checksumBits,
 	}
 }
