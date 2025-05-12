@@ -30,95 +30,106 @@ import (
 	"github.com/sphinx-core/go/src/common"
 )
 
-// Validator validates the transaction note.
-type Validator struct {
-	senderAddress    string
-	recipientAddress string
-}
-
-// NewValidator creates a new Validator instance.
+// NewValidator creates a new Validator instance that holds the sender and recipient addresses.
 func NewValidator(senderAddress, recipientAddress string) *Validator {
 	return &Validator{
-		senderAddress:    senderAddress,
-		recipientAddress: recipientAddress,
+		senderAddress:    senderAddress,    // Initialize sender address.
+		recipientAddress: recipientAddress, // Initialize recipient address.
 	}
 }
 
-// Validate checks if the note is valid.
+// ValidateSpendability checks if a UTXO (Unspent Transaction Output) is spendable at a given height.
+func ValidateSpendability(set *UTXOSet, txID string, index int, height uint64) bool {
+	// Create an Outpoint struct using the transaction ID and index of the output.
+	out := Outpoint{TxID: txID, Index: index}
+
+	// Call IsSpendable method on UTXOSet to check if this output is spendable at the given block height.
+	return set.IsSpendable(out, height)
+}
+
+// Validate method checks if the provided note is valid.
 func (v *Validator) Validate(note *Note) error {
-	// Check if Alice is the sender and Bob is the recipient
+	// Check if the sender address matches the expected sender address.
 	if note.From != v.senderAddress {
+		// If the sender is incorrect, return an error with a formatted message.
 		return fmt.Errorf("invalid sender, expected %s, got %s", v.senderAddress, note.From)
 	}
+
+	// Check if the recipient address matches the expected recipient address.
 	if note.To != v.recipientAddress {
+		// If the recipient is incorrect, return an error with a formatted message.
 		return fmt.Errorf("invalid recipient, expected %s, got %s", v.recipientAddress, note.To)
 	}
-	// Additional validation checks like fee, storage, etc. can be added here
+
+	// Validate the fee amount to ensure it's greater than 0.
 	if note.Fee <= 0 {
 		return fmt.Errorf("invalid fee amount, must be greater than 0")
 	}
+
+	// Ensure the storage information is provided.
 	if note.Storage == "" {
 		return fmt.Errorf("storage information cannot be empty")
 	}
 
+	// If all checks pass, return nil indicating the note is valid.
 	return nil
 }
 
 // CreateAddress generates a unique contract address using sender, recipient, and nonce.
 func (v *Validator) CreateAddress(nonce int64) (string, error) {
-	// Combine the sender address, recipient address, and nonce into a single string
+	// Combine the sender address, recipient address, and nonce into a single string.
 	contractData := fmt.Sprintf("%s-%s-%d", v.senderAddress, v.recipientAddress, nonce)
 
-	// Use common.SpxHash to get the hash for the combined contract data
+	// Use the common.SpxHash function to hash the combined contract data.
 	hash := common.SpxHash([]byte(contractData))
 
-	// Use the common.Address function to manipulate the contract address
+	// Generate a contract address using the common.Address function, which manipulates the hash.
 	address, err := common.Address(hash)
 	if err != nil {
+		// Return an error if generating the address fails.
 		return "", err
 	}
 
-	// Return the manipulated contract address
+	// Return the generated contract address.
 	return address, nil
 }
 
-// validateAddress validates a wallet address to ensure it adheres to specific rules.
+// validateAddress checks if the provided address is valid according to specific rules.
 func validateAddress(address string) error {
-	// Step 1: Check if the address length is within the valid range (26 to 62 characters).
+	// Check if the address length is within the valid range (26 to 62 characters).
 	if len(address) < 26 || len(address) > 62 {
 		return errors.New("address length must be between 26 and 62 characters")
 	}
 
-	// Step 2: Ensure the address starts with the prefix 'x'.
+	// Ensure the address starts with the prefix 'x'.
 	if !strings.HasPrefix(address, "x") {
 		return errors.New("address must start with 'x'")
 	}
 
-	// Step 3: Verify that the remainder of the address contains only alphanumeric characters.
+	// Verify that the remainder of the address contains only alphanumeric characters.
 	if !isAlphanumeric(address[1:]) {
 		return errors.New("address contains invalid characters")
 	}
 
-	// Step 4: Return nil if all validations pass.
+	// Return nil if all validations pass (address is valid).
 	return nil
 }
 
 // isAlphanumeric checks if the provided string consists solely of alphanumeric characters.
 func isAlphanumeric(s string) bool {
-	// Step 1: Iterate through each character in the string.
+	// Iterate through each character in the string.
 	for _, char := range s {
-		// Step 2: If any character is not alphanumeric, return false.
+		// If any character is not alphanumeric, return false.
 		if !isAlphanumericChar(char) {
 			return false
 		}
 	}
-	// Step 3: If all characters are alphanumeric, return true.
+	// If all characters are alphanumeric, return true.
 	return true
 }
 
 // isAlphanumericChar checks if a single character is alphanumeric (a digit or letter).
 func isAlphanumericChar(c rune) bool {
-	// Step 1: Check if the character is between '0' and '9' (a digit).
-	// Step 2: Check if the character is between 'a' and 'z' or 'A' and 'Z' (a letter).
+	// Check if the character is a digit ('0'-'9') or a letter ('a'-'z', 'A'-'Z').
 	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }

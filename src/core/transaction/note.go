@@ -31,16 +31,6 @@ import (
 	"github.com/sphinx-core/go/src/common"
 )
 
-// Note represents the receipt or note of a transaction, with an added MAC (Message Authentication Code).
-type Note struct {
-	To        string  `json:"to"`        // Recipient's wallet address (Bob's address)
-	From      string  `json:"from"`      // Sender's wallet address (Alice's address)
-	Fee       float64 `json:"fee"`       // Transaction fee that will be paid
-	Storage   string  `json:"storage"`   // Information regarding the storage used for the transaction (e.g., metadata)
-	Timestamp int64   `json:"timestamp"` // Timestamp when the transaction was created (in Unix timestamp format)
-	MAC       string  `json:"mac"`       // Message Authentication Code to ensure the integrity and authenticity of the note
-}
-
 // NewNote creates a new Note instance and computes the MAC for the note.
 func NewNote(to, from string, fee float64, storage, key string) (*Note, error) {
 	// Step 1: Validate the sender's and receiver's wallet addresses to ensure they are correctly formatted.
