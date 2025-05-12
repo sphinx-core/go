@@ -26,16 +26,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-
-	params "github.com/sphinx-core/go/src/params/denom"
 )
 
-// getSPX retrieves the SPX multiplier from the params package
-func getSPX() *big.Int {
-	return big.NewInt(params.SPX) // 1e18, equivalent to the full SPX token
-}
-
-// CreateContract creates a contract between Alice and Bob based on the validated note.
 // CreateContract creates a contract between Alice and Bob based on the validated note.
 func CreateContract(note *Note, amountInSPX float64, set *UTXOSet, txID string, index int, height uint64) (*Contract, error) {
 	// Validate amountInSPX to be non-negative

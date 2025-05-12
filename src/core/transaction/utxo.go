@@ -34,6 +34,11 @@ const (
 	SPX = 1e18 // 1 SPX equals 1e18 nSPX (10^18), similar to how 1 Ether equals 1e18 wei.
 )
 
+// getSPX retrieves the SPX multiplier from the params package
+func getSPX() *big.Int {
+	return big.NewInt(params.SPX) // 1e18, equivalent to the full SPX token
+}
+
 // NewUTXOSet creates a new empty UTXOSet.
 func NewUTXOSet() *UTXOSet {
 	return &UTXOSet{
