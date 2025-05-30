@@ -27,30 +27,12 @@ import (
 	"crypto/sha512"
 	"encoding/binary"
 	"io"
-	"sync"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/sha3"
 )
 
 // SIPS-0001 https://github.com/sphinx-core/sips/wiki/SIPS-0001
-
-// LRUCache is a struct for the LRU cache implementation.
-type LRUCache struct {
-	capacity int              // Maximum capacity of the cache
-	mu       sync.Mutex       // Mutex for concurrent access
-	cache    map[uint64]*Node // Maps keys to their corresponding nodes in the cache
-	head     *Node            // Pointer to the most recently used node
-	tail     *Node            // Pointer to the least recently used node
-}
-
-// Node is a doubly linked list node for the LRU cache.
-type Node struct {
-	key   uint64 // Unique key for the node
-	value []byte // Value associated with the key
-	prev  *Node  // Pointer to the previous node in the list
-	next  *Node  // Pointer to the next node in the list
-}
 
 // NewLRUCache initializes a new LRU cache.
 func NewLRUCache(capacity int) *LRUCache {
@@ -154,15 +136,6 @@ const (
 	tagSize          = 32        // Tag size set to 256 bits (32 bytes)
 	DefaultCacheSize = 100       // Default cache size for SphinxHash
 )
-
-// SphinxHash implements hashing based on SIP-0001 draft.
-type SphinxHash struct {
-	bitSize      int       // Specifies the bit size of the hash (128, 256, 384, 512)
-	data         []byte    // Holds the input data to be hashed
-	salt         []byte    // Salt for hashing
-	cache        *LRUCache // Cache to store previously computed hashes
-	maxCacheSize int       // Maximum cache size
-}
 
 // Generate salt using Argon2
 func generateSalt(data []byte, saltSize int) []byte {
