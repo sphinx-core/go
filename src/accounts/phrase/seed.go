@@ -25,11 +25,11 @@ package seed
 import (
 	"bytes"
 	"crypto/rand"
+
 	"encoding/base32"
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/big"
 	"unicode/utf8"
 
 	sips3 "github.com/sphinx-core/go/src/accounts/mnemonic"
@@ -208,52 +208,9 @@ func EncodeBase32(data []byte) string {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(data)
 }
 
-// randomIndex generates a random index within the range [0, max).
-// It uses a cryptographically secure random number generator (rand.Reader)
-// to generate a random number and ensures the number is within the specified range.
-func randomIndex(max int) (int, error) {
-	if max <= 0 {
-		return 0, fmt.Errorf("max must be greater than zero, got: %d", max)
-	}
-
-	// rand.Int generates a random integer in the range [0, max).
-	randNum, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
-	if err != nil {
-		// Return a more descriptive error on failure
-		return 0, fmt.Errorf("failed to generate random index: %w", err)
-	}
-	// Convert the random number to an integer and return it.
-	return int(randNum.Int64()), nil
-}
-
-// randomRange generates a random number between min and max (inclusive).
-// It ensures that min is less than or equal to max before generating the random number.
-// The function also uses a cryptographically secure random number generator (rand.Reader).
-func randomRange(min, max int) (int, error) {
-	// Ensure that the provided range is valid (min should be <= max).
-	if min > max {
-		// Return an error indicating the invalid range
-		return 0, fmt.Errorf("invalid range: min (%d) > max (%d)", min, max)
-	}
-	if max <= min {
-		// Additional check to ensure min is strictly less than max
-		return 0, fmt.Errorf("invalid range: max (%d) <= min (%d)", max, min)
-	}
-
-	// Calculate the size of the range, ensuring that max is inclusive.
-	rangeSize := max - min + 1
-
-	// Generate a random number within the range size.
-	randNum, err := rand.Int(rand.Reader, big.NewInt(int64(rangeSize)))
-	if err != nil {
-		// Return a more descriptive error on failure
-		return 0, fmt.Errorf("failed to generate random range: %w", err)
-	}
-	// Add the min value to the random number, so the final result is within the range [min, max].
-	return min + int(randNum.Int64()), nil
-}
-
 // GenerateKeys generates a passphrase, a hashed Base32-encoded passkey, and its fingerprint.
+// It derives a 6–8 byte output cryptographically from a large intermediate state to ensure
+// the output is protected by the state's entropy against brute-force attacks.
 func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []byte, macKey []byte, chainCode []byte, fingerprint []byte, err error) {
 	// Step 1: Generate entropy for the mnemonic (passphrase generation).
 	// We call GenerateEntropy to obtain random data that can be used as the basis for the passphrase.
@@ -287,11 +244,12 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to hash passkey: %v", err)
 	}
 
-	// Step 5: Call 512-bit hashedPasskey as key combinied material
+	// Step 5: Call 512-bit hashedPasskey as key combined material.
+	// Assign the 64-byte hashed passkey to selectedParts for further processing.
 	selectedParts := hashedPasskey
 
 	// Step 6: Generate a nonce (16 bytes).
-	// A nonce is a random value used only once, typically to prevent replay attacks. Here, we generate it using `rand.Read`.
+	// A nonce is a random value used only once, typically to prevent replay attacks. Here, we generate it using rand.Read.
 	nonce := make([]byte, 16)
 	_, err = rand.Read(nonce)
 	if err != nil {
@@ -309,15 +267,19 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 	saltBytes := []byte(salt)
 
 	// Step 9: Apply Sponge Construction (SHA-3) for every 8-byte group over multiple iterations.
-	transformedParts := make([]byte, 0) // Initialize an empty slice to hold the transformed data after operations.
-	iterations := 5                     // Define the number of iterations to perform operations across the data.
+	// Initialize an empty slice to hold the transformed data after SHA-3 operations.
+	transformedParts := make([]byte, 0)
+	// Define the number of iterations to perform operations across the data (5 iterations).
+	iterations := 5
+	// Set the state size for SHA3-256 (32 bytes, as SHA3-256 outputs 256 bits).
+	stateSize := 256 / 8
+	// Initialize the state array for the SHA-3 sponge construction.
+	state := make([]byte, stateSize)
 
-	stateSize := 256 / 8             // SHA3-256 uses a 512-bit internal state size and 32-byte length output.
-	state := make([]byte, stateSize) // The state used for SHA3 Sponge construction.
-
-	for round := 0; round < iterations; round++ { // Iterate for the specified number of iterations.
-		for i := 0; i+7 < len(combinedParts); i += 8 { // Loop through the combinedParts slice in 8-byte chunks.
-
+	// Iterate for the specified number of iterations to build the intermediate state.
+	for round := 0; round < iterations; round++ {
+		// Loop through the combinedParts slice in 8-byte chunks.
+		for i := 0; i+7 < len(combinedParts); i += 8 {
 			// Extract each byte of the current 8-byte group into separate variables (a, b, c, d, e, f, g, h).
 			a := combinedParts[i]
 			b := combinedParts[i+1]
@@ -328,147 +290,121 @@ func GenerateKeys() (passphrase string, base32Passkey string, hashedPasskey []by
 			g := combinedParts[i+6]
 			h := combinedParts[i+7]
 
-			// Combine bytes into a single 64-bit value to feed into SHA-3
-			dataBlock := make([]byte, 8) // Create an 8-byte slice to hold the 64-bit value.
-
-			// Create a 64-bit value from the 8 bytes (a, b, c, d, e, f, g, h) using bitwise operations.
+			// Combine bytes into a single 64-bit value to feed into SHA-3.
+			// Create an 8-byte slice to hold the 64-bit value.
+			dataBlock := make([]byte, 8)
+			// Create a 64-bit value from the 8 bytes using bitwise operations.
 			// Ensure constant-time construction to avoid leaking information via timing attacks.
 			binary.BigEndian.PutUint64(
 				dataBlock, // The destination where the 64-bit value will be stored.
-				uint64(a)<<56| // Shift the byte 'a' 56 bits to the left (to occupy the highest 8 bits)
-					uint64(b)<<48| // Shift the byte 'b' 48 bits to the left (to occupy the second highest 8 bits)
-					uint64(c)<<40| // Shift the byte 'c' 40 bits to the left
-					uint64(d)<<32| // Shift the byte 'd' 32 bits to the left
-					uint64(e)<<24| // Shift the byte 'e' 24 bits to the left
-					uint64(f)<<16| // Shift the byte 'f' 16 bits to the left
-					uint64(g)<<8| // Shift the byte 'g' 8 bits to the left
-					uint64(h), // No shift required for byte 'h', it occupies the lowest 8 bits of the 64-bit value
+				uint64(a)<<56| // Shift the byte 'a' 56 bits to the left (to occupy the highest 8 bits).
+					uint64(b)<<48| // Shift the byte 'b' 48 bits to the left (to occupy the second highest 8 bits).
+					uint64(c)<<40| // Shift the byte 'c' 40 bits to the left.
+					uint64(d)<<32| // Shift the byte 'd' 32 bits to the left.
+					uint64(e)<<24| // Shift the byte 'e' 24 bits to the left.
+					uint64(f)<<16| // Shift the byte 'f' 16 bits to the left.
+					uint64(g)<<8| // Shift the byte 'g' 8 bits to the left.
+					uint64(h), // No shift required for byte 'h', it occupies the lowest 8 bits.
 			)
 
-			// Absorb the current data block into the sponge state
-			// This step processes the current state using the SHA3-256 hash function.
-			// The SHA-3 sponge construction involves absorbing data into a state.
-			// The state will be updated by applying the SHA3-256 hash function
-			// using the current `state` and `saltBytes` as inputs.
+			// Absorb the current data block into the sponge state.
+			// Initialize a new SHA3-256 hash function for the chunk.
+			hash := sha3.New256()
+			// Absorb the current state into the hash function.
+			hash.Write(state)
+			// Absorb the saltBytes to mix the salt with the state.
+			hash.Write(saltBytes)
+			// Finalize the hash and update the state with the 32-byte output.
+			state = hash.Sum(nil)
 
-			hash := sha3.New256() // Initialize a new SHA3-256 hash function.
-			hash.Write(state)     // Absorb the current state into the hash function.
-			hash.Write(saltBytes) // Absorb the saltBytes into the hash function to mix the salt with the state.
-			state = hash.Sum(nil) // Finalize the hash and return the updated state. This updated state is now ready for further operations.
-
-			// New mixing operation as per the requested formula
-			// This operation performs additional mixing on the current state.
-			// The state is iterated over, and each byte is modified using a combination of:
-			// 1. Adding the corresponding byte from the `saltBytes` (using modulo to wrap around if necessary),
-			// 2. XORing with a shifted version of the next byte in the state (to introduce further randomness).
-			// This helps improve the diffusion and avalanche effect of the data.
-
-			for i := 0; i < len(state); i++ { // Iterate over each byte in the `state` array.
-				// Ensure constant-time modification of each byte to mitigate timing attacks.
-				state[i] = (state[i] + saltBytes[i%len(saltBytes)]) ^ (state[(i+1)%len(state)] << 1)
-				// `(i%len(saltBytes))`: This ensures that we cycle through `saltBytes` if it's shorter than the state.
-				// `(i+1)%len(state)`: This ensures we access the next byte in the state, wrapping around if we reach the end.
-				// `<< 1`: This shifts the byte by 1 position to the left to introduce further bitwise transformation.
-				// The final result is a byte-wise mixed state, enhancing entropy.
-			}
-
-			// Squeeze: Continue to extract bits after each round.
-			// Adjust the number of bits to extract depending on how many bits you need.
+			// New mixing operation to enhance diffusion.
+			// Iterate over each byte in the state and modify it using a combination of:
+			// 1. Adding the corresponding byte from saltBytes (modulo to cycle if needed).
+			// 2. XORing with a shifted version of the next byte in the state.
 			for i := 0; i < len(state); i++ {
-				// Ensure constant-time extraction of bits to avoid timing leaks.
-				mixedResult := state[i] ^ saltBytes[i%len(saltBytes)] // Apply salt on the state.
+				// Ensure constant-time modification to mitigate timing attacks.
+				state[i] = (state[i] + saltBytes[i%len(saltBytes)]) ^ (state[(i+1)%len(state)] << 1)
+			}
 
+			// Squeeze: Extract bits from the state after each round.
+			// Iterate over the state bytes to produce mixed results.
+			for i := 0; i < len(state); i++ {
+				// XOR each state byte with a salt byte for additional mixing.
+				// Ensure constant-time extraction to avoid timing leaks.
+				mixedResult := state[i] ^ saltBytes[i%len(saltBytes)]
 				// Append the mixed result to the transformedParts slice.
-				transformedParts = append(transformedParts, mixedResult) // Append mixedResult directly.
+				transformedParts = append(transformedParts, mixedResult)
 			}
 
-			// Additional squeeze operation to ensure more entropy is squeezed from the state
-			additionalBits := len(state) // This depends on how many bits you want to extract from each round.
+			// Additional squeeze operation to extract more entropy.
+			// Define the number of additional bits to extract (32 bytes).
+			additionalBits := len(state)
+			// Append state bytes directly to transformedParts.
 			for i := 0; i < additionalBits; i++ {
-				// Continue to squeeze bits from the state, adjusting as needed.
-				transformedParts = append(transformedParts, state[i]) // Extract additional bits to the transformedParts.
+				// Continue to squeeze bits from the state for increased entropy.
+				transformedParts = append(transformedParts, state[i])
 			}
 
-			// After completing the squeeze and extracting, mix again by XORing with salt for added randomness.
+			// Mix again by XORing the last byte with salt for added randomness.
+			// Iterate over saltBytes to apply XOR operations.
 			for j := 0; j < len(saltBytes); j++ {
-				// Ensure constant-time mixing with saltBytes to avoid timing attacks.
-				transformedParts[len(transformedParts)-1] ^= saltBytes[j%len(saltBytes)] // XOR the result with the salt
+				// Ensure constant-time mixing to avoid timing attacks.
+				transformedParts[len(transformedParts)-1] ^= saltBytes[j%len(saltBytes)]
 			}
 		}
-		// After completing the inner loop, update combinedParts to the transformedParts.
+		// Update combinedParts to transformedParts for the next iteration.
+		// This exponentially grows the intermediate state (~2,621,440 bytes after 5 iterations).
 		combinedParts = transformedParts
 	}
 
-	// Generate a random output length between 6 and 8 bytes.
-	// The output length determines how many random bytes will be selected from combinedParts.
-	// The randomRange function is used to securely generate a random integer within the range [6, 8].
-	outputLength, err := randomRange(6, 8)
-	if err != nil {
-		panic(err) // If an error occurs during random number generation, terminate the program.
+	// Step 10: Derive the output length (6 or 8 bytes) deterministically from transformedParts.
+	// Initialize a new SHA3-256 hash function to compress the large intermediate state.
+	hash := sha3.New256()
+	// Write the transformedParts (intermediate state, ~2,621,440 bytes) to the hash function.
+	hash.Write(transformedParts)
+	// Include saltBytes to bind the digest to the salt, enhancing security.
+	hash.Write(saltBytes)
+	// Finalize the hash to obtain a 32-byte digest.
+	digest := hash.Sum(nil) // 32 bytes
+
+	// Determine the output length (6 or 8 bytes) using the first byte of the digest.
+	// Use the least significant bit to choose between 6 and 8 bytes deterministically.
+	outputLength := 6
+	if digest[0]&1 == 1 { // Check if the first byte’s LSB is 1.
+		outputLength = 8
 	}
 
-	// Check if the length of combinedParts is greater than the output length
-	// If true, proceed to randomly select outputLength number of bytes from combinedParts.
-	if len(combinedParts) > outputLength {
-		// Create a slice to hold the randomly selected bytes
-		// This slice will store the final randomly chosen subset of bytes.
-		selectedParts := make([]byte, outputLength)
+	// Step 11: Derive the final output deterministically from the digest.
+	// Allocate a slice to hold the output (6 or 8 bytes).
+	selectedParts = make([]byte, outputLength)
+	// Copy the first 6 or 8 bytes of the digest to selectedParts.
+	// This ensures the output is a cryptographic derivative of the intermediate state.
+	copy(selectedParts, digest[:outputLength])
 
-		// Randomly select indices without duplicates
-		// To ensure that the selected bytes are unique, we use a map to keep track of
-		// the indices that have already been chosen. The map's keys represent the indices
-		// of the selected bytes.
-		selectedIndices := make(map[int]bool)
-		for len(selectedIndices) < outputLength {
-			// Generate a random index within the range of combinedParts' length.
-			index, err := randomIndex(len(combinedParts))
-			if err != nil {
-				panic(err) // If randomIndex fails, terminate the program.
-			}
-			// Add the index to the map only if it hasn't been selected before.
-			if !selectedIndices[index] {
-				selectedIndices[index] = true
-			}
-		}
+	// Step 12: Encode the selected parts in Base32.
+	// Convert the 6–8 byte output to a Base32 string (no padding, ~10–16 characters).
+	// This produces a user-friendly password for authentication.
+	base32Encoded := EncodeBase32(selectedParts)
+	// Update combinedParts with selectedParts for compatibility with downstream functions.
+	combinedParts = selectedParts
 
-		// Populate the selectedParts slice with bytes from the randomly selected indices
-		// Iterate through the selected indices map and retrieve the corresponding bytes
-		// from combinedParts. Populate the selectedParts slice sequentially.
-		i := 0
-		for index := range selectedIndices {
-			selectedParts[i] = combinedParts[index]
-			i++ // Move to the next position in the selectedParts slice.
-		}
-
-		// Replace combinedParts with selectedParts
-		// This step ensures that combinedParts now holds only the randomly selected subset
-		// of bytes, reducing its size to the specified output length.
-		combinedParts = selectedParts
-	}
-
-	// Step 11: Encode the transformed parts in Base32.
-	// Base32 encoding converts the binary data (bytes) into a human-readable string format.
-	// Each 5 bits of input data produces 1 Base32 character.
-	// For 8 bytes (64 bits), Base32 encoding results in 16 characters.
-
-	// At this point:
-	// - `combinedParts` has exactly random between 6-8 bytes.
-	// - The Base32 encoded string `base32Encoded` is 16 characters long.
-	// This is because Base32 uses padding to ensure the output length is a multiple of 8 characters.
-	base32Encoded := EncodeBase32(combinedParts)
-
-	// Step 12: Generate a MacKey it used for validated combinedparts (Base32passkey) during login seasons.
+	// Step 13: Generate a MacKey used for validating combinedParts (Base32passkey) during login sessions.
+	// Derive a MAC key and chain code using combinedParts and hashedPasskey.
 	macKey, chainCode, err = utils.GenerateMacKey(combinedParts, hashedPasskey)
 	if err != nil {
+		// Return an error if MacKey generation fails.
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate macKey: %v", err)
 	}
 
-	// Step 13: Generated a Fingerprint (a chain of generated passphrase and combinedparts).
+	// Step 14: Generate a fingerprint (a chain of generated passphrase and combinedParts).
+	// Create a chain code to link the passphrase and output for verification.
 	fingerprint, err = auth.GenerateChainCode(passphrase, combinedParts)
 	if err != nil {
+		// Return an error if fingerprint generation fails.
 		return "", "", nil, nil, nil, nil, fmt.Errorf("failed to generate fingerprint: %v", err)
 	}
 
-	// Return the generated passphrase, encoded passkey, hashed passkey, and fingerprint.
+	// Return the generated passphrase, encoded passkey, hashed passkey, MAC key,
+	// chain code, fingerprint, and nil error on success.
 	return passphrase, base32Encoded, hashedPasskey, macKey, chainCode, fingerprint, nil
 }
