@@ -31,6 +31,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sphinx-core/go/src/core"
+	types "github.com/sphinx-core/go/src/core/transaction"
 	"github.com/sphinx-core/go/src/security"
 )
 
@@ -66,7 +67,7 @@ func (s *Server) setupRoutes() {
 
 // handleTransaction submits a transaction.
 func (s *Server) handleTransaction(c *gin.Context) {
-	var tx core.Transaction
+	var tx types.Transaction
 	if err := c.ShouldBindJSON(&tx); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -89,7 +90,7 @@ func (s *Server) handleGetBlock(c *gin.Context) {
 	}
 	blocks := s.blockchain.GetBlocks()
 	for _, block := range blocks {
-		if block.ID == id {
+		if block.Header.Block == id {
 			c.JSON(http.StatusOK, block)
 			return
 		}

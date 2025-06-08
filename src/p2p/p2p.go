@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// p2p/p2p.go
 package p2p
 
 import (
@@ -27,6 +28,7 @@ import (
 	"sync"
 
 	"github.com/sphinx-core/go/src/core"
+	types "github.com/sphinx-core/go/src/core/transaction"
 	"github.com/sphinx-core/go/src/security"
 	"github.com/sphinx-core/go/src/transport"
 )
@@ -65,13 +67,13 @@ func (s *Server) handleMessages() {
 		log.Printf("Received message: Type=%s, Data=%v", msg.Type, msg.Data)
 		switch msg.Type {
 		case "transaction":
-			if tx, ok := msg.Data.(core.Transaction); ok {
+			if tx, ok := msg.Data.(types.Transaction); ok {
 				if err := s.blockchain.AddTransaction(tx); err != nil {
 					log.Printf("Failed to add transaction: %v", err)
 				}
 			}
 		case "block":
-			if block, ok := msg.Data.(core.Block); ok {
+			if block, ok := msg.Data.(types.Block); ok {
 				if err := s.blockchain.AddBlock(); err != nil {
 					log.Printf("Failed to add block: %v", err)
 				}

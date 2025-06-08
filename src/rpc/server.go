@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// rpc/server.go
 package rpc
 
 import (
@@ -31,6 +32,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sphinx-core/go/src/core"
+	types "github.com/sphinx-core/go/src/core/transaction"
 	"github.com/sphinx-core/go/src/security"
 )
 
@@ -102,7 +104,7 @@ func (s *Server) HandleRequest(data []byte) ([]byte, error) {
 	resp := JSONRPCResponse{JSONRPC: "2.0", ID: req.ID}
 	switch req.Method {
 	case "add_transaction":
-		var tx core.Transaction
+		var tx types.Transaction
 		if err := json.Unmarshal([]byte(req.Params.(string)), &tx); err != nil {
 			s.metrics.ErrorCount.WithLabelValues(req.Method).Inc()
 			return nil, err

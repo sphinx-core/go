@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// transport/websocket.go
 package transport
 
 import (
@@ -29,7 +30,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
-	"github.com/sphinx-core/go/src/core"
+	types "github.com/sphinx-core/go/src/core/transaction"
 	"github.com/sphinx-core/go/src/rpc"
 	"github.com/sphinx-core/go/src/security"
 )
@@ -107,7 +108,7 @@ func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 func ConnectWebSocket(address string, messageCh chan *security.Message) error {
 	dialer := websocket.Dialer{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true, // For testing
+			InsecureSkipVerify: true,
 			CurvePreferences:   []tls.CurveID{tls.X25519Kyber768Draft00, tls.X25519},
 			MinVersion:         tls.VersionTLS13,
 		},
@@ -118,6 +119,6 @@ func ConnectWebSocket(address string, messageCh chan *security.Message) error {
 	}
 	defer conn.Close()
 
-	msg := &security.Message{Type: "block", Data: core.Block{ID: 1, Transactions: []core.Transaction{}}}
+	msg := &security.Message{Type: "block", Data: types.Block{Header: types.Header{Block: 1}}}
 	return conn.WriteJSON(msg)
 }

@@ -26,12 +26,12 @@ import (
 	"bytes"
 	"net/http"
 
-	"github.com/sphinx-core/go/src/core"
+	types "github.com/sphinx-core/go/src/core/transaction"
 	"github.com/sphinx-core/go/src/security"
 )
 
 // SubmitTransaction sends a transaction via HTTP.
-func SubmitTransaction(address string, tx core.Transaction) error {
+func SubmitTransaction(address string, tx types.Transaction) error {
 	msg := &security.Message{Type: "transaction", Data: tx}
 	data, err := msg.Encode()
 	if err != nil {

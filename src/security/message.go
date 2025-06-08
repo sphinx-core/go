@@ -20,13 +20,14 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// security/message.go
 package security
 
 import (
 	"encoding/json"
 	"errors"
 
-	"github.com/sphinx-core/go/src/core"
+	types "github.com/sphinx-core/go/src/core/transaction"
 )
 
 // Message represents a secure P2P or RPC message.
@@ -42,11 +43,11 @@ func (m *Message) ValidateMessage() error {
 	}
 	switch m.Type {
 	case "transaction":
-		if _, ok := m.Data.(core.Transaction); !ok {
+		if _, ok := m.Data.(types.Transaction); !ok {
 			return errors.New("invalid transaction data")
 		}
 	case "block":
-		if _, ok := m.Data.(core.Block); !ok {
+		if _, ok := m.Data.(types.Block); !ok {
 			return errors.New("invalid block data")
 		}
 	case "jsonrpc":
