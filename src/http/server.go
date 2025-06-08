@@ -51,7 +51,29 @@ func NewServer(address string, messageCh chan *security.Message, blockchain *cor
 // setupRoutes defines HTTP endpoints.
 func (s *Server) setupRoutes() {
 	s.router.GET("/", func(c *gin.Context) {
-		genesisBlock := s.blockchain.GetBlocks()[0] // assuming genesis is first block
+		s.lastTxMutex.RLock()
+		lastTx := s.lastTransaction
+		s.lastTxMutex.RUnlock()
+
+		var lastTxResp interface{}
+		if lastTx != nil {
+			lastTxResp = gin.H{
+				"sender":    lastTx.Sender,
+				"receiver":  lastTx.Receiver,
+				"amount":    lastTx.Amount.String(),
+				"nonce":     lastTx.Nonce,
+				"timestamp": lastTx.Timestamp,
+			}
+		} else {
+			lastTxResp = "No transactions yet"
+		}
+
+		blocks := s.blockchain.GetBlocks()
+		if len(blocks) == 0 {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "no blocks in blockchain"})
+			return
+		}
+		genesisBlock := blocks[0]
 		bestBlockHash := s.blockchain.GetBestBlockHash()
 		blockCount := s.blockchain.GetBlockCount()
 
@@ -63,30 +85,32 @@ func (s *Server) setupRoutes() {
 				"best_block_hash":      fmt.Sprintf("%x", bestBlockHash),
 				"block_count":          blockCount,
 			},
+			"last_transaction": lastTxResp,
 			"available_endpoints": []string{
 				"/transaction (POST)",
 				"/block/:id (GET)",
 				"/bestblockhash (GET)",
 				"/blockcount (GET)",
 				"/metrics (GET)",
+				"/latest-transaction (GET)",
 			},
 		})
 	})
 
-	// ... rest of routes unchanged
 	s.router.POST("/transaction", s.handleTransaction)
 	s.router.GET("/block/:id", s.handleGetBlock)
 	s.router.GET("/bestblockhash", s.handleGetBestBlockHash)
 	s.router.GET("/blockcount", s.handleGetBlockCount)
 	s.router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	s.router.GET("/latest-transaction", func(c *gin.Context) {
+		s.lastTxMutex.RLock()
+		defer s.lastTxMutex.RUnlock()
 		if s.lastTransaction == nil {
 			c.JSON(http.StatusOK, gin.H{"message": "No transactions yet"})
 			return
 		}
 		c.JSON(http.StatusOK, s.lastTransaction)
 	})
-
 }
 
 // handleTransaction submits a transaction.
@@ -101,12 +125,14 @@ func (s *Server) handleTransaction(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Received transaction:\n Sender: %s\n Receiver: %s\n Amount: %s\n Nonce: %d\n",
+	log.Printf("Received transaction: Sender=%s, Receiver=%s, Amount=%s, Nonce=%d",
 		tx.Sender, tx.Receiver, tx.Amount.String(), tx.Nonce)
 
 	s.messageCh <- &security.Message{Type: "transaction", Data: &tx}
 
-	s.lastTransaction = &tx // save last tx here
+	s.lastTxMutex.Lock()
+	s.lastTransaction = &tx
+	s.lastTxMutex.Unlock()
 
 	c.JSON(http.StatusOK, gin.H{"status": "Transaction submitted"})
 }

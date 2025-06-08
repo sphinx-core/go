@@ -1,6 +1,8 @@
 package http
 
 import (
+	"sync"
+
 	"github.com/gin-gonic/gin"
 	"github.com/sphinx-core/go/src/core"
 	types "github.com/sphinx-core/go/src/core/transaction"
@@ -9,10 +11,10 @@ import (
 
 // Server handles HTTP requests.
 type Server struct {
-	address    string
-	router     *gin.Engine
-	messageCh  chan *security.Message
-	blockchain *core.Blockchain
-
-	lastTransaction *types.Transaction // store last transaction here
+	address         string
+	router          *gin.Engine
+	messageCh       chan *security.Message
+	blockchain      *core.Blockchain
+	lastTransaction *types.Transaction
+	lastTxMutex     sync.RWMutex
 }
