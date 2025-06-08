@@ -46,13 +46,13 @@ type WebSocketServer struct {
 }
 
 // NewWebSocketServer creates a new WebSocket server.
-func NewWebSocketServer(address string, messageCh chan *security.Message, tlsConfig *tls.Config) *WebSocketServer {
+func NewWebSocketServer(address string, messageCh chan *security.Message, tlsConfig *tls.Config, rpcServer *rpc.Server) *WebSocketServer {
 	return &WebSocketServer{
 		address:   address,
 		upgrader:  websocket.Upgrader{},
 		messageCh: messageCh,
 		tlsConfig: tlsConfig,
-		rpcServer: rpc.NewServer(messageCh),
+		rpcServer: rpcServer,
 		handshake: security.NewHandshake(tlsConfig),
 	}
 }

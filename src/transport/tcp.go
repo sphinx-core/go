@@ -42,12 +42,12 @@ type TCPServer struct {
 }
 
 // NewTCPServer creates a new TCP server.
-func NewTCPServer(address string, messageCh chan *security.Message, tlsConfig *tls.Config) *TCPServer {
+func NewTCPServer(address string, messageCh chan *security.Message, tlsConfig *tls.Config, rpcServer *rpc.Server) *TCPServer {
 	return &TCPServer{
 		address:   address,
 		messageCh: messageCh,
 		tlsConfig: tlsConfig,
-		rpcServer: rpc.NewServer(messageCh),
+		rpcServer: rpcServer,
 		handshake: security.NewHandshake(tlsConfig),
 	}
 }
@@ -101,7 +101,7 @@ func (s *TCPServer) handleConnection(conn net.Conn) {
 
 // readConn reads data from a connection.
 func readConn(conn net.Conn) []byte {
-	buf := make([]byte, 4096) // Supports larger messages
+	buf := make([]byte, 4096)
 	n, _ := conn.Read(buf)
 	return buf[:n]
 }

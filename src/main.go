@@ -23,41 +23,73 @@
 package main
 
 import (
-	"fmt"
+	"crypto/tls"
+	"flag"
 	"log"
-	"time"
 
+	"github.com/sphinx-core/go/src/core"
+	"github.com/sphinx-core/go/src/http"
+	"github.com/sphinx-core/go/src/p2p"
 	"github.com/sphinx-core/go/src/rpc"
+	"github.com/sphinx-core/go/src/security"
+	"github.com/sphinx-core/go/src/transport"
 )
 
 func main() {
-	// Add transaction
-	tx := `{"sender":"Alice","receiver":"Bob","amount":"100","gas_limit":"1000000","gas_price":"1","timestamp":` + fmt.Sprintf("%d", time.Now().Unix()) + `,"nonce":1}`
-	resp, err := rpc.CallRPC("127.0.0.1:30303", "add_transaction", tx)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("Add transaction: %v", resp)
+	addr := flag.String("addr", "127.0.0.1:30303", "TCP server address")
+	httpAddr := flag.String("httpaddr", "127.0.0.1:8545", "HTTP server address")
+	wsAddr := flag.String("wsaddr", "127.0.0.1:8546", "WebSocket server address")
+	seeds := flag.String("seeds", "", "Comma-separated list of seed nodes")
+	flag.Parse()
 
-	// Get block count
-	resp, err = rpc.CallRPC("127.0.0.1:30303", "getblockcount", "")
+	// Load TLS certificate
+	cert, err := tls.LoadX509KeyPair("cert.pem", "cert.pem")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to load TLS certificate: %v", err)
 	}
-	log.Printf("Block count: %v", resp)
+	tlsConfig := &tls.Config{
+		Certificates:     []tls.Certificate{cert},
+		CurvePreferences: []tls.CurveID{tls.X25519},
+		MinVersion:       tls.VersionTLS13,
+	}
 
-	// Get best block hash
-	resp, err = rpc.CallRPC("127.0.0.1:30303", "getbestblockhash", "")
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("Best block hash: %v", resp)
+	// Initialize shared blockchain and message channel
+	blockchain := core.NewBlockchain()
+	messageCh := make(chan *security.Message, 100)
 
-	// Get block by hash
-	hash := resp.Result.(string)
-	resp, err = rpc.CallRPC("127.0.0.1:30303", "getblock", `"`+hash+`"`)
-	if err != nil {
-		log.Fatal(err)
+	// Initialize RPC server with shared blockchain
+	rpcServer := rpc.NewServer(messageCh, blockchain)
+
+	// Start TCP server
+	tcpServer := transport.NewTCPServer(*addr, messageCh, tlsConfig, rpcServer)
+	go func() {
+		if err := tcpServer.Start(); err != nil {
+			log.Fatalf("TCP server failed: %v", err)
+		}
+	}()
+
+	// Start HTTP server
+	httpServer := http.NewServer(*httpAddr, messageCh, blockchain)
+	go func() {
+		if err := httpServer.Start(); err != nil {
+			log.Fatalf("HTTP server failed: %v", err)
+		}
+	}()
+
+	// Start WebSocket server
+	wsServer := transport.NewWebSocketServer(*wsAddr, messageCh, tlsConfig, rpcServer)
+	go func() {
+		if err := wsServer.Start(); err != nil {
+			log.Fatalf("WebSocket server failed: %v", err)
+		}
+	}()
+
+	// Start P2P server
+	p2pServer := p2p.NewServer(*addr, []string{*seeds}, blockchain)
+	if err := p2pServer.Start(); err != nil {
+		log.Fatalf("P2P server failed: %v", err)
 	}
-	log.Printf("Block: %v", resp)
+
+	// Keep the main goroutine running
+	select {}
 }

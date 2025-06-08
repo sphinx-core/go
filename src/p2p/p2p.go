@@ -43,13 +43,13 @@ type Server struct {
 }
 
 // NewServer creates a new P2P server.
-func NewServer(address string, seedNodes []string) *Server {
+func NewServer(address string, seedNodes []string, blockchain *core.Blockchain) *Server {
 	return &Server{
 		address:    address,
 		seedNodes:  seedNodes,
 		peers:      make(map[string]*Peer),
 		messageCh:  make(chan *security.Message),
-		blockchain: core.NewBlockchain(),
+		blockchain: blockchain,
 	}
 }
 
@@ -67,7 +67,7 @@ func (s *Server) handleMessages() {
 		switch msg.Type {
 		case "transaction":
 			if tx, ok := msg.Data.(*types.Transaction); ok {
-				if err := s.blockchain.AddTransaction(tx); err != nil { // Already a pointer
+				if err := s.blockchain.AddTransaction(tx); err != nil {
 					log.Printf("Failed to add transaction: %v", err)
 				}
 			}

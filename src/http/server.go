@@ -20,7 +20,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/http/server.go
 package http
 
 import (
@@ -45,13 +44,13 @@ type Server struct {
 }
 
 // NewServer creates a new HTTP server.
-func NewServer(address string, messageCh chan *security.Message) *Server {
+func NewServer(address string, messageCh chan *security.Message, blockchain *core.Blockchain) *Server {
 	r := gin.Default()
 	s := &Server{
 		address:    address,
 		router:     r,
 		messageCh:  messageCh,
-		blockchain: core.NewBlockchain(),
+		blockchain: blockchain,
 	}
 	s.setupRoutes()
 	return s
@@ -73,7 +72,7 @@ func (s *Server) handleTransaction(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := s.blockchain.AddTransaction(&tx); err != nil { // Pass pointer
+	if err := s.blockchain.AddTransaction(&tx); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

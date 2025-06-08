@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/rpc/server.go
 package rpc
 
 import (
@@ -35,13 +36,13 @@ import (
 )
 
 // NewServer creates a new RPC server.
-func NewServer(messageCh chan *security.Message) *Server {
+func NewServer(messageCh chan *security.Message, blockchain *core.Blockchain) *Server {
 	metrics := NewMetrics()
 	prometheus.MustRegister(metrics.RequestCount, metrics.RequestLatency, metrics.ErrorCount)
 	return &Server{
 		messageCh:  messageCh,
 		metrics:    metrics,
-		blockchain: core.NewBlockchain(),
+		blockchain: blockchain,
 	}
 }
 
@@ -67,7 +68,7 @@ func (s *Server) HandleRequest(data []byte) ([]byte, error) {
 			s.metrics.ErrorCount.WithLabelValues(req.Method).Inc()
 			return nil, err
 		}
-		if err := s.blockchain.AddTransaction(&tx); err != nil { // Pass pointer
+		if err := s.blockchain.AddTransaction(&tx); err != nil {
 			s.metrics.ErrorCount.WithLabelValues(req.Method).Inc()
 			return nil, err
 		}
