@@ -20,7 +20,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// transport/websocket.go
 package transport
 
 import (
@@ -108,7 +107,7 @@ func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 func ConnectWebSocket(address string, messageCh chan *security.Message) error {
 	dialer := websocket.Dialer{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
+			InsecureSkipVerify: true, // For testing
 			CurvePreferences:   []tls.CurveID{tls.X25519Kyber768Draft00, tls.X25519},
 			MinVersion:         tls.VersionTLS13,
 		},

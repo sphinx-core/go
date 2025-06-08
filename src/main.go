@@ -1,6 +1,6 @@
 // MIT License
 //
-// # Copyright (c) 2024 sphinx-core
+// Copyright (c) 2024 sphinx-core
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -20,37 +20,41 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/server/server.go
-package server
+package main
 
 import (
-	"crypto/tls"
+	"log"
 
-	"github.com/sphinx-core/go/src/http"
-	"github.com/sphinx-core/go/src/security"
-	"github.com/sphinx-core/go/src/transport"
+	"github.com/sphinx-core/go/src/rpc"
 )
 
-// Server manages all protocol servers.
-type Server struct {
-	tcpServer  *transport.TCPServer
-	wsServer   *transport.WebSocketServer
-	httpServer *http.Server
-}
-
-// NewServer creates a new server.
-func NewServer(tcpAddr, wsAddr, httpAddr string, tlsConfig *tls.Config) *Server {
-	messageCh := make(chan *security.Message)
-	return &Server{
-		tcpServer:  transport.NewTCPServer(tcpAddr, messageCh, tlsConfig),
-		wsServer:   transport.NewWebSocketServer(wsAddr, messageCh, tlsConfig),
-		httpServer: http.NewServer(httpAddr, messageCh),
+func main() {
+	// Add transaction
+	resp, err := rpc.CallRPC("127.0.0.1:30303", "add_transaction", `{"from":"Alice","to":"Bob","amount":100}`)
+	if err != nil {
+		log.Fatal(err)
 	}
-}
+	log.Printf("Add transaction: %v", resp)
 
-// Start runs all servers.
-func (s *Server) Start() error {
-	go s.tcpServer.Start()
-	go s.httpServer.Start()
-	return s.wsServer.Start()
+	// Get block count
+	resp, err = rpc.CallRPC("127.0.0.1:30303", "getblockcount", "")
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Block count: %v", resp)
+
+	// Get best block hash
+	resp, err = rpc.CallRPC("127.0.0.1:30303", "getbestblockhash", "")
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Best block hash: %v", resp)
+
+	// Get block by hash
+	hash := resp.Result.(string)
+	resp, err = rpc.CallRPC("127.0.0.1:30303", "getblock", `"`+hash+`"`)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Block: %v", resp)
 }

@@ -83,7 +83,7 @@ func (s *Server) handleTransaction(c *gin.Context) {
 // handleGetBlock retrieves a block by ID.
 func (s *Server) handleGetBlock(c *gin.Context) {
 	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
+	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid block ID"})
 		return

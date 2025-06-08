@@ -20,7 +20,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// p2p/p2p.go
 package p2p
 
 import (
@@ -73,11 +72,11 @@ func (s *Server) handleMessages() {
 				}
 			}
 		case "block":
-			if block, ok := msg.Data.(types.Block); ok {
+			if _, ok := msg.Data.(types.Block); ok {
 				if err := s.blockchain.AddBlock(); err != nil {
 					log.Printf("Failed to add block: %v", err)
 				}
-				s.Broadcast(&security.Message{Type: "block", Data: block})
+				s.Broadcast(msg)
 			}
 		}
 		s.Broadcast(msg)

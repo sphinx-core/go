@@ -27,13 +27,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// Metrics holds all RPC-related Prometheus metrics.
-type Metrics struct {
-	RequestCount   *prometheus.CounterVec
-	RequestLatency *prometheus.HistogramVec
-	ErrorCount     *prometheus.CounterVec
-}
-
 // NewMetrics initializes RPC metrics.
 func NewMetrics() *Metrics {
 	return &Metrics{

@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// core/blockchain.go
+// go/src/core/blockchain.go
 package core
 
 import (
@@ -41,88 +41,87 @@ type Blockchain struct {
 	lock       sync.RWMutex
 }
 
-// NewBlockchain initializes a blockchain with a genesis block.
+// NewBlockchain creates a blockchain with a genesis block.
 func NewBlockchain() *Blockchain {
 	genesis := &types.Block{
-		Header: types.Header{
-			Block:    0,
+		Header: &types.Header{
+			ID:       0,
 			PrevHash: []byte{},
 		},
 		Transactions: []types.Transaction{},
 	}
-	genesis.Hash = genesis.GenerateBlockHash()
-	bc := &Blockchain{
+	genesisHash := genesis.GenerateBlockHash()
+	blockchain := &Blockchain{
 		chain:      []*types.Block{genesis},
-		blockIndex: map[string]*types.Block{string(genesis.Hash): genesis},
+		blockIndex: map[string]*types.Block{string(genesisHash): genesis},
 		pendingTx:  []types.Transaction{},
 		bestBlock:  genesis,
 	}
-	log.Printf("Initialized blockchain with genesis block: Hash=%x", genesis.Hash)
-	return bc
+	log.Printf("Initialized blockchain with genesis block: Hash=%x", genesisHash)
+	return blockchain
 }
 
 // AddTransaction adds a transaction to the pending list.
-func (bc *Blockchain) AddTransaction(tx types.Transaction) error {
-	bc.lock.Lock()
-	defer bc.lock.Unlock()
+func (blockchain *Blockchain) AddTransaction(tx types.Transaction) error {
+	blockchain.lock.Lock()
+	defer blockchain.lock.Unlock()
 
-	if tx.From == "" || tx.To == "" || tx.Amount <= 0 {
+	if tx.From == "" || tx.To == "" || tx.Amount == 0 {
 		return errors.New("invalid transaction")
 	}
-	bc.pendingTx = append(bc.pendingTx, tx)
+	blockchain.pendingTx = append(blockchain.pendingTx, tx)
 	log.Printf("Added transaction: %+v", tx)
 	return nil
 }
 
 // AddBlock creates a new block from pending transactions.
-func (bc *Blockchain) AddBlock() error {
-	bc.lock.Lock()
-	defer bc.lock.Unlock()
+func (blockchain *Blockchain) AddBlock() error {
+	blockchain.lock.Lock()
+	defer blockchain.lock.Unlock()
 
-	if len(bc.pendingTx) == 0 {
+	if len(blockchain.pendingTx) == 0 {
 		return errors.New("no pending transactions")
 	}
 
-	prevBlock := bc.bestBlock
+	prevBlock := blockchain.bestBlock
 	newBlock := &types.Block{
-		Header: types.Header{
-			Block:    prevBlock.Header.Block + 1,
-			PrevHash: prevBlock.Hash,
+		Header: &types.Header{
+			ID:       prevBlock.Header.ID + 1,
+			PrevHash: prevBlock.GenerateBlockHash(),
 		},
-		Transactions: bc.pendingTx,
+		Transactions: blockchain.pendingTx,
 	}
-	newBlock.Hash = newBlock.GenerateBlockHash()
 
 	// Validate block
 	if err := newBlock.SanityCheck(); err != nil {
 		return fmt.Errorf("block failed sanity check: %w", err)
 	}
-	if string(newBlock.Header.PrevHash) != string(prevBlock.Hash) {
+	if string(newBlock.Header.PrevHash) != string(prevBlock.GenerateBlockHash()) {
 		return errors.New("block does not correctly reference previous block")
 	}
 
 	// Add to chain and index
-	blockHash := string(newBlock.Hash)
-	bc.chain = append(bc.chain, newBlock)
-	bc.blockIndex[blockHash] = newBlock
-	bc.bestBlock = newBlock
-	bc.pendingTx = []types.Transaction{}
-	log.Printf("Added block to active chain: Block=%d, Hash=%x", newBlock.Header.Block, newBlock.Hash)
+	blockHash := string(newBlock.GenerateBlockHash())
+	blockchain.chain = append(blockchain.chain, newBlock)
+	blockchain.blockIndex[blockHash] = newBlock
+	blockchain.bestBlock = newBlock
+	blockchain.pendingTx = []types.Transaction{}
+	log.Printf("Added block to active chain: Block=%d, Hash=%x", newBlock.Header.Block, newBlock.GenerateBlockHash())
 	return nil
 }
 
 // GetLatestBlock returns the head of the chain.
-func (bc *Blockchain) GetLatestBlock() *types.Block {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-	return bc.bestBlock
+func (blockchain *Blockchain) GetLatestBlock() *types.Block {
+	blockchain.lock.RLock()
+	defer blockchain.lock.RUnlock()
+	return blockchain.bestBlock
 }
 
 // GetBlockByHash returns a block given its hash.
-func (bc *Blockchain) GetBlockByHash(hash []byte) (*types.Block, error) {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-	block, ok := bc.blockIndex[string(hash)]
+func (blockchain *Blockchain) GetBlockByHash(hash []byte) (*types.Block, error) {
+	blockchain.lock.RLock()
+	defer blockchain.lock.RUnlock()
+	block, ok := blockchain.blockIndex[string(hash)]
 	if !ok {
 		return nil, errors.New("block not found")
 	}
@@ -130,51 +129,51 @@ func (bc *Blockchain) GetBlockByHash(hash []byte) (*types.Block, error) {
 }
 
 // GetBestBlockHash returns the hash of the active chain’s tip.
-func (bc *Blockchain) GetBestBlockHash() []byte {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-	return bc.bestBlock.Hash
+func (blockchain *Blockchain) GetBestBlockHash() []byte {
+	blockchain.lock.RLock()
+	defer blockchain.lock.RUnlock()
+	return blockchain.bestBlock.GenerateBlockHash()
 }
 
 // GetBlockCount returns the height of the active chain.
-func (bc *Blockchain) GetBlockCount() int {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-	return bc.bestBlock.Header.Block + 1
+func (blockchain *Blockchain) GetBlockCount() uint64 {
+	blockchain.lock.RLock()
+	defer blockchain.lock.RUnlock()
+	return blockchain.bestBlock.Header.ID + 1
 }
 
 // GetBlocks returns the current blockchain.
-func (bc *Blockchain) GetBlocks() []*types.Block {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-	return bc.chain
+func (blockchain *Blockchain) GetBlocks() []*types.Block {
+	blockchain.lock.RLock()
+	defer blockchain.lock.RUnlock()
+	return blockchain.chain
 }
 
 // ChainLength returns the current length of the blockchain.
-func (bc *Blockchain) ChainLength() int {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-	return len(bc.chain)
+func (blockchain *Blockchain) ChainLength() int {
+	blockchain.lock.RLock()
+	defer blockchain.lock.RUnlock()
+	return len(blockchain.chain)
 }
 
 // IsValidChain checks the integrity of the full chain.
-func (bc *Blockchain) IsValidChain() error {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
+func (blockchain *Blockchain) IsValidChain() error {
+	blockchain.lock.RLock()
+	defer blockchain.lock.RUnlock()
 
-	for i := 1; i < len(bc.chain); i++ {
-		prevBlock := bc.chain[i-1]
-		currBlock := bc.chain[i]
+	for i := 1; i < len(blockchain.chain); i++ {
+		prevBlock := blockchain.chain[i-1]
+		currBlock := blockchain.chain[i]
 
 		// Check previous hash linkage
 		expectedPrevHash := prevBlock.GenerateBlockHash()
 		if string(currBlock.Header.PrevHash) != string(expectedPrevHash) {
-			return fmt.Errorf("block %d has invalid prev hash", currBlock.Header.Block)
+			return fmt.Errorf("block %d has invalid prev hash", currBlock.Header.ID)
 		}
 
 		// Check block sanity
 		if err := currBlock.SanityCheck(); err != nil {
-			return fmt.Errorf("block %d failed sanity: %w", currBlock.Header.Block, err)
+			return fmt.Errorf("block %d failed sanity: %w", currBlock.Header.ID, err)
 		}
 	}
 	return nil
