@@ -54,7 +54,9 @@ func main() {
 	}
 
 	// Initialize shared blockchain and message channel
+	log.Println("Initializing blockchain...")
 	blockchain := core.NewBlockchain()
+	log.Printf("Genesis block created with hash: %x", blockchain.GetBestBlockHash())
 	messageCh := make(chan *security.Message, 100)
 
 	// Initialize RPC server with shared blockchain

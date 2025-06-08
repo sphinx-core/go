@@ -164,6 +164,14 @@ func NewSphinxHash(bitSize int, data []byte) *SphinxHash {
 
 // GetHash retrieves or calculates the hash of the given data.
 func (s *SphinxHash) GetHash(data []byte) []byte {
+	if len(data) < 8 {
+		// Use a fallback hash for short inputs
+		hash := sha512.New512_256()
+		hash.Write(data)
+		hash.Write(s.salt)
+		return hash.Sum(nil)
+	}
+
 	hashKey := binary.LittleEndian.Uint64(data[:8]) // Ensure the key is unique based on the data
 	if cachedValue, found := s.cache.Get(hashKey); found {
 		return cachedValue // Return cached value if found
