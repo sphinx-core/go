@@ -58,8 +58,18 @@ func NewServer(address string, messageCh chan *security.Message, blockchain *cor
 // setupRoutes defines HTTP endpoints.
 func (s *Server) setupRoutes() {
 	s.router.GET("/", func(c *gin.Context) {
+		genesisBlock := s.blockchain.GetBlocks()[0] // assuming genesis is first block
+		bestBlockHash := s.blockchain.GetBestBlockHash()
+		blockCount := s.blockchain.GetBlockCount()
+
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Welcome to the blockchain API",
+			"blockchain_info": gin.H{
+				"genesis_block_hash":   fmt.Sprintf("%x", genesisBlock.GenerateBlockHash()),
+				"genesis_block_height": genesisBlock.Header.Block,
+				"best_block_hash":      fmt.Sprintf("%x", bestBlockHash),
+				"block_count":          blockCount,
+			},
 			"available_endpoints": []string{
 				"/transaction (POST)",
 				"/block/:id (GET)",
@@ -70,6 +80,7 @@ func (s *Server) setupRoutes() {
 		})
 	})
 
+	// ... rest of routes unchanged
 	s.router.POST("/transaction", s.handleTransaction)
 	s.router.GET("/block/:id", s.handleGetBlock)
 	s.router.GET("/bestblockhash", s.handleGetBestBlockHash)
