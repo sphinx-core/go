@@ -57,6 +57,19 @@ func NewServer(address string, messageCh chan *security.Message, blockchain *cor
 
 // setupRoutes defines HTTP endpoints.
 func (s *Server) setupRoutes() {
+	s.router.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Welcome to the blockchain API",
+			"available_endpoints": []string{
+				"/transaction (POST)",
+				"/block/:id (GET)",
+				"/bestblockhash (GET)",
+				"/blockcount (GET)",
+				"/metrics (GET)",
+			},
+		})
+	})
+
 	s.router.POST("/transaction", s.handleTransaction)
 	s.router.GET("/block/:id", s.handleGetBlock)
 	s.router.GET("/bestblockhash", s.handleGetBestBlockHash)

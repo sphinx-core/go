@@ -26,6 +26,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"log"
+	"strings"
 
 	"github.com/sphinx-core/go/src/core"
 	"github.com/sphinx-core/go/src/http"
@@ -87,7 +88,12 @@ func main() {
 	}()
 
 	// Start P2P server
-	p2pServer := p2p.NewServer(*addr, []string{*seeds}, blockchain)
+	seedList := []string{}
+	if *seeds != "" {
+		seedList = strings.Split(*seeds, ",")
+	}
+
+	p2pServer := p2p.NewServer(*addr, seedList, blockchain)
 	if err := p2pServer.Start(); err != nil {
 		log.Fatalf("P2P server failed: %v", err)
 	}
