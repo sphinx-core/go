@@ -20,48 +20,21 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package rpc
+package security
 
 import (
-	"sync"
+	"crypto/tls"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var (
-	metrics     *Metrics
-	initMetrics sync.Once
-)
+// Handshake manages TLS handshakes with metrics.
+type Handshake struct {
+	Config  *tls.Config
+	Metrics *HandshakeMetrics
+}
 
-func NewMetrics() *Metrics {
-	initMetrics.Do(func() {
-		metrics = &Metrics{
-			RequestCount: promauto.NewCounterVec(
-				prometheus.CounterOpts{
-					Name: "rpc_request_total",
-					Help: "Total number of RPC requests processed",
-				},
-				[]string{"method"},
-			),
-			RequestLatency: promauto.NewHistogramVec(
-				prometheus.HistogramOpts{
-					Name:    "rpc_request_latency_seconds",
-					Help:    "Latency of RPC requests in seconds",
-					Buckets: prometheus.DefBuckets,
-				},
-				[]string{"method"},
-			),
-			ErrorCount: promauto.NewCounterVec(
-				prometheus.CounterOpts{
-					Name: "rpc_error_total",
-					Help: "Total number of RPC errors",
-				},
-				[]string{"method"},
-			),
-		}
-		// Metrics are already registered by promauto.New* functions.
-		// So you don't need to call prometheus.MustRegister here.
-	})
-	return metrics
+type HandshakeMetrics struct {
+	Latency *prometheus.HistogramVec
+	Errors  *prometheus.CounterVec
 }

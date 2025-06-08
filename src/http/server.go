@@ -24,7 +24,6 @@ package http
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 
@@ -112,12 +111,5 @@ func (s *Server) handleGetBlockCount(c *gin.Context) {
 
 // Start runs the HTTP server.
 func (s *Server) Start() error {
-	go func() {
-		r := gin.Default()
-		r.GET("/metrics", gin.WrapH(promhttp.Handler()))
-		if err := r.Run("0.0.0.0:9090"); err != nil {
-			log.Printf("Metrics server failed: %v", err)
-		}
-	}()
 	return s.router.Run(s.address)
 }

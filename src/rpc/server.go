@@ -29,7 +29,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sphinx-core/go/src/core"
 	types "github.com/sphinx-core/go/src/core/transaction"
 	"github.com/sphinx-core/go/src/security"
@@ -38,7 +37,6 @@ import (
 // NewServer creates a new RPC server.
 func NewServer(messageCh chan *security.Message, blockchain *core.Blockchain) *Server {
 	metrics := NewMetrics()
-	prometheus.MustRegister(metrics.RequestCount, metrics.RequestLatency, metrics.ErrorCount)
 	return &Server{
 		messageCh:  messageCh,
 		metrics:    metrics,

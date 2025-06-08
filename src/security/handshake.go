@@ -30,43 +30,37 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// Handshake manages TLS handshakes with metrics.
-type Handshake struct {
-	Config  *tls.Config
-	Metrics *HandshakeMetrics
+var (
+	handshakeLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "tls_handshake_latency_seconds",
+			Help:    "Latency of TLS handshakes",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"protocol"},
+	)
+	handshakeErrors = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "tls_handshake_errors_total",
+			Help: "Total number of TLS handshake errors",
+		},
+		[]string{"protocol"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(handshakeLatency, handshakeErrors)
 }
 
-// HandshakeMetrics holds Prometheus metrics for TLS handshakes.
-type HandshakeMetrics struct {
-	Latency *prometheus.HistogramVec
-	Errors  *prometheus.CounterVec
-}
-
-// NewHandshake creates a new Handshake instance.
 func NewHandshake(config *tls.Config) *Handshake {
-	metrics := &HandshakeMetrics{
-		Latency: promauto.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Name:    "tls_handshake_latency_seconds",
-				Help:    "Latency of TLS handshakes",
-				Buckets: prometheus.DefBuckets,
-			},
-			[]string{"protocol"},
-		),
-		Errors: promauto.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: "tls_handshake_errors_total",
-				Help: "Total number of TLS handshake errors",
-			},
-			[]string{"protocol"},
-		),
-	}
 	return &Handshake{
-		Config:  config,
-		Metrics: metrics,
+		Config: config,
+		Metrics: &HandshakeMetrics{
+			Latency: handshakeLatency,
+			Errors:  handshakeErrors,
+		},
 	}
 }
 
