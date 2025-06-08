@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/http/server.go
 package http
 
 import (
@@ -72,11 +73,11 @@ func (s *Server) handleTransaction(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := s.blockchain.AddTransaction(tx); err != nil {
+	if err := s.blockchain.AddTransaction(&tx); err != nil { // Pass pointer
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	s.messageCh <- &security.Message{Type: "transaction", Data: tx}
+	s.messageCh <- &security.Message{Type: "transaction", Data: &tx}
 	c.JSON(http.StatusOK, gin.H{"status": "Transaction submitted"})
 }
 

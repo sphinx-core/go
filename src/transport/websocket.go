@@ -26,6 +26,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"log"
+	"math/big"
 	"net/http"
 
 	"github.com/gorilla/websocket"
@@ -108,7 +109,7 @@ func ConnectWebSocket(address string, messageCh chan *security.Message) error {
 	dialer := websocket.Dialer{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true, // For testing
-			CurvePreferences:   []tls.CurveID{tls.X25519Kyber768Draft00, tls.X25519},
+			CurvePreferences:   []tls.CurveID{tls.X25519},
 			MinVersion:         tls.VersionTLS13,
 		},
 	}
@@ -118,6 +119,9 @@ func ConnectWebSocket(address string, messageCh chan *security.Message) error {
 	}
 	defer conn.Close()
 
-	msg := &security.Message{Type: "block", Data: types.Block{Header: types.Header{Block: 1}}}
+	header := types.NewBlockHeader(1, []byte{}, big.NewInt(1), []byte{}, []byte{}, big.NewInt(1000000), big.NewInt(0), []byte{}, []byte{})
+	body := types.NewBlockBody([]*types.Transaction{}, []byte{})
+	block := types.NewBlock(header, body)
+	msg := &security.Message{Type: "block", Data: *block}
 	return conn.WriteJSON(msg)
 }

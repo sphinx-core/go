@@ -23,14 +23,17 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"time"
 
 	"github.com/sphinx-core/go/src/rpc"
 )
 
 func main() {
 	// Add transaction
-	resp, err := rpc.CallRPC("127.0.0.1:30303", "add_transaction", `{"from":"Alice","to":"Bob","amount":100}`)
+	tx := `{"sender":"Alice","receiver":"Bob","amount":"100","gas_limit":"1000000","gas_price":"1","timestamp":` + fmt.Sprintf("%d", time.Now().Unix()) + `,"nonce":1}`
+	resp, err := rpc.CallRPC("127.0.0.1:30303", "add_transaction", tx)
 	if err != nil {
 		log.Fatal(err)
 	}

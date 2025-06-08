@@ -25,6 +25,7 @@ package security
 import (
 	"encoding/json"
 	"errors"
+	"math/big"
 
 	types "github.com/sphinx-core/go/src/core/transaction"
 )
@@ -42,8 +43,12 @@ func (m *Message) ValidateMessage() error {
 	}
 	switch m.Type {
 	case "transaction":
-		if _, ok := m.Data.(types.Transaction); !ok {
-			return errors.New("invalid transaction data")
+		if tx, ok := m.Data.(*types.Transaction); ok {
+			if tx.Sender == "" || tx.Receiver == "" || tx.Amount.Cmp(big.NewInt(0)) <= 0 {
+				return errors.New("invalid transaction data")
+			}
+		} else {
+			return errors.New("invalid transaction type")
 		}
 	case "block":
 		if _, ok := m.Data.(types.Block); !ok {

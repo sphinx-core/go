@@ -66,17 +66,17 @@ func (s *Server) handleMessages() {
 		log.Printf("Received message: Type=%s, Data=%v", msg.Type, msg.Data)
 		switch msg.Type {
 		case "transaction":
-			if tx, ok := msg.Data.(types.Transaction); ok {
-				if err := s.blockchain.AddTransaction(tx); err != nil {
+			if tx, ok := msg.Data.(*types.Transaction); ok {
+				if err := s.blockchain.AddTransaction(tx); err != nil { // Already a pointer
 					log.Printf("Failed to add transaction: %v", err)
 				}
 			}
 		case "block":
-			if _, ok := msg.Data.(types.Block); ok {
+			if block, ok := msg.Data.(types.Block); ok {
 				if err := s.blockchain.AddBlock(); err != nil {
 					log.Printf("Failed to add block: %v", err)
 				}
-				s.Broadcast(msg)
+				s.Broadcast(&security.Message{Type: "block", Data: block})
 			}
 		}
 		s.Broadcast(msg)

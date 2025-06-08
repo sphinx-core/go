@@ -101,7 +101,74 @@ func (s *TCPServer) handleConnection(conn net.Conn) {
 
 // readConn reads data from a connection.
 func readConn(conn net.Conn) []byte {
-	buf := make([]byte, 4096) // Supports larger PQC messages
+	buf := make([]byte, 4096) // Supports larger messages
 	n, _ := conn.Read(buf)
 	return buf[:n]
+}
+
+// ConnectTCP establishes a TLS-secured TCP connection to a peer.
+func ConnectTCP(address string, messageCh chan *security.Message) error {
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true, // For testing
+		CurvePreferences:   []tls.CurveID{tls.X25519},
+		MinVersion:         tls.VersionTLS13,
+	}
+	conn, err := tls.Dial("tcp", address, tlsConfig)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	// Perform handshake
+	handshake := security.NewHandshake(tlsConfig)
+	if err := handshake.PerformHandshake(conn, "tcp"); err != nil {
+		return err
+	}
+
+	// Example message to test connection
+	msg := &security.Message{Type: "ping", Data: "hello"}
+	data, err := msg.Encode()
+	if err != nil {
+		return err
+	}
+	if _, err := conn.Write(data); err != nil {
+		return err
+	}
+
+	// Read response
+	respData := readConn(conn)
+	respMsg, err := security.DecodeMessage(respData)
+	if err != nil {
+		log.Printf("TCP read error: %v", err)
+		return err
+	}
+	messageCh <- respMsg
+
+	log.Printf("TCP connected to %s", address)
+	return nil
+}
+
+// SendMessage sends a message to a peer over TCP.
+func SendMessage(address string, msg *security.Message) error {
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true, // For testing
+		CurvePreferences:   []tls.CurveID{tls.X25519},
+		MinVersion:         tls.VersionTLS13,
+	}
+	conn, err := tls.Dial("tcp", address, tlsConfig)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	data, err := msg.Encode()
+	if err != nil {
+		return err
+	}
+	if _, err := conn.Write(data); err != nil {
+		return err
+	}
+
+	log.Printf("Sent message to %s: Type=%s", address, msg.Type)
+	return nil
 }

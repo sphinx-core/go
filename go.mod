@@ -4,7 +4,6 @@ go 1.23.0
 
 require (
 	github.com/btcsuite/btcutil v1.0.2
-	github.com/cloudflare/circl v1.6.1
 	github.com/gin-gonic/gin v1.10.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/holiman/uint256 v1.3.2

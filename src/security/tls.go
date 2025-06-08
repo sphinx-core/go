@@ -20,24 +20,22 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/security/tls.go
 package security
 
 import (
 	"crypto/tls"
 	"log"
-
-	"github.com/cloudflare/circl/kem/hybrid"
 )
 
-// LoadTLSConfig loads TLS configuration with hybrid X25519+Kyber768.
+// LoadTLSConfig loads TLS configuration with X25519, as X25519+Kyber768 is not supported.
 func LoadTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return nil, err
 	}
 
-	hybridKEM := hybrid.X25519Kyber768()
-	curveIDs := []tls.CurveID{tls.X25519Kyber768Draft00, tls.X25519}
+	curveIDs := []tls.CurveID{tls.X25519} // Fallback to X25519; X25519Kyber768Draft00 not supported
 
 	config := &tls.Config{
 		Certificates:       []tls.Certificate{cert},
@@ -48,6 +46,6 @@ func LoadTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 		ClientSessionCache: tls.NewLRUClientSessionCache(100),
 	}
 
-	log.Println("TLS configured with X25519+Kyber768 hybrid key agreement")
+	log.Println("TLS configured with X25519; X25519+Kyber768 hybrid not supported in Go crypto/tls")
 	return config, nil
 }

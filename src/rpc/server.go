@@ -55,7 +55,9 @@ func (s *Server) HandleRequest(data []byte) ([]byte, error) {
 
 	start := time.Now()
 	s.metrics.RequestCount.WithLabelValues(req.Method).Inc()
-	defer s.metrics.RequestLatency.WithLabelValues(req.Method).Observe(time.Since(start).Seconds())
+	defer func() {
+		s.metrics.RequestLatency.WithLabelValues(req.Method).Observe(time.Since(start).Seconds())
+	}()
 
 	resp := JSONRPCResponse{JSONRPC: "2.0", ID: req.ID}
 	switch req.Method {
@@ -65,11 +67,11 @@ func (s *Server) HandleRequest(data []byte) ([]byte, error) {
 			s.metrics.ErrorCount.WithLabelValues(req.Method).Inc()
 			return nil, err
 		}
-		if err := s.blockchain.AddTransaction(tx); err != nil {
+		if err := s.blockchain.AddTransaction(&tx); err != nil { // Pass pointer
 			s.metrics.ErrorCount.WithLabelValues(req.Method).Inc()
 			return nil, err
 		}
-		s.messageCh <- &security.Message{Type: "transaction", Data: tx}
+		s.messageCh <- &security.Message{Type: "transaction", Data: &tx}
 		resp.Result = map[string]string{"status": "Transaction received"}
 	case "getblockcount":
 		resp.Result = s.blockchain.GetBlockCount()
@@ -98,6 +100,5 @@ func (s *Server) HandleRequest(data []byte) ([]byte, error) {
 		resp.Error = "Unknown method"
 		s.metrics.ErrorCount.WithLabelValues(req.Method).Inc()
 	}
-
 	return json.Marshal(resp)
 }

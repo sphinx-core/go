@@ -20,13 +20,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/core/blockchain.go
 package core
 
 import (
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"sync"
 
 	types "github.com/sphinx-core/go/src/core/transaction"
@@ -36,25 +36,33 @@ import (
 type Blockchain struct {
 	chain      []*types.Block          // Active chain of blocks
 	blockIndex map[string]*types.Block // Fast lookup for blocks by hash
-	pendingTx  []types.Transaction     // Pending transactions
+	pendingTx  []*types.Transaction    // Pending transactions (changed to pointers)
 	bestBlock  *types.Block            // Tip of the active chain
 	lock       sync.RWMutex
 }
 
 // NewBlockchain creates a blockchain with a genesis block.
 func NewBlockchain() *Blockchain {
-	genesis := &types.Block{
-		Header: &types.Header{
-			ID:       0,
-			PrevHash: []byte{},
-		},
-		Transactions: []types.Transaction{},
-	}
+	// Initialize default values for genesis block
+	genesisHeader := types.NewBlockHeader(
+		0,                   // Block number
+		[]byte{},            // PrevHash
+		big.NewInt(1),       // Difficulty
+		[]byte{},            // TxsRoot
+		[]byte{},            // StateRoot
+		big.NewInt(1000000), // GasLimit
+		big.NewInt(0),       // GasUsed
+		[]byte{},            // ParentHash
+		[]byte{},            // UnclesHash
+	)
+	genesisBody := types.NewBlockBody([]*types.Transaction{}, []byte{})
+	genesis := types.NewBlock(genesisHeader, genesisBody)
+
 	genesisHash := genesis.GenerateBlockHash()
 	blockchain := &Blockchain{
 		chain:      []*types.Block{genesis},
 		blockIndex: map[string]*types.Block{string(genesisHash): genesis},
-		pendingTx:  []types.Transaction{},
+		pendingTx:  []*types.Transaction{}, // Initialize as empty slice of pointers
 		bestBlock:  genesis,
 	}
 	log.Printf("Initialized blockchain with genesis block: Hash=%x", genesisHash)
@@ -62,15 +70,20 @@ func NewBlockchain() *Blockchain {
 }
 
 // AddTransaction adds a transaction to the pending list.
-func (blockchain *Blockchain) AddTransaction(tx types.Transaction) error {
+func (blockchain *Blockchain) AddTransaction(tx *types.Transaction) error {
 	blockchain.lock.Lock()
 	defer blockchain.lock.Unlock()
 
-	if tx.From == "" || tx.To == "" || tx.Amount == 0 {
-		return errors.New("invalid transaction")
+	// Validate transaction fields
+	if tx.Sender == "" || tx.Receiver == "" || tx.Amount.Cmp(big.NewInt(0)) <= 0 {
+		return errors.New("invalid transaction: empty sender/receiver or non-positive amount")
 	}
-	blockchain.pendingTx = append(blockchain.pendingTx, tx)
-	log.Printf("Added transaction: %+v", tx)
+	if err := tx.SanityCheck(); err != nil {
+		return fmt.Errorf("transaction failed sanity check: %w", err)
+	}
+
+	blockchain.pendingTx = append(blockchain.pendingTx, tx) // Append pointer directly
+	log.Printf("Added transaction: Sender=%s, Receiver=%s, Amount=%s", tx.Sender, tx.Receiver, tx.Amount.String())
 	return nil
 }
 
@@ -84,13 +97,21 @@ func (blockchain *Blockchain) AddBlock() error {
 	}
 
 	prevBlock := blockchain.bestBlock
-	newBlock := &types.Block{
-		Header: &types.Header{
-			ID:       prevBlock.Header.ID + 1,
-			PrevHash: prevBlock.GenerateBlockHash(),
-		},
-		Transactions: blockchain.pendingTx,
-	}
+	// Create new block header
+	newHeader := types.NewBlockHeader(
+		prevBlock.Header.Block+1,      // Increment block number
+		prevBlock.GenerateBlockHash(), // Previous block hash
+		big.NewInt(1),                 // Difficulty (placeholder)
+		[]byte{},                      // TxsRoot (simplified)
+		[]byte{},                      // StateRoot (simplified)
+		big.NewInt(1000000),           // GasLimit
+		big.NewInt(0),                 // GasUsed
+		[]byte{},                      // ParentHash
+		[]byte{},                      // UnclesHash
+	)
+	// Create new block body
+	newBody := types.NewBlockBody(blockchain.pendingTx, []byte{}) // pendingTx is already []*types.Transaction
+	newBlock := types.NewBlock(newHeader, newBody)
 
 	// Validate block
 	if err := newBlock.SanityCheck(); err != nil {
@@ -105,7 +126,7 @@ func (blockchain *Blockchain) AddBlock() error {
 	blockchain.chain = append(blockchain.chain, newBlock)
 	blockchain.blockIndex[blockHash] = newBlock
 	blockchain.bestBlock = newBlock
-	blockchain.pendingTx = []types.Transaction{}
+	blockchain.pendingTx = []*types.Transaction{} // Reset to empty slice of pointers
 	log.Printf("Added block to active chain: Block=%d, Hash=%x", newBlock.Header.Block, newBlock.GenerateBlockHash())
 	return nil
 }
@@ -139,7 +160,7 @@ func (blockchain *Blockchain) GetBestBlockHash() []byte {
 func (blockchain *Blockchain) GetBlockCount() uint64 {
 	blockchain.lock.RLock()
 	defer blockchain.lock.RUnlock()
-	return blockchain.bestBlock.Header.ID + 1
+	return blockchain.bestBlock.Header.Block + 1
 }
 
 // GetBlocks returns the current blockchain.
@@ -168,12 +189,12 @@ func (blockchain *Blockchain) IsValidChain() error {
 		// Check previous hash linkage
 		expectedPrevHash := prevBlock.GenerateBlockHash()
 		if string(currBlock.Header.PrevHash) != string(expectedPrevHash) {
-			return fmt.Errorf("block %d has invalid prev hash", currBlock.Header.ID)
+			return fmt.Errorf("block %d has invalid prev hash", currBlock.Header.Block)
 		}
 
 		// Check block sanity
 		if err := currBlock.SanityCheck(); err != nil {
-			return fmt.Errorf("block %d failed sanity: %w", currBlock.Header.ID, err)
+			return fmt.Errorf("block %d failed sanity: %w", currBlock.Header.Block, err)
 		}
 	}
 	return nil
