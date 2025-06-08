@@ -26,14 +26,17 @@ import (
 	"crypto/tls"
 	"flag"
 	"log"
+	"math/big"
 	"strings"
+	"time"
 
-	"github.com/sphinx-core/go/src/core"
-	"github.com/sphinx-core/go/src/http"
-	"github.com/sphinx-core/go/src/p2p"
-	"github.com/sphinx-core/go/src/rpc"
-	"github.com/sphinx-core/go/src/security"
-	"github.com/sphinx-core/go/src/transport"
+	"github.com/sphinx-core/go/src/core"                   // blockchain core
+	types "github.com/sphinx-core/go/src/core/transaction" // your Transaction struct is here
+	"github.com/sphinx-core/go/src/http"                   // http server & client
+	"github.com/sphinx-core/go/src/p2p"                    // p2p server
+	"github.com/sphinx-core/go/src/rpc"                    // rpc server
+	"github.com/sphinx-core/go/src/security"               // message handling
+	"github.com/sphinx-core/go/src/transport"              // tcp/ws servers
 )
 
 func main() {
@@ -54,13 +57,12 @@ func main() {
 		MinVersion:       tls.VersionTLS13,
 	}
 
-	// Initialize shared blockchain and message channel
 	log.Println("Initializing blockchain...")
 	blockchain := core.NewBlockchain()
 	log.Printf("Genesis block created with hash: %x", blockchain.GetBestBlockHash())
 	messageCh := make(chan *security.Message, 100)
 
-	// Initialize RPC server with shared blockchain
+	// Initialize RPC server
 	rpcServer := rpc.NewServer(messageCh, blockchain)
 
 	// Start TCP server
@@ -92,12 +94,32 @@ func main() {
 	if *seeds != "" {
 		seedList = strings.Split(*seeds, ",")
 	}
-
 	p2pServer := p2p.NewServer(*addr, seedList, blockchain)
 	if err := p2pServer.Start(); err != nil {
 		log.Fatalf("P2P server failed: %v", err)
 	}
 
-	// Keep the main goroutine running
+	// === Simulate sending a transaction ===
+	time.Sleep(2 * time.Second) // wait for servers to start
+
+	tx := &types.Transaction{
+		Sender:    "Alice",
+		Receiver:  "Bob",
+		Amount:    big.NewInt(1000),
+		GasLimit:  big.NewInt(21000),
+		GasPrice:  big.NewInt(1),
+		Timestamp: time.Now().Unix(),
+		Nonce:     1,
+	}
+
+	err = http.SubmitTransaction(*httpAddr, *tx) // dereference pointer to pass value
+	if err != nil {
+		log.Printf("Failed to submit transaction: %v", err)
+	} else {
+		log.Printf("Transaction submitted successfully! Details: Sender=%s, Receiver=%s, Amount=%s, Nonce=%d",
+			tx.Sender, tx.Receiver, tx.Amount.String(), tx.Nonce)
+	}
+
+	// Keep main running
 	select {}
 }

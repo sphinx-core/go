@@ -24,6 +24,7 @@ package http
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -33,14 +34,6 @@ import (
 	types "github.com/sphinx-core/go/src/core/transaction"
 	"github.com/sphinx-core/go/src/security"
 )
-
-// Server handles HTTP requests.
-type Server struct {
-	address    string
-	router     *gin.Engine
-	messageCh  chan *security.Message
-	blockchain *core.Blockchain
-}
 
 // NewServer creates a new HTTP server.
 func NewServer(address string, messageCh chan *security.Message, blockchain *core.Blockchain) *Server {
@@ -86,6 +79,14 @@ func (s *Server) setupRoutes() {
 	s.router.GET("/bestblockhash", s.handleGetBestBlockHash)
 	s.router.GET("/blockcount", s.handleGetBlockCount)
 	s.router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	s.router.GET("/latest-transaction", func(c *gin.Context) {
+		if s.lastTransaction == nil {
+			c.JSON(http.StatusOK, gin.H{"message": "No transactions yet"})
+			return
+		}
+		c.JSON(http.StatusOK, s.lastTransaction)
+	})
+
 }
 
 // handleTransaction submits a transaction.
@@ -99,7 +100,14 @@ func (s *Server) handleTransaction(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	log.Printf("Received transaction:\n Sender: %s\n Receiver: %s\n Amount: %s\n Nonce: %d\n",
+		tx.Sender, tx.Receiver, tx.Amount.String(), tx.Nonce)
+
 	s.messageCh <- &security.Message{Type: "transaction", Data: &tx}
+
+	s.lastTransaction = &tx // save last tx here
+
 	c.JSON(http.StatusOK, gin.H{"status": "Transaction submitted"})
 }
 
