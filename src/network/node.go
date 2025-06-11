@@ -20,7 +20,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/network/node.go
 package network
 
 import (
@@ -29,40 +28,67 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 )
 
-// NewNode creates a new node with the given address and IP configuration.
+// NewNode creates a new node instance with SPHINCS+ public/private keys.
+// It initializes the key manager, generates the key pair, serializes the keys,
+// and constructs the Node structure.
 func NewNode(address, ip, port string, isLocal bool) *Node {
+	// Initialize SPHINCS+ KeyManager
+	km, err := key.NewKeyManager()
+	if err != nil {
+		log.Fatalf("Failed to initialize SPHINCS+ key manager: %v", err)
+	}
+
+	// Generate SPHINCS+ key pair
+	sk, pk, err := km.GenerateKey()
+	if err != nil {
+		log.Fatalf("Failed to generate SPHINCS+ key pair: %v", err)
+	}
+
+	// Serialize the key pair to byte slices
+	skBytes, pkBytes, err := km.SerializeKeyPair(sk, pk)
+	if err != nil {
+		log.Fatalf("Failed to serialize SPHINCS+ key pair: %v", err)
+	}
+
+	// Construct and return the new node with keys and metadata
 	return &Node{
-		ID:       uuid.New().String(),
-		Address:  address,
-		IP:       ip,
-		Port:     port,
-		Status:   NodeStatusUnknown,
-		LastSeen: time.Now(),
-		IsLocal:  isLocal,
+		ID:         uuid.New().String(), // Generate a unique identifier for the node
+		Address:    address,             // Node's network address
+		IP:         ip,                  // IP address of the node
+		Port:       port,                // Port number
+		Status:     NodeStatusUnknown,   // Initial status of the node
+		LastSeen:   time.Now(),          // Timestamp of last activity
+		IsLocal:    isLocal,             // Indicates if this is the local node
+		PublicKey:  pkBytes,             // SPHINCS+ public key (shared with others)
+		PrivateKey: skBytes,             // SPHINCS+ private key (kept secret, used locally)
 	}
 }
 
-// UpdateStatus updates the node's status and last seen timestamp.
+// UpdateStatus sets the node's status and updates the timestamp.
+// This is typically called when a node becomes active or inactive.
 func (n *Node) UpdateStatus(status NodeStatus) {
 	n.Status = status
 	n.LastSeen = time.Now()
 	log.Printf("Node %s status updated to %s", n.ID, status)
 }
 
-// NewPeer creates a new peer from a node.
+// NewPeer constructs a new Peer from a Node.
+// Initially, the peer is disconnected and has no ping/pong timestamps.
 func NewPeer(node *Node) *Peer {
 	return &Peer{
 		Node:             node,
-		ConnectionStatus: "disconnected",
-		ConnectedAt:      time.Time{},
-		LastPing:         time.Time{},
-		LastPong:         time.Time{},
+		ConnectionStatus: "disconnected", // Initial state
+		ConnectedAt:      time.Time{},    // Zero value; not connected yet
+		LastPing:         time.Time{},    // No ping sent yet
+		LastPong:         time.Time{},    // No pong received yet
 	}
 }
 
-// ConnectPeer marks a peer as connected.
+// ConnectPeer sets the peer as connected, if the node is active.
+// It also timestamps the connection time.
 func (p *Peer) ConnectPeer() error {
 	if p.Node.Status != NodeStatusActive {
 		return fmt.Errorf("cannot connect to node %s: status is %s", p.Node.ID, p.Node.Status)
@@ -73,7 +99,7 @@ func (p *Peer) ConnectPeer() error {
 	return nil
 }
 
-// DisconnectPeer marks a peer as disconnected.
+// DisconnectPeer marks a peer as disconnected and clears connection-related timestamps.
 func (p *Peer) DisconnectPeer() {
 	p.ConnectionStatus = "disconnected"
 	p.ConnectedAt = time.Time{}
@@ -82,27 +108,29 @@ func (p *Peer) DisconnectPeer() {
 	log.Printf("Peer %s disconnected", p.Node.ID)
 }
 
-// SendPing updates the last ping timestamp.
+// SendPing records the time a ping was sent to the peer.
 func (p *Peer) SendPing() {
 	p.LastPing = time.Now()
 	log.Printf("Sent PING to peer %s", p.Node.ID)
 }
 
-// ReceivePong updates the last pong timestamp.
+// ReceivePong records the time a pong response was received from the peer.
 func (p *Peer) ReceivePong() {
 	p.LastPong = time.Now()
 	log.Printf("Received PONG from peer %s", p.Node.ID)
 }
 
-// GetPeerInfo generates PeerInfo for the peer.
+// GetPeerInfo returns a serializable summary of the peer.
+// This can be used for network discovery and status sharing.
 func (p *Peer) GetPeerInfo() PeerInfo {
 	return PeerInfo{
-		NodeID:          p.Node.ID,
-		Address:         p.Node.Address,
-		IP:              p.Node.IP,
-		Port:            p.Node.Port,
-		Status:          p.Node.Status,
-		Timestamp:       time.Now(),
-		ProtocolVersion: "1.0", // Adjust as needed
+		NodeID:          p.Node.ID,        // Unique identifier
+		Address:         p.Node.Address,   // Network address
+		IP:              p.Node.IP,        // IP address
+		Port:            p.Node.Port,      // Port number
+		Status:          p.Node.Status,    // Node status
+		Timestamp:       time.Now(),       // Timestamp of this info snapshot
+		ProtocolVersion: "1.0",            // Version of the protocol
+		PublicKey:       p.Node.PublicKey, // SPHINCS+ public key
 	}
 }
