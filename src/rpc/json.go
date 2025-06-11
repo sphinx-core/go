@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/rpc/json.go
 package rpc
 
 // JSONRPCRequest represents a JSON-RPC request.

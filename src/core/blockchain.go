@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/core/blockchain.go
 package core
 
 import (
@@ -28,32 +29,24 @@ import (
 	"log"
 	"math/big"
 	"sync"
+	"time"
 
 	types "github.com/sphinx-core/go/src/core/transaction"
 )
 
-// Blockchain manages the chain of blocks, including the active chain.
+// Blockchain manages the chain of blocks.
 type Blockchain struct {
-	chain      []*types.Block          // Active chain of blocks
-	blockIndex map[string]*types.Block // Fast lookup for blocks by hash
-	pendingTx  []*types.Transaction    // Pending transactions (changed to pointers)
-	bestBlock  *types.Block            // Tip of the active chain
+	chain      []*types.Block
+	blockIndex map[string]*types.Block
+	pendingTx  []*types.Transaction
+	bestBlock  *types.Block
 	lock       sync.RWMutex
 }
 
 // NewBlockchain creates a blockchain with a genesis block.
 func NewBlockchain() *Blockchain {
-	// Initialize default values for genesis block
 	genesisHeader := types.NewBlockHeader(
-		0,                   // Block number
-		[]byte{},            // PrevHash
-		big.NewInt(1),       // Difficulty
-		[]byte{},            // TxsRoot
-		[]byte{},            // StateRoot
-		big.NewInt(1000000), // GasLimit
-		big.NewInt(0),       // GasUsed
-		[]byte{},            // ParentHash
-		[]byte{},            // UnclesHash
+		0, []byte{}, big.NewInt(1), []byte{}, []byte{}, big.NewInt(1000000), big.NewInt(0), []byte{}, []byte{},
 	)
 	genesisBody := types.NewBlockBody([]*types.Transaction{}, []byte{})
 	genesis := types.NewBlock(genesisHeader, genesisBody)
@@ -62,14 +55,14 @@ func NewBlockchain() *Blockchain {
 	blockchain := &Blockchain{
 		chain:      []*types.Block{genesis},
 		blockIndex: map[string]*types.Block{string(genesisHash): genesis},
-		pendingTx:  []*types.Transaction{}, // Initialize as empty slice of pointers
+		pendingTx:  []*types.Transaction{},
 		bestBlock:  genesis,
 	}
 	log.Printf("Initialized blockchain with genesis block: Hash=%x", genesisHash)
 	return blockchain
 }
 
-// AddTransaction adds a transaction to the pending list.
+// AddTransaction adds a transaction to the pending list after validation.
 func (blockchain *Blockchain) AddTransaction(tx *types.Transaction) error {
 	blockchain.lock.Lock()
 	defer blockchain.lock.Unlock()
@@ -82,7 +75,27 @@ func (blockchain *Blockchain) AddTransaction(tx *types.Transaction) error {
 		return fmt.Errorf("transaction failed sanity check: %w", err)
 	}
 
-	blockchain.pendingTx = append(blockchain.pendingTx, tx) // Append pointer directly
+	// Create a Note for validation
+	note := &types.Note{
+		From:      tx.Sender,
+		To:        tx.Receiver,
+		Fee:       0.01,      // Placeholder fee; adjust based on tx.Fee if available
+		Storage:   "tx-data", // Placeholder; adjust as needed
+		Timestamp: time.Now().Unix(),
+		MAC:       "placeholder-mac", // Placeholder; compute actual MAC if needed
+		Output: &types.Output{
+			Value:   tx.Amount.Uint64(),
+			Address: tx.Receiver,
+		},
+	}
+
+	// Validate using Validator struct
+	validator := types.NewValidator(tx.Sender, tx.Receiver)
+	if err := validator.Validate(note); err != nil {
+		return fmt.Errorf("transaction validation failed: %w", err)
+	}
+
+	blockchain.pendingTx = append(blockchain.pendingTx, tx)
 	log.Printf("Added transaction: Sender=%s, Receiver=%s, Amount=%s", tx.Sender, tx.Receiver, tx.Amount.String())
 	return nil
 }
@@ -97,23 +110,20 @@ func (blockchain *Blockchain) AddBlock() error {
 	}
 
 	prevBlock := blockchain.bestBlock
-	// Create new block header
 	newHeader := types.NewBlockHeader(
-		prevBlock.Header.Block+1,      // Increment block number
-		prevBlock.GenerateBlockHash(), // Previous block hash
-		big.NewInt(1),                 // Difficulty (placeholder)
-		[]byte{},                      // TxsRoot (simplified)
-		[]byte{},                      // StateRoot (simplified)
-		big.NewInt(1000000),           // GasLimit
-		big.NewInt(0),                 // GasUsed
-		[]byte{},                      // ParentHash
-		[]byte{},                      // UnclesHash
+		prevBlock.Header.Block+1,
+		prevBlock.GenerateBlockHash(),
+		big.NewInt(1),
+		[]byte{},
+		[]byte{},
+		big.NewInt(1000000),
+		big.NewInt(0),
+		[]byte{},
+		[]byte{},
 	)
-	// Create new block body
-	newBody := types.NewBlockBody(blockchain.pendingTx, []byte{}) // pendingTx is already []*types.Transaction
+	newBody := types.NewBlockBody(blockchain.pendingTx, []byte{})
 	newBlock := types.NewBlock(newHeader, newBody)
 
-	// Validate block
 	if err := newBlock.SanityCheck(); err != nil {
 		return fmt.Errorf("block failed sanity check: %w", err)
 	}
@@ -121,12 +131,10 @@ func (blockchain *Blockchain) AddBlock() error {
 		return errors.New("block does not correctly reference previous block")
 	}
 
-	// Add to chain and index
-	blockHash := string(newBlock.GenerateBlockHash())
 	blockchain.chain = append(blockchain.chain, newBlock)
-	blockchain.blockIndex[blockHash] = newBlock
+	blockchain.blockIndex[string(newBlock.GenerateBlockHash())] = newBlock
 	blockchain.bestBlock = newBlock
-	blockchain.pendingTx = []*types.Transaction{} // Reset to empty slice of pointers
+	blockchain.pendingTx = []*types.Transaction{}
 	log.Printf("Added block to active chain: Block=%d, Hash=%x", newBlock.Header.Block, newBlock.GenerateBlockHash())
 	return nil
 }
@@ -186,13 +194,10 @@ func (blockchain *Blockchain) IsValidChain() error {
 		prevBlock := blockchain.chain[i-1]
 		currBlock := blockchain.chain[i]
 
-		// Check previous hash linkage
-		expectedPrevHash := prevBlock.GenerateBlockHash()
-		if string(currBlock.Header.PrevHash) != string(expectedPrevHash) {
+		if string(currBlock.Header.PrevHash) != string(prevBlock.GenerateBlockHash()) {
 			return fmt.Errorf("block %d has invalid prev hash", currBlock.Header.Block)
 		}
 
-		// Check block sanity
 		if err := currBlock.SanityCheck(); err != nil {
 			return fmt.Errorf("block %d failed sanity: %w", currBlock.Header.Block, err)
 		}

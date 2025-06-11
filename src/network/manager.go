@@ -25,6 +25,7 @@ package network
 
 import (
 	"log"
+	"time"
 )
 
 // NewNodeManager creates a new NodeManager.
@@ -40,17 +41,28 @@ func (nm *NodeManager) AddNode(node *Node) {
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
 	nm.nodes[node.ID] = node
-	log.Printf("Added node: ID=%s, Address=%s", node.ID, node.Address)
+	log.Printf("Added node: ID=%s, Address=%s, Role=%s", node.ID, node.Address, node.Role)
 }
 
-// RemoveNode removes a node and its peer entry (if it exists).
+// RemoveNode removes a node and its peer entry.
 func (nm *NodeManager) RemoveNode(nodeID string) {
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
 	if node, exists := nm.nodes[nodeID]; exists {
 		delete(nm.nodes, nodeID)
 		delete(nm.peers, nodeID)
-		log.Printf("Removed node: ID=%s, Address=%s", nodeID, node.Address)
+		log.Printf("Removed node: ID=%s, Address=%s, Role=%s", nodeID, node.Address, node.Role)
+	}
+}
+
+// PruneInactivePeers disconnects peers with no recent pong.
+func (nm *NodeManager) PruneInactivePeers(timeout time.Duration) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	for id, peer := range nm.peers {
+		if time.Since(peer.LastPong) > timeout {
+			nm.RemovePeer(id)
+		}
 	}
 }
 
@@ -66,7 +78,7 @@ func (nm *NodeManager) AddPeer(node *Node) error {
 		return err
 	}
 	nm.peers[node.ID] = peer
-	log.Printf("Added peer: ID=%s, Address=%s", node.ID, node.Address)
+	log.Printf("Node %s (Role=%s) became peer at %s", node.ID, node.Role, peer.ConnectedAt)
 	return nil
 }
 
@@ -77,7 +89,7 @@ func (nm *NodeManager) RemovePeer(nodeID string) {
 	if peer, exists := nm.peers[nodeID]; exists {
 		peer.DisconnectPeer()
 		delete(nm.peers, nodeID)
-		log.Printf("Removed peer: ID=%s", nodeID)
+		log.Printf("Removed peer: ID=%s, Role=%s", nodeID, peer.Node.Role)
 	}
 }
 
@@ -100,7 +112,6 @@ func (nm *NodeManager) GetPeers() map[string]*Peer {
 }
 
 // BroadcastPeerInfo sends PeerInfo to all connected peers.
-// BroadcastPeerInfo sends PeerInfo to all connected peers.
 func (nm *NodeManager) BroadcastPeerInfo(sender *Peer, sendFunc func(string, *PeerInfo) error) error {
 	nm.mu.RLock()
 	defer nm.mu.RUnlock()
@@ -108,9 +119,23 @@ func (nm *NodeManager) BroadcastPeerInfo(sender *Peer, sendFunc func(string, *Pe
 	for _, peer := range nm.peers {
 		if peer.Node.ID != sender.Node.ID { // Avoid sending to self
 			if err := sendFunc(peer.Node.Address, &peerInfo); err != nil {
-				log.Printf("Failed to send PeerInfo to %s: %v", peer.Node.ID, err)
+				log.Printf("Failed to send PeerInfo to %s (Role=%s): %v", peer.Node.ID, peer.Node.Role, err)
 			}
 		}
 	}
+	return nil
+}
+
+// SelectValidator selects a node with RoleValidator for transaction validation.
+func (nm *NodeManager) SelectValidator() *Node {
+	nm.mu.RLock()
+	defer nm.mu.RUnlock()
+	for _, node := range nm.nodes {
+		if node.Role == RoleValidator && node.Status == NodeStatusActive {
+			log.Printf("Selected validator: ID=%s, Address=%s", node.ID, node.Address)
+			return node
+		}
+	}
+	log.Println("No active validator found")
 	return nil
 }

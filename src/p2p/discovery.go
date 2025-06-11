@@ -45,33 +45,29 @@ func (s *Server) DiscoverPeers() error {
 			continue
 		}
 
-		// Parse seed address (IP:port)
 		parts := strings.Split(seedAddr, ":")
 		if len(parts) != 2 {
 			log.Printf("Invalid seed address: %s", seedAddr)
 			continue
 		}
 		ip, port := parts[0], parts[1]
-		node := network.NewNode(seedAddr, ip, port, false)
+		// Assign RoleNone for seed nodes; roles updated dynamically later
+		node := network.NewNode(seedAddr, ip, port, false, network.RoleNone)
 		if err := transport.ConnectNode(node, s.messageCh); err != nil {
 			log.Printf("Connection to node %s failed: %v", node.ID, err)
 			continue
 		}
 
-		// Add as peer
 		if err := s.nodeManager.AddPeer(node); err != nil {
-			log.Printf("Failed to add peer %s: %v", node.ID, err)
+			log.Printf("Failed to add peer %s (Role=%s): %v", node.ID, node.Role, err)
 			continue
 		}
 
-		// Send PING
 		peer := s.nodeManager.GetPeers()[node.ID]
 		peer.SendPing()
 		s.Broadcast(&security.Message{Type: "ping", Data: s.localNode.ID})
-
-		// Send PeerInfo
 		s.nodeManager.BroadcastPeerInfo(peer, transport.SendPeerInfo)
-		log.Printf("Discovered peer: ID=%s, Address=%s", node.ID, seedAddr)
+		log.Printf("Discovered peer: ID=%s, Address=%s, Role=%s", node.ID, seedAddr, node.Role)
 	}
 	return nil
 }

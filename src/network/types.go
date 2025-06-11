@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/network/types.go
 package network
 
 import (
@@ -31,14 +32,19 @@ import (
 type NodeStatus string
 
 const (
-	// NodeStatusActive indicates the node is currently online and reachable.
-	NodeStatusActive NodeStatus = "active"
-
-	// NodeStatusInactive indicates the node was previously seen but is not currently reachable.
+	NodeStatusActive   NodeStatus = "active"
 	NodeStatusInactive NodeStatus = "inactive"
+	NodeStatusUnknown  NodeStatus = "unknown"
+)
 
-	// NodeStatusUnknown is used when the node's status is not yet determined.
-	NodeStatusUnknown NodeStatus = "unknown"
+// NodeRole defines the role a node plays in a transaction or network operation.
+type NodeRole string
+
+const (
+	RoleSender    NodeRole = "sender"    // Node sending a transaction (e.g., Alice)
+	RoleReceiver  NodeRole = "receiver"  // Node receiving a transaction (e.g., Bob)
+	RoleValidator NodeRole = "validator" // Node validating a transaction (e.g., Charlie)
+	RoleNone      NodeRole = "none"      // Default role for nodes not involved in a specific transaction
 )
 
 // NodeManager manages nodes and their peers.
@@ -49,38 +55,37 @@ type NodeManager struct {
 }
 
 // Node represents a participant in the blockchain or P2P network.
-// Each node holds a unique identity, network details, and a key pair for secure communication.
 type Node struct {
-	ID         string     // Unique identifier (UUID) for the node
-	Address    string     // User-friendly network address (e.g., domain or hostname)
-	IP         string     // IP address of the node
-	Port       string     // Port number the node listens on
-	Status     NodeStatus // Current status of the node (active/inactive/unknown)
-	LastSeen   time.Time  // Timestamp when the node was last seen or interacted with
-	IsLocal    bool       // True if this node is the local instance
-	PublicKey  []byte     // Serialized SPHINCS+ public key (shared with others)
-	PrivateKey []byte     // Serialized SPHINCS+ private key (used only locally)
+	ID         string     // Unique identifier (UUID)
+	Address    string     // Network address (e.g., IP:port)
+	IP         string     // IP address
+	Port       string     // Port number
+	Status     NodeStatus // Current status (active/inactive/unknown)
+	Role       NodeRole   // Role in transactions (sender/receiver/validator/none)
+	LastSeen   time.Time  // Last activity timestamp
+	IsLocal    bool       // True if this is the local node
+	PublicKey  []byte     // SPHINCS+ public key
+	PrivateKey []byte     // SPHINCS+ private key
 }
 
 // Peer represents a directly connected node in the network.
-// This tracks connection and ping/pong timestamps for liveness checks.
 type Peer struct {
-	Node             *Node     // Reference to the associated node
-	ConnectionStatus string    // Connection state (e.g., connected, disconnected)
-	ConnectedAt      time.Time // Timestamp when the connection was established
-	LastPing         time.Time // Timestamp when the last ping was sent
-	LastPong         time.Time // Timestamp when the last pong was received
+	Node             *Node     // Associated node
+	ConnectionStatus string    // connected/disconnected
+	ConnectedAt      time.Time // Connection timestamp
+	LastPing         time.Time // Last ping sent
+	LastPong         time.Time // Last pong received
 }
 
-// PeerInfo is a compact, shareable snapshot of peer metadata.
-// Used for peer discovery and network topology exchange.
+// PeerInfo is a shareable snapshot of peer metadata.
 type PeerInfo struct {
-	NodeID          string     `json:"node_id"`          // Unique identifier of the peer node
-	Address         string     `json:"address"`          // Friendly address or domain
-	IP              string     `json:"ip"`               // IP address of the peer
-	Port            string     `json:"port"`             // Port number for communication
-	Status          NodeStatus `json:"status"`           // Current known status of the peer
-	Timestamp       time.Time  `json:"timestamp"`        // Timestamp when this info was generated
-	ProtocolVersion string     `json:"protocol_version"` // Version of the communication protocol
-	PublicKey       []byte     `json:"public_key"`       // Serialized SPHINCS+ public key for verification
+	NodeID          string     `json:"node_id"`
+	Address         string     `json:"address"`
+	IP              string     `json:"ip"`
+	Port            string     `json:"port"`
+	Status          NodeStatus `json:"status"`
+	Role            NodeRole   `json:"role"` // Added role field
+	Timestamp       time.Time  `json:"timestamp"`
+	ProtocolVersion string     `json:"protocol_version"`
+	PublicKey       []byte     `json:"public_key"`
 }
