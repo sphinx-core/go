@@ -26,6 +26,7 @@ package server
 import (
 	"crypto/tls"
 	"log"
+	"strings"
 
 	"github.com/sphinx-core/go/src/core"
 	"github.com/sphinx-core/go/src/http"
@@ -48,11 +49,19 @@ func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string, tlsCon
 	messageCh := make(chan *security.Message, 100)
 	blockchain := core.NewBlockchain()
 	rpcServer := rpc.NewServer(messageCh, blockchain)
+
+	// Parse p2pAddr into IP and port
+	parts := strings.Split(p2pAddr, ":")
+	if len(parts) != 2 {
+		log.Fatalf("Invalid p2pAddr format: %s, expected IP:port", p2pAddr)
+	}
+	ip, port := parts[0], parts[1]
+
 	return &Server{
 		tcpServer:  transport.NewTCPServer(tcpAddr, messageCh, tlsConfig, rpcServer),
 		wsServer:   transport.NewWebSocketServer(wsAddr, messageCh, tlsConfig, rpcServer),
 		httpServer: http.NewServer(httpAddr, messageCh, blockchain),
-		p2pServer:  p2p.NewServer(p2pAddr, seeds, blockchain),
+		p2pServer:  p2p.NewServer(p2pAddr, ip, port, seeds, blockchain),
 	}
 }
 

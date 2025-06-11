@@ -20,11 +20,15 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/p2p/discovery.go
 package p2p
 
 import (
 	"log"
+	"strings"
 
+	"github.com/sphinx-core/go/src/network"
+	"github.com/sphinx-core/go/src/security"
 	"github.com/sphinx-core/go/src/transport"
 )
 
@@ -34,23 +38,40 @@ func (s *Server) DiscoverPeers() error {
 	defer s.mu.Unlock()
 
 	for _, seedAddr := range s.seedNodes {
-		if seedAddr == s.address {
+		if seedAddr == s.localNode.Address {
 			continue
 		}
-		if _, exists := s.peers[seedAddr]; exists {
+		if _, exists := s.nodeManager.GetPeers()[seedAddr]; exists {
 			continue
 		}
 
-		if err := transport.ConnectTCP(seedAddr, s.messageCh); err != nil {
-			log.Printf("TCP connection to %s failed: %v", seedAddr, err)
-			if err := transport.ConnectWebSocket(seedAddr, s.messageCh); err != nil {
-				log.Printf("WebSocket connection to %s failed: %v", seedAddr, err)
-				continue
-			}
+		// Parse seed address (IP:port)
+		parts := strings.Split(seedAddr, ":")
+		if len(parts) != 2 {
+			log.Printf("Invalid seed address: %s", seedAddr)
+			continue
+		}
+		ip, port := parts[0], parts[1]
+		node := network.NewNode(seedAddr, ip, port, false)
+		if err := transport.ConnectNode(node, s.messageCh); err != nil {
+			log.Printf("Connection to node %s failed: %v", node.ID, err)
+			continue
 		}
 
-		s.peers[seedAddr] = &Peer{Address: seedAddr}
-		log.Printf("Discovered peer: %s", seedAddr)
+		// Add as peer
+		if err := s.nodeManager.AddPeer(node); err != nil {
+			log.Printf("Failed to add peer %s: %v", node.ID, err)
+			continue
+		}
+
+		// Send PING
+		peer := s.nodeManager.GetPeers()[node.ID]
+		peer.SendPing()
+		s.Broadcast(&security.Message{Type: "ping", Data: s.localNode.ID})
+
+		// Send PeerInfo
+		s.nodeManager.BroadcastPeerInfo(peer, transport.SendPeerInfo)
+		log.Printf("Discovered peer: ID=%s, Address=%s", node.ID, seedAddr)
 	}
 	return nil
 }

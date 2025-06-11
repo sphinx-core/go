@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/security/message.go
 package security
 
 import (
@@ -28,11 +29,12 @@ import (
 	"math/big"
 
 	types "github.com/sphinx-core/go/src/core/transaction"
+	"github.com/sphinx-core/go/src/network"
 )
 
 // Message represents a secure P2P or RPC message.
 type Message struct {
-	Type string      `json:"type"` // e.g., "transaction", "block", "jsonrpc"
+	Type string      `json:"type"` // e.g., "transaction", "block", "jsonrpc", "ping", "pong", "peer_info"
 	Data interface{} `json:"data"`
 }
 
@@ -57,6 +59,14 @@ func (m *Message) ValidateMessage() error {
 	case "jsonrpc":
 		if data, ok := m.Data.(map[string]interface{}); !ok || data["jsonrpc"] != "2.0" {
 			return errors.New("invalid JSON-RPC data")
+		}
+	case "ping", "pong":
+		if _, ok := m.Data.(string); !ok {
+			return errors.New("invalid ping/pong data: must be node ID string")
+		}
+	case "peer_info":
+		if _, ok := m.Data.(network.PeerInfo); !ok {
+			return errors.New("invalid peer_info data")
 		}
 	default:
 		return errors.New("unknown message type")

@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/p2p/p2p.go
 package p2p
 
 import (
@@ -28,35 +29,39 @@ import (
 
 	"github.com/sphinx-core/go/src/core"
 	types "github.com/sphinx-core/go/src/core/transaction"
+	"github.com/sphinx-core/go/src/network"
 	"github.com/sphinx-core/go/src/security"
 	"github.com/sphinx-core/go/src/transport"
 )
 
 // Server manages the P2P network.
 type Server struct {
-	address    string
-	seedNodes  []string
-	peers      map[string]*Peer
-	mu         sync.Mutex
-	messageCh  chan *security.Message
-	blockchain *core.Blockchain
+	localNode   *network.Node
+	nodeManager *network.NodeManager
+	seedNodes   []string
+	messageCh   chan *security.Message
+	blockchain  *core.Blockchain
+	mu          sync.Mutex
 }
 
 // NewServer creates a new P2P server.
-func NewServer(address string, seedNodes []string, blockchain *core.Blockchain) *Server {
+func NewServer(address, ip, port string, seedNodes []string, blockchain *core.Blockchain) *Server {
+	localNode := network.NewNode(address, ip, port, true)
+	nodeManager := network.NewNodeManager()
+	nodeManager.AddNode(localNode)
 	return &Server{
-		address:    address,
-		seedNodes:  seedNodes,
-		peers:      make(map[string]*Peer),
-		messageCh:  make(chan *security.Message),
-		blockchain: blockchain,
+		localNode:   localNode,
+		nodeManager: nodeManager,
+		seedNodes:   seedNodes,
+		messageCh:   make(chan *security.Message, 100),
+		blockchain:  blockchain,
 	}
 }
 
 // Start initializes the P2P network.
 func (s *Server) Start() error {
 	go s.handleMessages()
-	log.Printf("P2P server started, active chain height: %d", s.blockchain.GetBlockCount())
+	log.Printf("P2P server started, local node: ID=%s, Address=%s", s.localNode.ID, s.localNode.Address)
 	return s.DiscoverPeers()
 }
 
@@ -70,6 +75,8 @@ func (s *Server) handleMessages() {
 				if err := s.blockchain.AddTransaction(tx); err != nil {
 					log.Printf("Failed to add transaction: %v", err)
 				}
+			} else {
+				log.Printf("Invalid transaction data")
 			}
 		case "block":
 			if block, ok := msg.Data.(types.Block); ok {
@@ -77,7 +84,29 @@ func (s *Server) handleMessages() {
 					log.Printf("Failed to add block: %v", err)
 				}
 				s.Broadcast(&security.Message{Type: "block", Data: block})
+			} else {
+				log.Printf("Invalid block data")
 			}
+		case "ping":
+			// Respond to PING with PONG
+			if peer, ok := s.nodeManager.GetPeers()[msg.Data.(string)]; ok {
+				peer.ReceivePong()
+				s.Broadcast(&security.Message{Type: "pong", Data: s.localNode.ID})
+			}
+		case "pong":
+			// Update peer’s PONG timestamp
+			if peer, ok := s.nodeManager.GetPeers()[msg.Data.(string)]; ok {
+				peer.ReceivePong()
+			}
+		case "peer_info":
+			if peerInfo, ok := msg.Data.(network.PeerInfo); ok {
+				node := network.NewNode(peerInfo.Address, peerInfo.IP, peerInfo.Port, false)
+				node.UpdateStatus(peerInfo.Status)
+				s.nodeManager.AddNode(node)
+				log.Printf("Received PeerInfo: NodeID=%s, Address=%s", peerInfo.NodeID, peerInfo.Address)
+			}
+		default:
+			log.Printf("Unknown message type: %s", msg.Type)
 		}
 		s.Broadcast(msg)
 	}
@@ -87,9 +116,26 @@ func (s *Server) handleMessages() {
 func (s *Server) Broadcast(msg *security.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, peer := range s.peers {
-		if err := transport.SendMessage(peer.Address, msg); err != nil {
-			log.Printf("Failed to send to %s: %v", peer.Address, err)
+	for _, peer := range s.nodeManager.GetPeers() {
+		if peer.ConnectionStatus != "connected" {
+			continue
+		}
+		if msg.Type == "ping" || msg.Type == "pong" {
+			// Update ping/pong timestamps
+			if msg.Type == "ping" {
+				peer.SendPing()
+			}
+			if err := transport.SendMessage(peer.Node.Address, msg); err != nil {
+				log.Printf("Failed to send %s to %s: %v", msg.Type, peer.Node.Address, err)
+			}
+		} else if msg.Type == "peer_info" {
+			if err := transport.SendPeerInfo(peer.Node.Address, msg.Data.(*network.PeerInfo)); err != nil {
+				log.Printf("Failed to send PeerInfo to %s: %v", peer.Node.Address, err)
+			}
+		} else {
+			if err := transport.SendMessage(peer.Node.Address, msg); err != nil {
+				log.Printf("Failed to send to %s: %v", peer.Node.Address, err)
+			}
 		}
 	}
 }

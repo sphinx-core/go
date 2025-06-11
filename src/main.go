@@ -46,6 +46,18 @@ func main() {
 	seeds := flag.String("seeds", "", "Comma-separated list of seed nodes")
 	flag.Parse()
 
+	// Parse addr into IP and port
+	parts := strings.Split(*addr, ":")
+	if len(parts) != 2 {
+		log.Fatalf("Invalid addr format: %s, expected IP:port", *addr)
+	}
+	ip, port := parts[0], parts[1]
+
+	// Validate IP and port using transport package
+	if err := transport.ValidateIP(ip, port); err != nil {
+		log.Fatalf("Invalid IP or port: %v", err)
+	}
+
 	// Load TLS certificate
 	cert, err := tls.LoadX509KeyPair("cert.pem", "cert.pem")
 	if err != nil {
@@ -94,7 +106,7 @@ func main() {
 	if *seeds != "" {
 		seedList = strings.Split(*seeds, ",")
 	}
-	p2pServer := p2p.NewServer(*addr, seedList, blockchain)
+	p2pServer := p2p.NewServer(*addr, ip, port, seedList, blockchain)
 	if err := p2pServer.Start(); err != nil {
 		log.Fatalf("P2P server failed: %v", err)
 	}

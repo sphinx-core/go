@@ -20,9 +20,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/p2p/peer.go
 package p2p
 
-// Peer represents a network peer.
-type Peer struct {
-	Address string
-}
+import "github.com/sphinx-core/go/src/network"
+
+// Peer is now defined in the network package to centralize node/peer management.
+type Peer = network.Peer
