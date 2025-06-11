@@ -23,6 +23,7 @@
 package network
 
 import (
+	"sync"
 	"time"
 )
 
@@ -39,6 +40,13 @@ const (
 	// NodeStatusUnknown is used when the node's status is not yet determined.
 	NodeStatusUnknown NodeStatus = "unknown"
 )
+
+// NodeManager manages nodes and their peers.
+type NodeManager struct {
+	nodes map[string]*Node // All known nodes, keyed by Node.ID
+	peers map[string]*Peer // Connected peers, keyed by Node.ID
+	mu    sync.RWMutex     // Thread safety for node and peer access
+}
 
 // Node represents a participant in the blockchain or P2P network.
 // Each node holds a unique identity, network details, and a key pair for secure communication.

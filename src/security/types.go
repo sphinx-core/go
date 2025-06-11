@@ -28,6 +28,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// Message represents a secure P2P or RPC message.
+type Message struct {
+	Type string      `json:"type"` // e.g., "transaction", "block", "jsonrpc", "ping", "pong", "peer_info"
+	Data interface{} `json:"data"`
+}
+
 // Handshake manages TLS handshakes with metrics.
 type Handshake struct {
 	Config  *tls.Config

@@ -82,7 +82,7 @@ func ConnectNode(node *network.Node, messageCh chan *security.Message) error {
 		}
 	}
 	node.UpdateStatus(network.NodeStatusActive)
-	log.Printf("Connected to node %s (%s)", node.ID, addr)
+	log.Printf("Connected to node %s: %s", node.ID, addr)
 	return nil
 }
 
@@ -95,17 +95,17 @@ func SendPeerInfo(address string, peerInfo *network.PeerInfo) error {
 	}
 	conn, err := tls.Dial("tcp", address, tlsConfig)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to dial TLS connection to %s: %v", address, err)
 	}
 	defer conn.Close()
 
-	msg := &security.Message{Type: "peer_info", Data: peerInfo}
+	msg := &security.Message{Type: "peer_info", Data: *peerInfo} // Use copy to avoid pointer issues
 	data, err := msg.Encode()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to encode PeerInfo message: %v", err)
 	}
 	if _, err := conn.Write(data); err != nil {
-		return err
+		return fmt.Errorf("failed to write PeerInfo to %s: %v", address, err)
 	}
 	log.Printf("Sent PeerInfo to %s", address)
 	return nil

@@ -25,15 +25,7 @@ package network
 
 import (
 	"log"
-	"sync"
 )
-
-// NodeManager manages nodes and their peers.
-type NodeManager struct {
-	nodes map[string]*Node // All known nodes, keyed by Node.ID
-	peers map[string]*Peer // Connected peers, keyed by Node.ID
-	mu    sync.RWMutex     // Thread safety for node and peer access
-}
 
 // NewNodeManager creates a new NodeManager.
 func NewNodeManager() *NodeManager {
@@ -107,6 +99,7 @@ func (nm *NodeManager) GetPeers() map[string]*Peer {
 	return peers
 }
 
+// BroadcastPeerInfo sends PeerInfo to all connected peers.
 // BroadcastPeerInfo sends PeerInfo to all connected peers.
 func (nm *NodeManager) BroadcastPeerInfo(sender *Peer, sendFunc func(string, *PeerInfo) error) error {
 	nm.mu.RLock()
