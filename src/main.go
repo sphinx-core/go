@@ -35,6 +35,7 @@ import (
 	"github.com/sphinx-core/go/src/core"
 	types "github.com/sphinx-core/go/src/core/transaction"
 	"github.com/sphinx-core/go/src/http"
+	logger "github.com/sphinx-core/go/src/log"
 	"github.com/sphinx-core/go/src/network"
 	"github.com/sphinx-core/go/src/p2p"
 	"github.com/sphinx-core/go/src/rpc"
@@ -43,6 +44,9 @@ import (
 )
 
 func main() {
+	// Initialize log
+	logger.Init()
+
 	addrAlice := flag.String("addrAlice", "127.0.0.1:30303", "TCP server address for Alice")
 	addrBob := flag.String("addrBob", "127.0.0.1:30304", "TCP server address for Bob")
 	addrCharlie := flag.String("addrCharlie", "127.0.0.1:30305", "TCP server address for Charlie")

@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package logger
+package spxlog
 
 import (
 	"bytes"
@@ -72,6 +72,34 @@ func SetLevel(lvl LogLevel) {
 	currentLevel = lvl
 }
 
+func Init() {
+	// Redirect stdout and stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		log.Fatalf("Failed to create pipe: %v", err)
+	}
+
+	os.Stdout = w
+	os.Stderr = w
+	log.SetOutput(loggerOut)
+
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := r.Read(buf)
+			if err != nil {
+				break
+			}
+			output := string(buf[:n])
+			for _, line := range strings.Split(output, "\n") {
+				if len(strings.TrimSpace(line)) > 0 {
+					Info("%s", line)
+				}
+			}
+		}
+	}()
+}
+
 func logf(level LogLevel, format string, args ...any) {
 	if level < currentLevel {
 		return
@@ -97,12 +125,6 @@ func Debug(format string, args ...any) { logf(DEBUG, format, args...) }
 func Info(format string, args ...any)  { logf(INFO, format, args...) }
 func Warn(format string, args ...any)  { logf(WARN, format, args...) }
 func Error(format string, args ...any) { logf(ERROR, format, args...) }
-
-// Optional: Initialize standard log package (if needed elsewhere)
-func Init() {
-	log.SetOutput(loggerOut)
-	log.SetFlags(0) // Disable default flags to avoid duplicate timestamps
-}
 
 func GetLogs() string {
 	return buffer.String()
