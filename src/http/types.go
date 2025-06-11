@@ -32,7 +32,7 @@ import (
 	"github.com/sphinx-core/go/src/security"
 )
 
-// Server handles HTTP requests.
+// Server represents an HTTP server.
 type Server struct {
 	address         string
 	router          *gin.Engine

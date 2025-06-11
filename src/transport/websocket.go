@@ -26,9 +26,11 @@ package transport
 import (
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math/big"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 	types "github.com/sphinx-core/go/src/core/transaction"
@@ -39,6 +41,7 @@ import (
 // WebSocketServer handles WebSocket connections.
 type WebSocketServer struct {
 	address   string
+	mux       *http.ServeMux
 	upgrader  websocket.Upgrader
 	messageCh chan *security.Message
 	tlsConfig *tls.Config
@@ -48,9 +51,13 @@ type WebSocketServer struct {
 
 // NewWebSocketServer creates a new WebSocket server.
 func NewWebSocketServer(address string, messageCh chan *security.Message, tlsConfig *tls.Config, rpcServer *rpc.Server) *WebSocketServer {
+	mux := http.NewServeMux()
 	return &WebSocketServer{
-		address:   address,
-		upgrader:  websocket.Upgrader{},
+		address: address,
+		mux:     mux,
+		upgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool { return true }, // Allow all origins for testing
+		},
 		messageCh: messageCh,
 		tlsConfig: tlsConfig,
 		rpcServer: rpcServer,
@@ -60,9 +67,10 @@ func NewWebSocketServer(address string, messageCh chan *security.Message, tlsCon
 
 // Start runs the WebSocket server.
 func (s *WebSocketServer) Start() error {
-	http.HandleFunc("/ws", s.handleWebSocket)
+	s.mux.HandleFunc("/ws", s.handleWebSocket)
 	server := &http.Server{
 		Addr:      s.address,
+		Handler:   s.mux,
 		TLSConfig: s.tlsConfig,
 	}
 	log.Printf("WebSocket server listening on %s/ws", s.address)
@@ -80,17 +88,17 @@ func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 	defer conn.Close()
 
 	for {
-		var raw []byte
-		if err := conn.ReadJSON(&raw); err != nil {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
 			log.Printf("WebSocket read error: %v", err)
 			break
 		}
-		msg, err := security.DecodeMessage(raw)
-		if err != nil {
+		var msg security.Message
+		if err := json.Unmarshal(raw, &msg); err != nil {
 			log.Printf("WebSocket decode error: %v", err)
 			continue
 		}
-		s.messageCh <- msg
+		s.messageCh <- &msg
 
 		if msg.Type == "jsonrpc" {
 			resp, err := s.rpcServer.HandleRequest([]byte(msg.Data.(string)))
@@ -98,8 +106,9 @@ func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 				log.Printf("RPC handle error: %v", err)
 				continue
 			}
-			if err := conn.WriteJSON(json.RawMessage(resp)); err != nil {
+			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
 				log.Printf("WebSocket write error: %v", err)
+				break
 			}
 		}
 	}
@@ -109,20 +118,59 @@ func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 func ConnectWebSocket(address string, messageCh chan *security.Message) error {
 	dialer := websocket.Dialer{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true, // For testing
+			InsecureSkipVerify: true,
 			CurvePreferences:   []tls.CurveID{tls.X25519},
 			MinVersion:         tls.VersionTLS13,
 		},
 	}
-	conn, _, err := dialer.Dial("wss://"+address+"/ws", nil)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
 
-	header := types.NewBlockHeader(1, []byte{}, big.NewInt(1), []byte{}, []byte{}, big.NewInt(1000000), big.NewInt(0), []byte{}, []byte{})
-	body := types.NewBlockBody([]*types.Transaction{}, []byte{})
-	block := types.NewBlock(header, body)
-	msg := &security.Message{Type: "block", Data: *block}
-	return conn.WriteJSON(msg)
+	// Map TCP ports to WebSocket ports
+	wsPortMap := map[string]string{
+		"127.0.0.1:30303": "127.0.0.1:8546", // Alice
+		"127.0.0.1:30304": "127.0.0.1:8548", // Bob
+		"127.0.0.1:30305": "127.0.0.1:8550", // Charlie
+	}
+	wsAddress, ok := wsPortMap[address]
+	if !ok {
+		wsAddress = address // Fallback to provided address
+	}
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		conn, _, err := dialer.Dial("wss://"+wsAddress+"/ws", nil)
+		if err == nil {
+			defer conn.Close()
+
+			header := types.NewBlockHeader(1, []byte{}, big.NewInt(1), []byte{}, []byte{}, big.NewInt(1000000), big.NewInt(0), []byte{}, []byte{})
+			body := types.NewBlockBody([]*types.Transaction{}, []byte{})
+			block := types.NewBlock(header, body)
+			msg := &security.Message{Type: "block", Data: block}
+			data, err := json.Marshal(msg)
+			if err != nil {
+				log.Printf("WebSocket encode error for %s on attempt %d: %v", wsAddress, attempt, err)
+				continue
+			}
+			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+				log.Printf("WebSocket write error for %s on attempt %d: %v", wsAddress, attempt, err)
+				continue
+			}
+
+			_, respData, err := conn.ReadMessage()
+			if err != nil {
+				log.Printf("WebSocket read response error for %s on attempt %d: %v", wsAddress, attempt, err)
+				continue
+			}
+			var respMsg security.Message
+			if err := json.Unmarshal(respData, &respMsg); err != nil {
+				log.Printf("WebSocket decode response error for %s on attempt %d: %v", wsAddress, attempt, err)
+				continue
+			}
+			messageCh <- &respMsg
+
+			log.Printf("WebSocket connected to %s", wsAddress)
+			return nil
+		}
+		log.Printf("WebSocket connection to %s attempt %d failed: %v", wsAddress, attempt, err)
+		time.Sleep(time.Second * time.Duration(attempt))
+	}
+	return fmt.Errorf("failed to connect to %s after 3 attempts", wsAddress)
 }

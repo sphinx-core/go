@@ -39,7 +39,7 @@ type Blockchain struct {
 	chain      []*types.Block
 	blockIndex map[string]*types.Block
 	pendingTx  []*types.Transaction
-	bestBlock  *types.Block
+	bestChain  *types.Block
 	lock       sync.RWMutex
 }
 
@@ -56,7 +56,7 @@ func NewBlockchain() *Blockchain {
 		chain:      []*types.Block{genesis},
 		blockIndex: map[string]*types.Block{string(genesisHash): genesis},
 		pendingTx:  []*types.Transaction{},
-		bestBlock:  genesis,
+		bestChain:  genesis,
 	}
 	log.Printf("Initialized blockchain with genesis block: Hash=%x", genesisHash)
 	return blockchain
@@ -109,7 +109,7 @@ func (blockchain *Blockchain) AddBlock() error {
 		return errors.New("no pending transactions")
 	}
 
-	prevBlock := blockchain.bestBlock
+	prevBlock := blockchain.bestChain
 	newHeader := types.NewBlockHeader(
 		prevBlock.Header.Block+1,
 		prevBlock.GenerateBlockHash(),
@@ -133,7 +133,7 @@ func (blockchain *Blockchain) AddBlock() error {
 
 	blockchain.chain = append(blockchain.chain, newBlock)
 	blockchain.blockIndex[string(newBlock.GenerateBlockHash())] = newBlock
-	blockchain.bestBlock = newBlock
+	blockchain.bestChain = newBlock
 	blockchain.pendingTx = []*types.Transaction{}
 	log.Printf("Added block to active chain: Block=%d, Hash=%x", newBlock.Header.Block, newBlock.GenerateBlockHash())
 	return nil
@@ -143,7 +143,7 @@ func (blockchain *Blockchain) AddBlock() error {
 func (blockchain *Blockchain) GetLatestBlock() *types.Block {
 	blockchain.lock.RLock()
 	defer blockchain.lock.RUnlock()
-	return blockchain.bestBlock
+	return blockchain.bestChain
 }
 
 // GetBlockByHash returns a block given its hash.
@@ -161,14 +161,14 @@ func (blockchain *Blockchain) GetBlockByHash(hash []byte) (*types.Block, error) 
 func (blockchain *Blockchain) GetBestBlockHash() []byte {
 	blockchain.lock.RLock()
 	defer blockchain.lock.RUnlock()
-	return blockchain.bestBlock.GenerateBlockHash()
+	return blockchain.bestChain.GenerateBlockHash()
 }
 
 // GetBlockCount returns the height of the active chain.
 func (blockchain *Blockchain) GetBlockCount() uint64 {
 	blockchain.lock.RLock()
 	defer blockchain.lock.RUnlock()
-	return blockchain.bestBlock.Header.Block + 1
+	return blockchain.bestChain.Header.Block + 1
 }
 
 // GetBlocks returns the current blockchain.

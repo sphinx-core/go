@@ -24,9 +24,13 @@
 package transport
 
 import (
+	"bufio"
 	"crypto/tls"
+	"encoding/json"
+	"fmt"
 	"log"
 	"net"
+	"time"
 
 	"github.com/sphinx-core/go/src/rpc"
 	"github.com/sphinx-core/go/src/security"
@@ -57,16 +61,17 @@ func NewTCPServer(address string, messageCh chan *security.Message, tlsConfig *t
 func (s *TCPServer) Start() error {
 	listener, err := tls.Listen("tcp", s.address, s.tlsConfig)
 	if err != nil {
+		log.Printf("Failed to bind TCP listener on %s: %v", s.address, err)
 		return err
 	}
 	s.listener = listener
-	log.Printf("TCP server listening on %s", s.address)
+	log.Printf("TCP server successfully bound and listening on %s", s.address)
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			s.handshake.Metrics.Errors.WithLabelValues("tcp").Inc()
-			log.Printf("TCP accept error: %v", err)
+			log.Printf("TCP accept error on %s: %v", s.address, err)
 			continue
 		}
 		go s.handleConnection(conn)
@@ -78,33 +83,42 @@ func (s *TCPServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	if err := s.handshake.PerformHandshake(conn, "tcp"); err != nil {
+		log.Printf("TCP handshake failed on %s: %v", s.address, err)
 		return
 	}
 
-	msg, err := security.DecodeMessage(readConn(conn))
-	if err != nil {
-		log.Printf("TCP decode error: %v", err)
-		return
-	}
-	s.messageCh <- msg
-
-	if msg.Type == "jsonrpc" {
-		resp, err := s.rpcServer.HandleRequest([]byte(msg.Data.(string)))
+	reader := bufio.NewReader(conn)
+	for {
+		data, err := reader.ReadBytes('\n') // Read until newline delimiter
 		if err != nil {
-			log.Printf("RPC handle error: %v", err)
+			log.Printf("TCP read error on %s: %v", s.address, err)
 			return
 		}
-		if _, err := conn.Write(resp); err != nil {
-			log.Printf("TCP write error: %v", err)
+
+		var msg security.Message
+		if err := json.Unmarshal(data, &msg); err != nil {
+			log.Printf("TCP decode error on %s: %v", s.address, err)
+			continue
+		}
+		s.messageCh <- &msg
+
+		if msg.Type == "jsonrpc" {
+			resp, err := s.rpcServer.HandleRequest([]byte(msg.Data.(string)))
+			if err != nil {
+				log.Printf("RPC handle error on %s: %v", s.address, err)
+				continue
+			}
+			respData, err := json.Marshal(resp)
+			if err != nil {
+				log.Printf("TCP encode response error on %s: %v", s.address, err)
+				continue
+			}
+			if _, err := conn.Write(append(respData, '\n')); err != nil {
+				log.Printf("TCP write error on %s: %v", s.address, err)
+				return
+			}
 		}
 	}
-}
-
-// readConn reads data from a connection.
-func readConn(conn net.Conn) []byte {
-	buf := make([]byte, 4096)
-	n, _ := conn.Read(buf)
-	return buf[:n]
 }
 
 // ConnectTCP establishes a TLS-secured TCP connection to a peer.
@@ -114,39 +128,52 @@ func ConnectTCP(address string, messageCh chan *security.Message) error {
 		CurvePreferences:   []tls.CurveID{tls.X25519},
 		MinVersion:         tls.VersionTLS13,
 	}
-	conn, err := tls.Dial("tcp", address, tlsConfig)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
 
-	// Perform handshake
-	handshake := security.NewHandshake(tlsConfig)
-	if err := handshake.PerformHandshake(conn, "tcp"); err != nil {
-		return err
-	}
+	for attempt := 1; attempt <= 5; attempt++ {
+		conn, err := tls.Dial("tcp", address, tlsConfig)
+		if err == nil {
+			defer conn.Close()
 
-	// Example message to test connection
-	msg := &security.Message{Type: "ping", Data: "hello"}
-	data, err := msg.Encode()
-	if err != nil {
-		return err
-	}
-	if _, err := conn.Write(data); err != nil {
-		return err
-	}
+			// Perform handshake
+			handshake := security.NewHandshake(tlsConfig)
+			if err := handshake.PerformHandshake(conn, "tcp"); err != nil {
+				log.Printf("TCP handshake failed for %s on attempt %d: %v", address, attempt, err)
+				continue
+			}
 
-	// Read response
-	respData := readConn(conn)
-	respMsg, err := security.DecodeMessage(respData)
-	if err != nil {
-		log.Printf("TCP read error: %v", err)
-		return err
-	}
-	messageCh <- respMsg
+			// Send example message
+			msg := &security.Message{Type: "ping", Data: "hello"}
+			data, err := json.Marshal(msg)
+			if err != nil {
+				log.Printf("TCP encode error for %s on attempt %d: %v", address, attempt, err)
+				continue
+			}
+			if _, err := conn.Write(append(data, '\n')); err != nil {
+				log.Printf("TCP write error for %s on attempt %d: %v", address, attempt, err)
+				continue
+			}
 
-	log.Printf("TCP connected to %s", address)
-	return nil
+			// Read response
+			reader := bufio.NewReader(conn)
+			respData, err := reader.ReadBytes('\n')
+			if err != nil {
+				log.Printf("TCP read response error for %s on attempt %d: %v", address, attempt, err)
+				continue
+			}
+			var respMsg security.Message
+			if err := json.Unmarshal(respData, &respMsg); err != nil {
+				log.Printf("TCP decode response error for %s on attempt %d: %v", address, attempt, err)
+				continue
+			}
+			messageCh <- &respMsg
+
+			log.Printf("TCP connected to %s", address)
+			return nil
+		}
+		log.Printf("TCP connection to %s attempt %d failed: %v", address, attempt, err)
+		time.Sleep(time.Second * time.Duration(attempt))
+	}
+	return fmt.Errorf("failed to connect to %s after 5 attempts", address)
 }
 
 // SendMessage sends a message to a peer over TCP.
@@ -162,11 +189,11 @@ func SendMessage(address string, msg *security.Message) error {
 	}
 	defer conn.Close()
 
-	data, err := msg.Encode()
+	data, err := json.Marshal(msg)
 	if err != nil {
 		return err
 	}
-	if _, err := conn.Write(data); err != nil {
+	if _, err := conn.Write(append(data, '\n')); err != nil {
 		return err
 	}
 

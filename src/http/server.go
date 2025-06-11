@@ -118,11 +118,13 @@ func (s *Server) setupRoutes() {
 func (s *Server) handleTransaction(c *gin.Context) {
 	var tx types.Transaction
 	if err := c.ShouldBindJSON(&tx); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		log.Printf("Transaction binding error: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid transaction format: %v", err)})
 		return
 	}
 	if err := s.blockchain.AddTransaction(&tx); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		log.Printf("Transaction add error: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("failed to add transaction: %v", err)})
 		return
 	}
 

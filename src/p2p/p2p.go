@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/sphinx-core/go/src/core"
 	types "github.com/sphinx-core/go/src/core/transaction"
@@ -59,10 +60,22 @@ func NewServer(address, ip, port string, seedNodes []string, blockchain *core.Bl
 	}
 }
 
+// LocalNode returns the local node of the server.
+func (s *Server) LocalNode() *network.Node {
+	return s.localNode
+}
+
+// NodeManager returns the node manager of the server.
+func (s *Server) NodeManager() *network.NodeManager {
+	return s.nodeManager
+}
+
 // Start initializes the P2P network.
 func (s *Server) Start() error {
 	go s.handleMessages()
 	log.Printf("P2P server started, local node: ID=%s, Address=%s, Role=%s", s.localNode.ID, s.localNode.Address, s.localNode.Role)
+	// Delay peer discovery to ensure TCP servers are ready
+	time.Sleep(5 * time.Second)
 	return s.DiscoverPeers()
 }
 

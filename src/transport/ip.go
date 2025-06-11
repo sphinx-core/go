@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 
 	"github.com/sphinx-core/go/src/network"
 	"github.com/sphinx-core/go/src/security"
@@ -72,18 +73,41 @@ func ConnectNode(node *network.Node, messageCh chan *security.Message) error {
 	if err != nil {
 		return err
 	}
-	// Try TCP first
-	if err := ConnectTCP(addr, messageCh); err != nil {
-		log.Printf("TCP connection to node %s (%s) failed: %v", node.ID, addr, err)
+
+	// Retry connection up to 3 times with delay
+	for attempt := 1; attempt <= 3; attempt++ {
+		// Try TCP first
+		if err := ConnectTCP(addr, messageCh); err == nil {
+			node.UpdateStatus(network.NodeStatusActive)
+			log.Printf("Connected to node %s via TCP: %s", node.ID, addr)
+			return nil
+		}
+		log.Printf("TCP connection to node %s (%s) attempt %d failed: %v", node.ID, addr, attempt, err)
+
 		// Fall back to WebSocket
-		if err := ConnectWebSocket(addr, messageCh); err != nil {
-			log.Printf("WebSocket connection to node %s (%s) failed: %v", node.ID, addr, err)
-			return err
+		wsAddr := fmt.Sprintf("%s:%d", node.IP, parsePort(node.Port)+553) // Adjust port for WebSocket (e.g., 30305 -> 8550)
+		if err := ConnectWebSocket(wsAddr, messageCh); err == nil {
+			node.UpdateStatus(network.NodeStatusActive)
+			log.Printf("Connected to node %s via WebSocket: %s", node.ID, wsAddr)
+			return nil
+		}
+		log.Printf("WebSocket connection to node %s (%s) attempt %d failed: %v", node.ID, wsAddr, attempt, err)
+
+		if attempt < 3 {
+			time.Sleep(time.Second * time.Duration(attempt)) // Exponential backoff
 		}
 	}
-	node.UpdateStatus(network.NodeStatusActive)
-	log.Printf("Connected to node %s: %s", node.ID, addr)
-	return nil
+
+	return fmt.Errorf("failed to connect to node %s (%s) after 3 attempts", node.ID, addr)
+}
+
+// parsePort converts a port string to an integer.
+func parsePort(port string) int {
+	p, err := net.LookupPort("tcp", port)
+	if err != nil {
+		return 0
+	}
+	return p
 }
 
 // SendPeerInfo sends PeerInfo to a specific address.
@@ -99,7 +123,7 @@ func SendPeerInfo(address string, peerInfo *network.PeerInfo) error {
 	}
 	defer conn.Close()
 
-	msg := &security.Message{Type: "peer_info", Data: *peerInfo} // Use copy to avoid pointer issues
+	msg := &security.Message{Type: "peer_info", Data: *peerInfo}
 	data, err := msg.Encode()
 	if err != nil {
 		return fmt.Errorf("failed to encode PeerInfo message: %v", err)

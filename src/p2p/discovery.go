@@ -33,15 +33,20 @@ import (
 )
 
 // DiscoverPeers connects to seed nodes and discovers peers.
+// DiscoverPeers connects to seed nodes and discovers peers.
 func (s *Server) DiscoverPeers() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for _, seedAddr := range s.seedNodes {
+		log.Printf("Attempting to connect to seed node %s", seedAddr)
+
 		if seedAddr == s.localNode.Address {
+			log.Printf("Skipping self-address %s", seedAddr)
 			continue
 		}
 		if _, exists := s.nodeManager.GetPeers()[seedAddr]; exists {
+			log.Printf("Seed %s already known as peer", seedAddr)
 			continue
 		}
 
@@ -51,10 +56,10 @@ func (s *Server) DiscoverPeers() error {
 			continue
 		}
 		ip, port := parts[0], parts[1]
-		// Assign RoleNone for seed nodes; roles updated dynamically later
 		node := network.NewNode(seedAddr, ip, port, false, network.RoleNone)
+
 		if err := transport.ConnectNode(node, s.messageCh); err != nil {
-			log.Printf("Connection to node %s failed: %v", node.ID, err)
+			log.Printf("Failed to connect to seed %s: %v", seedAddr, err)
 			continue
 		}
 
@@ -67,7 +72,8 @@ func (s *Server) DiscoverPeers() error {
 		peer.SendPing()
 		s.Broadcast(&security.Message{Type: "ping", Data: s.localNode.ID})
 		s.nodeManager.BroadcastPeerInfo(peer, transport.SendPeerInfo)
-		log.Printf("Discovered peer: ID=%s, Address=%s, Role=%s", node.ID, seedAddr, node.Role)
+
+		log.Printf("Connected to seed node %s as peer: ID=%s, Role=%s", seedAddr, node.ID, node.Role)
 	}
 	return nil
 }
