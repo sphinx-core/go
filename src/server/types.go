@@ -20,23 +20,19 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/p2p/types.go
-package p2p
+// go/src/server/types.go
+package server
 
 import (
-	"sync"
-
-	"github.com/sphinx-core/go/src/core"
-	"github.com/sphinx-core/go/src/network"
-	"github.com/sphinx-core/go/src/security"
+	"github.com/sphinx-core/go/src/http"
+	"github.com/sphinx-core/go/src/p2p"
+	"github.com/sphinx-core/go/src/transport"
 )
 
-// Server manages the P2P network.
+// Server manages all protocol servers.
 type Server struct {
-	localNode   *network.Node
-	nodeManager *network.NodeManager
-	seedNodes   []string
-	messageCh   chan *security.Message
-	blockchain  *core.Blockchain
-	mu          sync.Mutex
+	tcpServer  *transport.TCPServer
+	wsServer   *transport.WebSocketServer
+	httpServer *http.Server
+	p2pServer  *p2p.Server
 }

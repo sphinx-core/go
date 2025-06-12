@@ -36,14 +36,6 @@ import (
 	"github.com/sphinx-core/go/src/transport"
 )
 
-// Server manages all protocol servers.
-type Server struct {
-	tcpServer  *transport.TCPServer
-	wsServer   *transport.WebSocketServer
-	httpServer *http.Server
-	p2pServer  *p2p.Server
-}
-
 // NewServer creates a new server.
 func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string, tlsConfig *tls.Config) *Server {
 	messageCh := make(chan *security.Message, 100)
