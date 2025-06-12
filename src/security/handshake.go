@@ -65,7 +65,7 @@ func NewHandshake() *Handshake {
 // PerformHandshake executes a Kyber768 key exchange.
 func (h *Handshake) PerformHandshake(conn net.Conn, protocol string, isInitiator bool) (*EncryptionKey, error) {
 	start := time.Now()
-	ek, err := PerformKEM(conn, isInitiator)
+	kem, err := PerformKEM(conn, isInitiator)
 	if err != nil {
 		h.Metrics.Errors.WithLabelValues(protocol).Inc()
 		log.Printf("Kyber768 handshake error for %s: %v", protocol, err)
@@ -73,5 +73,5 @@ func (h *Handshake) PerformHandshake(conn net.Conn, protocol string, isInitiator
 	}
 	h.Metrics.Latency.WithLabelValues(protocol).Observe(time.Since(start).Seconds())
 	log.Printf("Kyber768 handshake successful for %s", protocol)
-	return ek, nil
+	return kem, nil
 }
