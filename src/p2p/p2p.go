@@ -27,7 +27,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/sphinx-core/go/src/core"
 	types "github.com/sphinx-core/go/src/core/transaction"
@@ -58,7 +57,6 @@ func (s *Server) Start() error {
 	go s.handleMessages()
 	go s.peerManager.MaintainPeers()
 	log.Printf("P2P server started, local node: ID=%s, Address=%s, Role=%s", s.localNode.ID, s.localNode.Address, s.localNode.Role)
-	time.Sleep(5 * time.Second)
 	log.Printf("Starting peer discovery for node %s", s.localNode.Address)
 	if err := s.DiscoverPeers(); err != nil {
 		log.Printf("Peer discovery failed for node %s: %v", s.localNode.Address, err)

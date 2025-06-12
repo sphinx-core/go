@@ -57,7 +57,8 @@ func (s *TCPServer) Start() error {
 	}
 	s.listener = listener
 	log.Printf("TCP server listening on %s", s.address)
-
+	log.Printf("Sending TCP ready signal for %s", s.address)
+	// Note: The signal is sent in main.go, not here, but log for clarity
 	for {
 		conn, err := listener.Accept()
 		if err != nil {

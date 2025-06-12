@@ -26,6 +26,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"math/big"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -42,10 +43,8 @@ import (
 )
 
 func main() {
-	// Initialize the custom logger for structured log output
 	logger.Init()
 
-	// Define CLI flags for addresses of the three nodes and HTTP API
 	addrAlice := flag.String("addrAlice", "127.0.0.1:30303", "TCP server address for Alice")
 	addrBob := flag.String("addrBob", "127.0.0.1:30304", "TCP server address for Bob")
 	addrCharlie := flag.String("addrCharlie", "127.0.0.1:30305", "TCP server address for Charlie")
@@ -53,13 +52,10 @@ func main() {
 	seeds := flag.String("seeds", "127.0.0.1:30304,127.0.0.1:30305", "Comma-separated list of seed nodes")
 	flag.Parse()
 
-	// Used to wait for all goroutines to complete before exiting
 	var wg sync.WaitGroup
+	readyCh := make(chan struct{}, 3*4)  // 3 nodes × 4 services (TCP, HTTP, WS, P2P)
+	tcpReadyCh := make(chan struct{}, 3) // Channel for TCP server readiness
 
-	// Channel to track readiness of TCP, HTTP, WS, and P2P servers
-	readyCh := make(chan struct{}, 3*4) // 3 nodes × 4 services each
-
-	// Define each node with its role and associated ports
 	nodes := []struct {
 		addr     string
 		role     network.NodeRole
@@ -72,16 +68,13 @@ func main() {
 		{*addrCharlie, network.RoleValidator, "Charlie", "127.0.0.1:8549", "127.0.0.1:8550"},
 	}
 
-	// Split seed node addresses for P2P network
 	seedList := strings.Split(*seeds, ",")
-
-	// Prepare containers for message channels and P2P servers
 	messageChans := make([]chan *security.Message, len(nodes))
 	p2pServers := make([]*p2p.Server, len(nodes))
-	publicKeys := make(map[string]string) // Used to check for duplicate keys
+	publicKeys := make(map[string]string)
 
+	// Start all servers and collect TCP readiness signals
 	for i, node := range nodes {
-		// Validate IP address and port
 		parts := strings.Split(node.addr, ":")
 		if len(parts) != 2 {
 			logger.Fatalf("Invalid address format for %s: %s", node.name, node.addr)
@@ -91,16 +84,14 @@ func main() {
 			logger.Fatalf("Invalid IP or port for %s: %v", node.name, err)
 		}
 
-		// Initialize blockchain state for the node
 		logger.Infof("Initializing blockchain for %s", node.name)
 		blockchain := core.NewBlockchain()
 		logger.Infof("Genesis block created for %s, hash: %x", node.name, blockchain.GetBestBlockHash())
 
-		// Create a secure channel for RPC messages
 		messageChans[i] = make(chan *security.Message, 100)
 		rpcServer := rpc.NewServer(messageChans[i], blockchain)
 
-		// Start TCP transport server
+		// Start TCP server
 		tcpServer := transport.NewTCPServer(node.addr, messageChans[i], rpcServer)
 		wg.Add(1)
 		go func(name, addr string) {
@@ -109,11 +100,15 @@ func main() {
 			if err := tcpServer.Start(); err != nil {
 				logger.Errorf("TCP server failed for %s: %v", name, err)
 			} else {
+				logger.Infof("TCP server for %s successfully started", name)
 				readyCh <- struct{}{}
+				logger.Infof("Preparing to send TCP ready signal for %s", name)
+				tcpReadyCh <- struct{}{} // Signal TCP server is ready
+				logger.Infof("Sent TCP ready signal for %s", name)
 			}
 		}(node.name, node.addr)
 
-		// Start HTTP server for REST API
+		// Start HTTP server
 		httpServer := http.NewServer(node.httpPort, messageChans[i], blockchain)
 		wg.Add(1)
 		go func(name, port string) {
@@ -122,11 +117,12 @@ func main() {
 			if err := httpServer.Start(); err != nil {
 				logger.Errorf("HTTP server failed for %s: %v", name, err)
 			} else {
+				logger.Infof("HTTP server for %s successfully started", name)
 				readyCh <- struct{}{}
 			}
 		}(node.name, node.httpPort)
 
-		// Start WebSocket server for real-time messaging
+		// Start WebSocket server
 		wsServer := transport.NewWebSocketServer(node.wsPort, messageChans[i], rpcServer)
 		wg.Add(1)
 		go func(name, port string) {
@@ -135,24 +131,14 @@ func main() {
 			if err := wsServer.Start(); err != nil {
 				logger.Errorf("WebSocket server failed for %s: %v", name, err)
 			} else {
+				logger.Infof("WebSocket server for %s successfully started", name)
 				readyCh <- struct{}{}
 			}
 		}(node.name, node.wsPort)
 
-		// Start P2P server for decentralized messaging
+		// Initialize P2P server but don't start it yet
 		p2pServers[i] = p2p.NewServer(node.addr, ip, port, seedList, blockchain)
-		wg.Add(1)
-		go func(name string, server *p2p.Server) {
-			defer wg.Done()
-			logger.Infof("Starting P2P server for %s on %s", name, server.LocalNode().Address)
-			if err := server.Start(); err != nil {
-				logger.Errorf("P2P server failed for %s: %v", name, err)
-			} else {
-				readyCh <- struct{}{}
-			}
-		}(node.name, p2pServers[i])
 
-		// Set node role and validate key integrity
 		localNode := p2pServers[i].LocalNode()
 		localNode.UpdateRole(node.role)
 		logger.Infof("Node %s initialized with role %s", node.name, node.role)
@@ -161,7 +147,6 @@ func main() {
 			logger.Fatalf("Key generation failed for %s", node.name)
 		}
 
-		// Ensure uniqueness of public keys
 		pubHex := hex.EncodeToString(localNode.PublicKey)
 		logger.Infof("Node %s public key: %s", node.name, pubHex)
 
@@ -171,24 +156,58 @@ func main() {
 		publicKeys[pubHex] = node.name
 	}
 
-	// Wait until all TCP/HTTP/WS/P2P servers are up and running
+	// Wait for all TCP servers to be ready
+	logger.Infof("Waiting for %d TCP servers to be ready", len(nodes))
+	for i := 0; i < len(nodes); i++ {
+		select {
+		case <-tcpReadyCh:
+			logger.Infof("TCP server %d of %d ready", i+1, len(nodes))
+		case <-time.After(5 * time.Second):
+			logger.Errorf("Timeout waiting for TCP server %d to be ready after 5s", i+1)
+			logger.Fatalf("Failed to receive all TCP ready signals")
+		}
+		runtime.Gosched() // Yield to allow other goroutines to run
+	}
+	close(tcpReadyCh) // Close the channel to prevent further sends
+	logger.Infof("All TCP servers are ready")
+
+	// Start P2P servers
+	for i, node := range nodes {
+		wg.Add(1)
+		go func(name string, server *p2p.Server) {
+			defer wg.Done()
+			logger.Infof("Starting P2P server for %s on %s", name, server.LocalNode().Address)
+			if err := server.Start(); err != nil {
+				logger.Errorf("P2P server failed for %s: %v", name, err)
+			} else {
+				logger.Infof("P2P server for %s successfully started", name)
+				readyCh <- struct{}{}
+			}
+		}(node.name, p2pServers[i])
+	}
+
+	// Wait until all servers are ready
 	for i := 0; i < len(nodes)*4; i++ {
-		<-readyCh
+		select {
+		case <-readyCh:
+			logger.Infof("Server %d of %d ready", i+1, len(nodes)*4)
+		case <-time.After(15 * time.Second):
+			logger.Fatalf("Timeout waiting for server %d to be ready", i+1)
+		}
 	}
 	logger.Infof("All servers are ready")
 
 	// Simulate a delay before submitting a transaction
 	time.Sleep(5 * time.Second)
 
-	// Create and submit a dummy transaction from Alice to Bob
 	tx := &types.Transaction{
 		Sender:    "127.0.0.1:30303",
 		Receiver:  "127.0.0.1:30304",
-		Amount:    big.NewInt(1000),  // Transfer amount
-		GasLimit:  big.NewInt(21000), // Simplified gas limit
-		GasPrice:  big.NewInt(1),     // Simplified gas price
-		Timestamp: time.Now().Unix(), // Unix timestamp
-		Nonce:     1,                 // Example nonce
+		Amount:    big.NewInt(1000),
+		GasLimit:  big.NewInt(21000),
+		GasPrice:  big.NewInt(1),
+		Timestamp: time.Now().Unix(),
+		Nonce:     1,
 	}
 
 	logger.Infof("Submitting transaction from Alice to Bob: %+v", tx)
@@ -200,7 +219,6 @@ func main() {
 			tx.Sender, tx.Receiver, tx.Amount.String(), tx.Nonce)
 	}
 
-	// Periodically prunes inactive peers from each node's peer list
 	go func() {
 		for {
 			for _, server := range p2pServers {
@@ -210,6 +228,5 @@ func main() {
 		}
 	}()
 
-	// Prevent the program from exiting
 	select {}
 }
