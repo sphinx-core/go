@@ -36,16 +36,6 @@ import (
 	"github.com/sphinx-core/go/src/security"
 )
 
-// TCPServer handles TCP connections.
-type TCPServer struct {
-	address   string
-	listener  net.Listener
-	messageCh chan *security.Message
-	tlsConfig *tls.Config
-	rpcServer *rpc.Server
-	handshake *security.Handshake
-}
-
 // NewTCPServer creates a new TCP server.
 func NewTCPServer(address string, messageCh chan *security.Message, tlsConfig *tls.Config, rpcServer *rpc.Server) *TCPServer {
 	return &TCPServer{

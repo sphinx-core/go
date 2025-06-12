@@ -38,17 +38,6 @@ import (
 	"github.com/sphinx-core/go/src/security"
 )
 
-// WebSocketServer handles WebSocket connections.
-type WebSocketServer struct {
-	address   string
-	mux       *http.ServeMux
-	upgrader  websocket.Upgrader
-	messageCh chan *security.Message
-	tlsConfig *tls.Config
-	rpcServer *rpc.Server
-	handshake *security.Handshake
-}
-
 // NewWebSocketServer creates a new WebSocket server.
 func NewWebSocketServer(address string, messageCh chan *security.Message, tlsConfig *tls.Config, rpcServer *rpc.Server) *WebSocketServer {
 	mux := http.NewServeMux()
