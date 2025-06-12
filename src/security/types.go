@@ -30,23 +30,28 @@ import (
 )
 
 // Message represents a secure P2P or RPC message.
+// It consists of a message type and associated data payload.
 type Message struct {
-	Type string      `json:"type"` // e.g., "transaction", "block", "jsonrpc", "ping", "pong", "peer_info"
-	Data interface{} `json:"data"`
+	Type string      `json:"type"` // Type of the message, such as "transaction", "block", "jsonrpc", etc.
+	Data interface{} `json:"data"` // Generic data payload associated with the message
 }
 
-// Handshake manages TLS handshakes with metrics.
+// Handshake manages TLS or secure channel handshakes,
+// and tracks metrics related to the handshake process.
 type Handshake struct {
-	Metrics *HandshakeMetrics
+	Metrics *HandshakeMetrics // Pointer to a structure that holds handshake-related metrics
 }
 
+// HandshakeMetrics encapsulates Prometheus metrics
+// for tracking handshake latency and error statistics.
 type HandshakeMetrics struct {
-	Latency *prometheus.HistogramVec
-	Errors  *prometheus.CounterVec
+	Latency *prometheus.HistogramVec // HistogramVec to record handshake latency across different labels
+	Errors  *prometheus.CounterVec   // CounterVec to count different types of handshake errors
 }
 
-// EncryptionKey manages the shared secret and AES-GCM cipher.
+// EncryptionKey holds the shared cryptographic material for secure communication.
+// It wraps both the derived AES-GCM cipher and the original shared secret bytes.
 type EncryptionKey struct {
-	SharedSecret []byte
-	AESGCM       cipher.AEAD
+	SharedSecret []byte      // The raw shared secret used to derive the AES key (usually from key exchange like X25519 or Kyber768)
+	AESGCM       cipher.AEAD // AES-GCM instance used to perform authenticated encryption and decryption
 }
