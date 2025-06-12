@@ -26,7 +26,6 @@ package p2p
 import (
 	"fmt"
 	"log"
-	"sync"
 	"time"
 
 	"github.com/sphinx-core/go/src/core"
@@ -35,16 +34,6 @@ import (
 	"github.com/sphinx-core/go/src/security"
 	"github.com/sphinx-core/go/src/transport"
 )
-
-// Server manages the P2P network.
-type Server struct {
-	localNode   *network.Node
-	nodeManager *network.NodeManager
-	seedNodes   []string
-	messageCh   chan *security.Message
-	blockchain  *core.Blockchain
-	mu          sync.Mutex
-}
 
 // NewServer creates a new P2P server.
 func NewServer(address, ip, port string, seedNodes []string, blockchain *core.Blockchain) *Server {

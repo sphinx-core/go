@@ -33,7 +33,6 @@ import (
 )
 
 // DiscoverPeers connects to seed nodes and discovers peers.
-// DiscoverPeers connects to seed nodes and discovers peers.
 func (s *Server) DiscoverPeers() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
