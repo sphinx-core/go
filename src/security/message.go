@@ -32,55 +32,75 @@ import (
 	"github.com/sphinx-core/go/src/network"
 )
 
-// ValidateMessage ensures the message is valid.
+// ValidateMessage ensures the message conforms to expected structure and type rules.
 func (m *Message) ValidateMessage() error {
+	// Check if the message type is not empty
 	if m.Type == "" {
 		return errors.New("message type is empty")
 	}
+
+	// Handle validation logic based on the message type
 	switch m.Type {
 	case "transaction":
+		// Type assertion to check if Data is of *Transaction type
 		if tx, ok := m.Data.(*types.Transaction); ok {
+			// Validate that sender and receiver are set and amount is greater than 0
 			if tx.Sender == "" || tx.Receiver == "" || tx.Amount.Cmp(big.NewInt(0)) <= 0 {
 				return errors.New("invalid transaction data")
 			}
 		} else {
+			// If type assertion fails, return error
 			return errors.New("invalid transaction type")
 		}
 	case "block":
+		// Check if Data is of type Block
 		if _, ok := m.Data.(types.Block); !ok {
 			return errors.New("invalid block data")
 		}
 	case "jsonrpc":
+		// Check if Data is a map and contains correct JSON-RPC version
 		if data, ok := m.Data.(map[string]interface{}); !ok || data["jsonrpc"] != "2.0" {
 			return errors.New("invalid JSON-RPC data")
 		}
 	case "ping", "pong":
+		// Validate that Data is a string (node ID)
 		if _, ok := m.Data.(string); !ok {
 			return errors.New("invalid ping/pong data: must be node ID string")
 		}
 	case "peer_info":
+		// Validate that Data is of type PeerInfo
 		if _, ok := m.Data.(network.PeerInfo); !ok {
 			return errors.New("invalid peer_info data")
 		}
 	default:
+		// Unknown message types are not allowed
 		return errors.New("unknown message type")
 	}
+
+	// If all validations pass, return nil (no error)
 	return nil
 }
 
-// Encode serializes the message to JSON.
+// Encode serializes the Message struct to JSON bytes.
 func (m *Message) Encode() ([]byte, error) {
+	// Marshal the message into JSON format
 	return json.Marshal(m)
 }
 
-// DecodeMessage deserializes a message from JSON.
+// DecodeMessage takes a JSON byte slice and returns a validated Message object.
 func DecodeMessage(data []byte) (*Message, error) {
 	var msg Message
+
+	// Unmarshal the JSON data into the msg variable
 	if err := json.Unmarshal(data, &msg); err != nil {
 		return nil, err
 	}
+
+	// Validate the deserialized message
 	if err := msg.ValidateMessage(); err != nil {
 		return nil, err
 	}
+
+	// Return the valid message pointer
 	return &msg, nil
 }

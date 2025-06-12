@@ -32,41 +32,41 @@ import (
 
 // CallRPC sends a JSON-RPC request to a peer.
 func CallRPC(address, method string, params interface{}) (*JSONRPCResponse, error) {
-	conn, err := net.Dial("tcp", address)
-	if err != nil {
-		return nil, err
+	conn, err := net.Dial("tcp", address) // Establish a TCP connection to the given address
+	if err != nil {                       // Check for connection error
+		return nil, err // Return error if connection fails
 	}
-	defer conn.Close()
+	defer conn.Close() // Ensure connection is closed when function returns
 
-	paramsJSON, _ := json.Marshal(params)
-	req := JSONRPCRequest{
-		JSONRPC: "2.0",
-		Method:  method,
-		Params:  string(paramsJSON),
-		ID:      1,
+	paramsJSON, _ := json.Marshal(params) // Serialize params into JSON format, ignoring marshal error
+	req := JSONRPCRequest{                // Create a JSON-RPC request struct
+		JSONRPC: "2.0",              // JSON-RPC version
+		Method:  method,             // RPC method to call
+		Params:  string(paramsJSON), // Parameters as JSON string
+		ID:      1,                  // Request ID (fixed as 1 here)
 	}
-	msg := &security.Message{Type: "jsonrpc", Data: req}
-	data, err := msg.Encode()
-	if err != nil {
-		return nil, err
-	}
-
-	if _, err := conn.Write(data); err != nil {
-		return nil, err
+	msg := &security.Message{Type: "jsonrpc", Data: req} // Wrap the JSON-RPC request inside a secure Message
+	data, err := msg.Encode()                            // Encode the Message into bytes for sending
+	if err != nil {                                      // Check encoding error
+		return nil, err // Return error if encoding fails
 	}
 
-	respData := readConn(conn)
-	var resp JSONRPCResponse
-	if err := json.Unmarshal(respData, &resp); err != nil {
-		return nil, err
+	if _, err := conn.Write(data); err != nil { // Write encoded bytes to the TCP connection
+		return nil, err // Return error if writing fails
 	}
 
-	return &resp, nil
+	respData := readConn(conn)                              // Read response data from the connection
+	var resp JSONRPCResponse                                // Prepare a variable to hold the unmarshaled response
+	if err := json.Unmarshal(respData, &resp); err != nil { // Unmarshal JSON response into resp struct
+		return nil, err // Return error if unmarshaling fails
+	}
+
+	return &resp, nil // Return the JSONRPCResponse pointer and no error
 }
 
 // readConn reads data from a connection.
 func readConn(conn net.Conn) []byte {
-	buf := make([]byte, 4096)
-	n, _ := conn.Read(buf)
-	return buf[:n]
+	buf := make([]byte, 4096) // Create a buffer to hold read bytes, max size 4096 bytes
+	n, _ := conn.Read(buf)    // Read data from connection into buffer, ignoring read error
+	return buf[:n]            // Return only the bytes actually read
 }

@@ -33,88 +33,95 @@ import (
 	"github.com/sphinx-core/go/src/security"
 )
 
+// ValidateIP checks whether the provided IP and port are valid.
 func ValidateIP(ip, port string) error {
 	if net.ParseIP(ip) == nil {
-		return fmt.Errorf("invalid IP address: %s", ip)
+		return fmt.Errorf("invalid IP address: %s", ip) // Validate the IP address format
 	}
 	if _, err := net.LookupPort("tcp", port); err != nil {
-		return fmt.Errorf("invalid port: %s", port)
+		return fmt.Errorf("invalid port: %s", port) // Validate the TCP port
 	}
-	return nil
+	return nil // Return nil if both IP and port are valid
 }
 
+// ResolveAddress constructs a full address string from a validated IP and port.
 func ResolveAddress(ip, port string) (string, error) {
 	if err := ValidateIP(ip, port); err != nil {
-		return "", err
+		return "", err // Return an error if validation fails
 	}
-	return fmt.Sprintf("%s:%s", ip, port), nil
+	return fmt.Sprintf("%s:%s", ip, port), nil // Return formatted address string
 }
 
+// NodeToAddress converts a network.Node's IP and Port into a usable address string.
 func NodeToAddress(node *network.Node) (string, error) {
 	if node.IP == "" || node.Port == "" {
-		return "", fmt.Errorf("node %s has empty IP or port", node.ID)
+		return "", fmt.Errorf("node %s has empty IP or port", node.ID) // Ensure both fields are set
 	}
-	return ResolveAddress(node.IP, node.Port)
+	return ResolveAddress(node.IP, node.Port) // Generate address from IP and port
 }
 
+// ConnectNode attempts to connect to a node using TCP and WebSocket up to 3 times.
 func ConnectNode(node *network.Node, messageCh chan *security.Message) error {
-	addr, err := NodeToAddress(node)
+	addr, err := NodeToAddress(node) // Convert node to address string
 	if err != nil {
-		return err
+		return err // Return if address resolution fails
 	}
 
-	for attempt := 1; attempt <= 3; attempt++ {
+	for attempt := 1; attempt <= 3; attempt++ { // Retry up to 3 times
 		if err := ConnectTCP(addr, messageCh); err == nil {
-			node.UpdateStatus(network.NodeStatusActive)
-			log.Printf("Connected to node %s via TCP: %s", node.ID, addr)
+			node.UpdateStatus(network.NodeStatusActive)                   // Mark node as active on success
+			log.Printf("Connected to node %s via TCP: %s", node.ID, addr) // Log TCP connection success
 			return nil
 		}
-		log.Printf("TCP connection to node %s (%s) attempt %d failed: %v", node.ID, addr, attempt, err)
+		log.Printf("TCP connection to node %s (%s) attempt %d failed: %v", node.ID, addr, attempt, err) // Log TCP failure
 
-		wsAddr := fmt.Sprintf("%s:%d", node.IP, parsePort(node.Port)+553)
+		wsAddr := fmt.Sprintf("%s:%d", node.IP, parsePort(node.Port)+553) // Construct WebSocket fallback address
 		if err := ConnectWebSocket(wsAddr, messageCh); err == nil {
-			node.UpdateStatus(network.NodeStatusActive)
-			log.Printf("Connected to node %s via WebSocket: %s", node.ID, wsAddr)
+			node.UpdateStatus(network.NodeStatusActive)                           // Mark node as active on WebSocket success
+			log.Printf("Connected to node %s via WebSocket: %s", node.ID, wsAddr) // Log WebSocket connection success
 			return nil
 		}
-		log.Printf("WebSocket connection to node %s (%s) attempt %d failed: %v", node.ID, wsAddr, attempt, err)
+		log.Printf("WebSocket connection to node %s (%s) attempt %d failed: %v", node.ID, wsAddr, attempt, err) // Log WebSocket failure
 
 		if attempt < 3 {
-			time.Sleep(time.Second * time.Duration(attempt))
+			time.Sleep(time.Second * time.Duration(attempt)) // Exponential backoff between retries
 		}
 	}
-	return fmt.Errorf("failed to connect to node %s (%s) after 3 attempts", node.ID, addr)
+	return fmt.Errorf("failed to connect to node %s (%s) after 3 attempts", node.ID, addr) // Return error after 3 failed attempts
 }
 
+// parsePort resolves a port string to its integer value using TCP lookup.
 func parsePort(port string) int {
-	p, err := net.LookupPort("tcp", port)
+	p, err := net.LookupPort("tcp", port) // Attempt to resolve TCP port number
 	if err != nil {
-		return 0
+		return 0 // Return 0 if port resolution fails
 	}
-	return p
+	return p // Return resolved port number
 }
 
+// SendPeerInfo sends a PeerInfo message to the given address over a secure TCP connection.
 func SendPeerInfo(address string, peerInfo *network.PeerInfo) error {
-	conn, err := net.Dial("tcp", address)
+	conn, err := net.Dial("tcp", address) // Dial TCP connection to the address
 	if err != nil {
-		return fmt.Errorf("failed to dial connection to %s: %v", address, err)
+		return fmt.Errorf("failed to dial connection to %s: %v", address, err) // Return error if dialing fails
 	}
-	defer conn.Close()
+	defer conn.Close() // Ensure connection is closed after function ends
 
-	handshake := security.NewHandshake()
-	ek, err := handshake.PerformHandshake(conn, "tcp", true)
+	handshake := security.NewHandshake()                     // Initialize new Kyber768 handshake
+	ek, err := handshake.PerformHandshake(conn, "tcp", true) // Perform key exchange as initiator
 	if err != nil {
-		return err
+		return err // Return error if handshake fails
 	}
 
-	msg := &security.Message{Type: "peer_info", Data: *peerInfo}
-	data, err := security.SecureMessage(msg, ek)
+	msg := &security.Message{Type: "peer_info", Data: *peerInfo} // Create a new peer_info message
+	data, err := security.SecureMessage(msg, ek)                 // Encrypt and encode the message using the handshake key
 	if err != nil {
-		return fmt.Errorf("failed to encode PeerInfo message: %v", err)
+		return fmt.Errorf("failed to encode PeerInfo message: %v", err) // Return error if encryption fails
 	}
+
 	if _, err := conn.Write(append(data, '\n')); err != nil {
-		return fmt.Errorf("failed to write PeerInfo to %s: %v", address, err)
+		return fmt.Errorf("failed to write PeerInfo to %s: %v", address, err) // Return error if write fails
 	}
-	log.Printf("Sent PeerInfo to %s", address)
-	return nil
+	log.Printf("Sent PeerInfo to %s", address) // Log successful PeerInfo send
+	return nil                                 // Return nil on success
 }

@@ -31,38 +31,39 @@ import (
 )
 
 var (
-	metrics     *Metrics
-	initMetrics sync.Once
+	metrics     *Metrics  // Global pointer to hold Metrics instance
+	initMetrics sync.Once // Ensures metrics initialization runs only once
 )
 
+// NewMetrics initializes and returns a singleton Metrics instance
 func NewMetrics() *Metrics {
-	initMetrics.Do(func() {
-		metrics = &Metrics{
-			RequestCount: promauto.NewCounterVec(
+	initMetrics.Do(func() { // Execute the enclosed function only once, thread-safe
+		metrics = &Metrics{ // Instantiate Metrics struct with Prometheus metrics
+			RequestCount: promauto.NewCounterVec( // CounterVec for counting RPC requests per method
 				prometheus.CounterOpts{
-					Name: "rpc_request_total",
-					Help: "Total number of RPC requests processed",
+					Name: "rpc_request_total",                      // Metric name for total RPC requests
+					Help: "Total number of RPC requests processed", // Metric description
 				},
-				[]string{"method"},
+				[]string{"method"}, // Label to distinguish counts by RPC method
 			),
-			RequestLatency: promauto.NewHistogramVec(
+			RequestLatency: promauto.NewHistogramVec( // HistogramVec for measuring RPC request latencies
 				prometheus.HistogramOpts{
-					Name:    "rpc_request_latency_seconds",
-					Help:    "Latency of RPC requests in seconds",
-					Buckets: prometheus.DefBuckets,
+					Name:    "rpc_request_latency_seconds",        // Metric name for RPC latency
+					Help:    "Latency of RPC requests in seconds", // Description for latency metric
+					Buckets: prometheus.DefBuckets,                // Default buckets for histogram
 				},
-				[]string{"method"},
+				[]string{"method"}, // Label to distinguish latencies by RPC method
 			),
-			ErrorCount: promauto.NewCounterVec(
+			ErrorCount: promauto.NewCounterVec( // CounterVec for counting RPC errors per method
 				prometheus.CounterOpts{
-					Name: "rpc_error_total",
-					Help: "Total number of RPC errors",
+					Name: "rpc_error_total",            // Metric name for total RPC errors
+					Help: "Total number of RPC errors", // Description of error metric
 				},
-				[]string{"method"},
+				[]string{"method"}, // Label to distinguish error counts by RPC method
 			),
 		}
-		// Metrics are already registered by promauto.New* functions.
-		// So you don't need to call prometheus.MustRegister here.
+		// Metrics created with promauto are automatically registered with Prometheus.
+		// Therefore, explicit prometheus.MustRegister calls are not required here.
 	})
-	return metrics
+	return metrics // Return the initialized Metrics pointer (singleton)
 }
