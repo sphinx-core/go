@@ -24,8 +24,6 @@
 package security
 
 import (
-	"crypto/tls"
-
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -37,7 +35,6 @@ type Message struct {
 
 // Handshake manages TLS handshakes with metrics.
 type Handshake struct {
-	Config  *tls.Config
 	Metrics *HandshakeMetrics
 }
 

@@ -24,49 +24,41 @@
 package transport
 
 import (
-	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"log"
-	"math/big"
+	"net"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/websocket"
-	types "github.com/sphinx-core/go/src/core/transaction"
 	"github.com/sphinx-core/go/src/rpc"
 	"github.com/sphinx-core/go/src/security"
 )
 
-// NewWebSocketServer creates a new WebSocket server.
-func NewWebSocketServer(address string, messageCh chan *security.Message, tlsConfig *tls.Config, rpcServer *rpc.Server) *WebSocketServer {
+func NewWebSocketServer(address string, messageCh chan *security.Message, rpcServer *rpc.Server) *WebSocketServer {
 	mux := http.NewServeMux()
 	return &WebSocketServer{
 		address: address,
 		mux:     mux,
 		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true }, // Allow all origins for testing
+			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 		messageCh: messageCh,
-		tlsConfig: tlsConfig,
 		rpcServer: rpcServer,
-		handshake: security.NewHandshake(tlsConfig),
+		handshake: security.NewHandshake(),
 	}
 }
 
-// Start runs the WebSocket server.
 func (s *WebSocketServer) Start() error {
 	s.mux.HandleFunc("/ws", s.handleWebSocket)
 	server := &http.Server{
-		Addr:      s.address,
-		Handler:   s.mux,
-		TLSConfig: s.tlsConfig,
+		Addr:    s.address,
+		Handler: s.mux,
 	}
 	log.Printf("WebSocket server listening on %s/ws", s.address)
-	return server.ListenAndServeTLS("", "")
+	return server.ListenAndServe()
 }
 
-// handleWebSocket upgrades HTTP to WebSocket.
 func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -76,18 +68,26 @@ func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 	}
 	defer conn.Close()
 
+	// Create a net.Conn wrapper for WebSocket to perform handshake
+	wsConn := &websocketConn{conn: conn}
+	ek, err := s.handshake.PerformHandshake(wsConn, "websocket", false)
+	if err != nil {
+		log.Printf("WebSocket handshake failed: %v", err)
+		return
+	}
+
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("WebSocket read error: %v", err)
 			break
 		}
-		var msg security.Message
-		if err := json.Unmarshal(raw, &msg); err != nil {
+		msg, err := security.DecodeSecureMessage(raw, ek)
+		if err != nil {
 			log.Printf("WebSocket decode error: %v", err)
 			continue
 		}
-		s.messageCh <- &msg
+		s.messageCh <- msg
 
 		if msg.Type == "jsonrpc" {
 			resp, err := s.rpcServer.HandleRequest([]byte(msg.Data.(string)))
@@ -95,7 +95,12 @@ func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 				log.Printf("RPC handle error: %v", err)
 				continue
 			}
-			if err := conn.WriteMessage(websocket.TextMessage, resp); err != nil {
+			encryptedResp, err := security.SecureMessage(&security.Message{Type: "jsonrpc", Data: string(resp)}, ek)
+			if err != nil {
+				log.Printf("WebSocket encode error: %v", err)
+				continue
+			}
+			if err := conn.WriteMessage(websocket.TextMessage, encryptedResp); err != nil {
 				log.Printf("WebSocket write error: %v", err)
 				break
 			}
@@ -103,37 +108,72 @@ func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// ConnectWebSocket connects to a peer via WebSocket.
-func ConnectWebSocket(address string, messageCh chan *security.Message) error {
-	dialer := websocket.Dialer{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-			CurvePreferences:   []tls.CurveID{tls.X25519},
-			MinVersion:         tls.VersionTLS13,
-		},
-	}
+// websocketConn wraps a WebSocket connection to implement net.Conn
+type websocketConn struct {
+	conn *websocket.Conn
+	buf  []byte
+}
 
-	// Map TCP ports to WebSocket ports
+func (wc *websocketConn) Read(b []byte) (n int, err error) {
+	if len(wc.buf) > 0 {
+		n = copy(b, wc.buf)
+		wc.buf = wc.buf[n:]
+		return n, nil
+	}
+	_, data, err := wc.conn.ReadMessage()
+	if err != nil {
+		return 0, err
+	}
+	n = copy(b, data)
+	if n < len(data) {
+		wc.buf = data[n:]
+	}
+	return n, nil
+}
+
+func (wc *websocketConn) Write(b []byte) (n int, err error) {
+	return len(b), wc.conn.WriteMessage(websocket.TextMessage, b)
+}
+
+func (wc *websocketConn) Close() error {
+	return wc.conn.Close()
+}
+
+func (wc *websocketConn) LocalAddr() net.Addr                { return nil }
+func (wc *websocketConn) RemoteAddr() net.Addr               { return nil }
+func (wc *websocketConn) SetDeadline(t time.Time) error      { return nil }
+func (wc *websocketConn) SetReadDeadline(t time.Time) error  { return nil }
+func (wc *websocketConn) SetWriteDeadline(t time.Time) error { return nil }
+
+func ConnectWebSocket(address string, messageCh chan *security.Message) error {
+	dialer := websocket.Dialer{}
 	wsPortMap := map[string]string{
-		"127.0.0.1:30303": "127.0.0.1:8546", // Alice
-		"127.0.0.1:30304": "127.0.0.1:8548", // Bob
-		"127.0.0.1:30305": "127.0.0.1:8550", // Charlie
+		"127.0.0.1:30303": "127.0.0.1:8546",
+		"127.0.0.1:30304": "127.0.0.1:8548",
+		"127.0.0.1:30305": "127.0.0.1:8550",
 	}
 	wsAddress, ok := wsPortMap[address]
 	if !ok {
-		wsAddress = address // Fallback to provided address
+		wsAddress = address
 	}
 
 	for attempt := 1; attempt <= 3; attempt++ {
-		conn, _, err := dialer.Dial("wss://"+wsAddress+"/ws", nil)
+		conn, _, err := dialer.Dial("ws://"+wsAddress+"/ws", nil)
 		if err == nil {
 			defer conn.Close()
 
-			header := types.NewBlockHeader(1, []byte{}, big.NewInt(1), []byte{}, []byte{}, big.NewInt(1000000), big.NewInt(0), []byte{}, []byte{})
-			body := types.NewBlockBody([]*types.Transaction{}, []byte{})
-			block := types.NewBlock(header, body)
-			msg := &security.Message{Type: "block", Data: block}
-			data, err := json.Marshal(msg)
+			// Perform Kyber768 handshake
+			wsConn := &websocketConn{conn: conn}
+			handshake := security.NewHandshake()
+			ek, err := handshake.PerformHandshake(wsConn, "websocket", true)
+			if err != nil {
+				log.Printf("WebSocket handshake failed for %s on attempt %d: %v", wsAddress, attempt, err)
+				continue
+			}
+
+			// Send example message
+			msg := &security.Message{Type: "block", Data: struct{}{}}
+			data, err := security.SecureMessage(msg, ek)
 			if err != nil {
 				log.Printf("WebSocket encode error for %s on attempt %d: %v", wsAddress, attempt, err)
 				continue
@@ -148,12 +188,12 @@ func ConnectWebSocket(address string, messageCh chan *security.Message) error {
 				log.Printf("WebSocket read response error for %s on attempt %d: %v", wsAddress, attempt, err)
 				continue
 			}
-			var respMsg security.Message
-			if err := json.Unmarshal(respData, &respMsg); err != nil {
+			respMsg, err := security.DecodeSecureMessage(respData, ek)
+			if err != nil {
 				log.Printf("WebSocket decode response error for %s on attempt %d: %v", wsAddress, attempt, err)
 				continue
 			}
-			messageCh <- &respMsg
+			messageCh <- respMsg
 
 			log.Printf("WebSocket connected to %s", wsAddress)
 			return nil

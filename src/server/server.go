@@ -24,7 +24,6 @@
 package server
 
 import (
-	"crypto/tls"
 	"log"
 	"strings"
 
@@ -36,13 +35,11 @@ import (
 	"github.com/sphinx-core/go/src/transport"
 )
 
-// NewServer creates a new server.
-func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string, tlsConfig *tls.Config) *Server {
+func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string) *Server {
 	messageCh := make(chan *security.Message, 100)
 	blockchain := core.NewBlockchain()
 	rpcServer := rpc.NewServer(messageCh, blockchain)
 
-	// Parse p2pAddr into IP and port
 	parts := strings.Split(p2pAddr, ":")
 	if len(parts) != 2 {
 		log.Fatalf("Invalid p2pAddr format: %s, expected IP:port", p2pAddr)
@@ -50,14 +47,13 @@ func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string, tlsCon
 	ip, port := parts[0], parts[1]
 
 	return &Server{
-		tcpServer:  transport.NewTCPServer(tcpAddr, messageCh, tlsConfig, rpcServer),
-		wsServer:   transport.NewWebSocketServer(wsAddr, messageCh, tlsConfig, rpcServer),
+		tcpServer:  transport.NewTCPServer(tcpAddr, messageCh, rpcServer),
+		wsServer:   transport.NewWebSocketServer(wsAddr, messageCh, rpcServer),
 		httpServer: http.NewServer(httpAddr, messageCh, blockchain),
 		p2pServer:  p2p.NewServer(p2pAddr, ip, port, seeds, blockchain),
 	}
 }
 
-// Start runs all servers.
 func (s *Server) Start() error {
 	go func() {
 		if err := s.tcpServer.Start(); err != nil {
@@ -74,5 +70,5 @@ func (s *Server) Start() error {
 			log.Fatalf("P2P server failed: %v", err)
 		}
 	}()
-	return s.wsServer.Start() // Run WebSocket server in the main goroutine
+	return s.wsServer.Start()
 }

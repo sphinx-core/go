@@ -24,8 +24,6 @@
 package security
 
 import (
-	"crypto/tls"
-	"fmt"
 	"log"
 	"net"
 	"time"
@@ -36,16 +34,16 @@ import (
 var (
 	handshakeLatency = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "tls_handshake_latency_seconds",
-			Help:    "Latency of TLS handshakes",
+			Name:    "kyber_handshake_latency_seconds",
+			Help:    "Latency of Kyber768 handshakes",
 			Buckets: prometheus.DefBuckets,
 		},
 		[]string{"protocol"},
 	)
 	handshakeErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "tls_handshake_errors_total",
-			Help: "Total number of TLS handshake errors",
+			Name: "kyber_handshake_errors_total",
+			Help: "Total number of Kyber768 handshake errors",
 		},
 		[]string{"protocol"},
 	)
@@ -55,9 +53,8 @@ func init() {
 	prometheus.MustRegister(handshakeLatency, handshakeErrors)
 }
 
-func NewHandshake(config *tls.Config) *Handshake {
+func NewHandshake() *Handshake {
 	return &Handshake{
-		Config: config,
 		Metrics: &HandshakeMetrics{
 			Latency: handshakeLatency,
 			Errors:  handshakeErrors,
@@ -65,43 +62,16 @@ func NewHandshake(config *tls.Config) *Handshake {
 	}
 }
 
-// cipherSuiteName converts a TLS cipher suite ID to a human-readable name.
-func cipherSuiteName(id uint16) string {
-	switch id {
-	case tls.TLS_AES_128_GCM_SHA256:
-		return "TLS_AES_128_GCM_SHA256"
-	case tls.TLS_AES_256_GCM_SHA384:
-		return "TLS_AES_256_GCM_SHA384"
-	case tls.TLS_CHACHA20_POLY1305_SHA256:
-		return "TLS_CHACHA20_POLY1305_SHA256"
-	case tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
-		return "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
-	case tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
-		return "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
-	case tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
-		return "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
-	case tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
-		return "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
-	case tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305:
-		return "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305"
-	case tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305:
-		return "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
-	default:
-		return fmt.Sprintf("Unknown(0x%04x)", id)
-	}
-}
-
-// PerformHandshake executes a TLS handshake on the given connection.
-func (h *Handshake) PerformHandshake(conn net.Conn, protocol string) error {
+// PerformHandshake executes a Kyber768 key exchange.
+func (h *Handshake) PerformHandshake(conn net.Conn, protocol string, isInitiator bool) (*EncryptionKey, error) {
 	start := time.Now()
-	if tlsConn, ok := conn.(*tls.Conn); ok {
-		if err := tlsConn.Handshake(); err != nil {
-			h.Metrics.Errors.WithLabelValues(protocol).Inc()
-			log.Printf("TLS handshake error for %s: %v", protocol, err)
-			return err
-		}
-		h.Metrics.Latency.WithLabelValues(protocol).Observe(time.Since(start).Seconds())
-		log.Printf("TLS handshake successful for %s using %s", protocol, cipherSuiteName(tlsConn.ConnectionState().CipherSuite))
+	ek, err := PerformKyberKeyExchange(conn, isInitiator)
+	if err != nil {
+		h.Metrics.Errors.WithLabelValues(protocol).Inc()
+		log.Printf("Kyber768 handshake error for %s: %v", protocol, err)
+		return nil, err
 	}
-	return nil
+	h.Metrics.Latency.WithLabelValues(protocol).Observe(time.Since(start).Seconds())
+	log.Printf("Kyber768 handshake successful for %s", protocol)
+	return ek, nil
 }

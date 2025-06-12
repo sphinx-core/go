@@ -23,7 +23,6 @@
 package main
 
 import (
-	"crypto/tls"
 	"encoding/hex"
 	"flag"
 	"math/big"
@@ -53,18 +52,6 @@ func main() {
 	httpAddr := flag.String("httpAddr", "127.0.0.1:8545", "HTTP server address for Alice")
 	seeds := flag.String("seeds", "127.0.0.1:30304,127.0.0.1:30305", "Comma-separated list of seed nodes")
 	flag.Parse()
-
-	// Load TLS certificate for secure communication (self-signed in this example)
-	cert, err := tls.LoadX509KeyPair("cert.pem", "cert.pem")
-	if err != nil {
-		logger.Fatalf("Failed to load TLS certificate: %v", err)
-	}
-	tlsConfig := &tls.Config{
-		Certificates:       []tls.Certificate{cert},
-		CurvePreferences:   []tls.CurveID{tls.X25519},
-		MinVersion:         tls.VersionTLS13,
-		InsecureSkipVerify: true, // Skip verification for demo purposes
-	}
 
 	// Used to wait for all goroutines to complete before exiting
 	var wg sync.WaitGroup
@@ -114,7 +101,7 @@ func main() {
 		rpcServer := rpc.NewServer(messageChans[i], blockchain)
 
 		// Start TCP transport server
-		tcpServer := transport.NewTCPServer(node.addr, messageChans[i], tlsConfig, rpcServer)
+		tcpServer := transport.NewTCPServer(node.addr, messageChans[i], rpcServer)
 		wg.Add(1)
 		go func(name, addr string) {
 			defer wg.Done()
@@ -140,7 +127,7 @@ func main() {
 		}(node.name, node.httpPort)
 
 		// Start WebSocket server for real-time messaging
-		wsServer := transport.NewWebSocketServer(node.wsPort, messageChans[i], tlsConfig, rpcServer)
+		wsServer := transport.NewWebSocketServer(node.wsPort, messageChans[i], rpcServer)
 		wg.Add(1)
 		go func(name, port string) {
 			defer wg.Done()
@@ -205,7 +192,7 @@ func main() {
 	}
 
 	logger.Infof("Submitting transaction from Alice to Bob: %+v", tx)
-	err = http.SubmitTransaction(*httpAddr, *tx)
+	err := http.SubmitTransaction(*httpAddr, *tx)
 	if err != nil {
 		logger.Errorf("Failed to submit transaction: %v", err)
 	} else {
@@ -213,7 +200,7 @@ func main() {
 			tx.Sender, tx.Receiver, tx.Amount.String(), tx.Nonce)
 	}
 
-	// Periodically prune inactive peers from each node's peer list
+	// Periodically prunes inactive peers from each node's peer list
 	go func() {
 		for {
 			for _, server := range p2pServers {

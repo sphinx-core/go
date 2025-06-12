@@ -1,7 +1,29 @@
+// MIT License
+//
+// # Copyright (c) 2024 sphinx-core
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+// go/src/transport/types.go
 package transport
 
 import (
-	"crypto/tls"
 	"net"
 	"net/http"
 
@@ -10,29 +32,24 @@ import (
 	"github.com/sphinx-core/go/src/security"
 )
 
-// IPConfig represents IP configuration for a node.
 type IPConfig struct {
-	IP   string // IP address (e.g., "192.168.1.1")
-	Port string // Port number (e.g., "8080")
+	IP   string
+	Port string
 }
 
-// TCPServer handles TCP connections.
 type TCPServer struct {
 	address   string
 	listener  net.Listener
 	messageCh chan *security.Message
-	tlsConfig *tls.Config
 	rpcServer *rpc.Server
 	handshake *security.Handshake
 }
 
-// WebSocketServer handles WebSocket connections.
 type WebSocketServer struct {
 	address   string
 	mux       *http.ServeMux
 	upgrader  websocket.Upgrader
 	messageCh chan *security.Message
-	tlsConfig *tls.Config
 	rpcServer *rpc.Server
 	handshake *security.Handshake
 }
