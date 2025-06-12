@@ -24,6 +24,7 @@
 package core
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -38,6 +39,7 @@ import (
 type Blockchain struct {
 	chain      []*types.Block
 	blockIndex map[string]*types.Block
+	txIndex    map[string]*types.Transaction // Map transaction ID to transaction
 	pendingTx  []*types.Transaction
 	bestChain  *types.Block
 	lock       sync.RWMutex
@@ -55,6 +57,7 @@ func NewBlockchain() *Blockchain {
 	blockchain := &Blockchain{
 		chain:      []*types.Block{genesis},
 		blockIndex: map[string]*types.Block{string(genesisHash): genesis},
+		txIndex:    make(map[string]*types.Transaction),
 		pendingTx:  []*types.Transaction{},
 		bestChain:  genesis,
 	}
@@ -75,29 +78,60 @@ func (blockchain *Blockchain) AddTransaction(tx *types.Transaction) error {
 		return fmt.Errorf("transaction failed sanity check: %w", err)
 	}
 
+	// Compute transaction ID if not set
+	if tx.ID == "" {
+		tx.ID = tx.Hash()
+	}
+
+	// Check for duplicate transaction
+	if _, exists := blockchain.txIndex[tx.ID]; exists {
+		return errors.New("duplicate transaction ID")
+	}
+
 	// Create a Note for validation
 	note := &types.Note{
 		From:      tx.Sender,
 		To:        tx.Receiver,
-		Fee:       0.01,      // Placeholder fee; adjust based on tx.Fee if available
-		Storage:   "tx-data", // Placeholder; adjust as needed
+		Fee:       0.01,      // Placeholder fee
+		Storage:   "tx-data", // Placeholder
 		Timestamp: time.Now().Unix(),
-		MAC:       "placeholder-mac", // Placeholder; compute actual MAC if needed
+		MAC:       "placeholder-mac", // Placeholder
 		Output: &types.Output{
 			Value:   tx.Amount.Uint64(),
 			Address: tx.Receiver,
 		},
 	}
 
-	// Validate using Validator struct
+	// Validate using Validator
 	validator := types.NewValidator(tx.Sender, tx.Receiver)
 	if err := validator.Validate(note); err != nil {
 		return fmt.Errorf("transaction validation failed: %w", err)
 	}
 
 	blockchain.pendingTx = append(blockchain.pendingTx, tx)
-	log.Printf("Added transaction: Sender=%s, Receiver=%s, Amount=%s", tx.Sender, tx.Receiver, tx.Amount.String())
+	blockchain.txIndex[tx.ID] = tx // Index transaction
+	log.Printf("Added transaction: ID=%s, Sender=%s, Receiver=%s, Amount=%s", tx.ID, tx.Sender, tx.Receiver, tx.Amount.String())
 	return nil
+}
+
+// GetTransactionByID retrieves a transaction by its ID.
+func (blockchain *Blockchain) GetTransactionByID(txID []byte) (*types.Transaction, error) {
+	blockchain.lock.RLock()
+	defer blockchain.lock.RUnlock()
+
+	tx, exists := blockchain.txIndex[hex.EncodeToString(txID)]
+	if !exists {
+		// Search in blocks
+		for _, block := range blockchain.chain {
+			for _, tx := range block.Body.TxsList {
+				if tx.ID == hex.EncodeToString(txID) {
+					return tx, nil
+				}
+			}
+		}
+		return nil, errors.New("transaction not found")
+	}
+	return tx, nil
 }
 
 // AddBlock creates a new block from pending transactions.
@@ -134,6 +168,12 @@ func (blockchain *Blockchain) AddBlock() error {
 	blockchain.chain = append(blockchain.chain, newBlock)
 	blockchain.blockIndex[string(newBlock.GenerateBlockHash())] = newBlock
 	blockchain.bestChain = newBlock
+	// Move pending transactions to block and clear pending
+	for _, tx := range blockchain.pendingTx {
+		if blockchain.txIndex[tx.ID] == nil {
+			blockchain.txIndex[tx.ID] = tx
+		}
+	}
 	blockchain.pendingTx = []*types.Transaction{}
 	log.Printf("Added block to active chain: Block=%d, Hash=%x", newBlock.Header.Block, newBlock.GenerateBlockHash())
 	return nil

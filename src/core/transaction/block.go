@@ -30,44 +30,6 @@ import (
 	"github.com/sphinx-core/go/src/common"
 )
 
-// BlockHeader represents the metadata for a block in the blockchain.
-type BlockHeader struct {
-	Block      uint64   `json:"nblock"`      // The position of the block in the blockchain (index)
-	Timestamp  int64    `json:"timestamp"`   // The timestamp when the block is mined
-	PrevHash   []byte   `json:"prev_hash"`   // Hash of the previous block (direct predecessor)
-	Difficulty *big.Int `json:"difficulty"`  // Difficulty level of mining the block
-	Nonce      uint64   `json:"nonce"`       // The nonce used in mining
-	TxsRoot    []byte   `json:"txs_root"`    // Merkle root of the transactions in the block
-	StateRoot  []byte   `json:"state_root"`  // Merkle root of the state (EVM-like state)
-	GasLimit   *big.Int `json:"gas_limit"`   // The maximum gas that can be used in the block
-	GasUsed    *big.Int `json:"gas_used"`    // The actual gas used by the transactions
-	ParentHash []byte   `json:"parent_hash"` // The hash of the parent block (alternative to PrevHash)
-	UnclesHash []byte   `json:"uncles_hash"` // The hash of the uncles (previous block headers, also known as ommers)
-}
-
-// BlockBody represents the transactions and other data inside the block.
-type BlockBody struct {
-	TxsList    []*Transaction `json:"txs_list"`    // A list of transactions in the block
-	UnclesHash []byte         `json:"uncles_hash"` // Hash representing uncles (previous block headers, ommers)
-}
-
-// Block represents the entire block structure including the header and body.
-type Block struct {
-	Header BlockHeader `json:"header"` // Block metadata
-	Body   BlockBody   `json:"body"`   // Block transactions and uncles
-}
-
-// Transaction represents a single transaction within the block.
-type Transaction struct {
-	Sender    string   `json:"sender"`
-	Receiver  string   `json:"receiver"`
-	Amount    *big.Int `json:"amount"`
-	GasLimit  *big.Int `json:"gas_limit"`
-	GasPrice  *big.Int `json:"gas_price"`
-	Timestamp int64    `json:"timestamp"`
-	Nonce     uint64   `json:"nonce"`
-}
-
 // NewBlockHeader creates a new BlockHeader.
 func NewBlockHeader(nBlock uint64, prevHash []byte, difficulty *big.Int, txsRoot, stateRoot []byte, gasLimit, gasUsed *big.Int, parentHash, unclesHash []byte) *BlockHeader {
 	return &BlockHeader{

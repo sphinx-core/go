@@ -23,7 +23,9 @@
 package types
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"time"
@@ -107,4 +109,11 @@ func (n *Note) ToTxs(nonce uint64, gasLimit, gasPrice *big.Int) *Transaction {
 		Timestamp: n.Timestamp, // Set the timestamp of the note (used in the transaction)
 		Nonce:     nonce,       // Set the transaction nonce (used for order in the blockchain)
 	}
+}
+
+// Hash computes the transaction ID as a SHA-256 hash of its contents.
+func (tx *Transaction) Hash() string {
+	data, _ := json.Marshal(tx)        // Serialize transaction (excluding ID to avoid circularity)
+	hash := sha256.Sum256(data)        // Compute SHA-256 hash
+	return hex.EncodeToString(hash[:]) // Return hex-encoded hash
 }
