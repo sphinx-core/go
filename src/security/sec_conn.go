@@ -27,26 +27,24 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha512"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
+	"log"
 	"net"
 
-	"github.com/cloudflare/circl/kem"
 	"github.com/cloudflare/circl/kem/kyber/kyber768"
+	"golang.org/x/crypto/curve25519"
 )
 
-// Kyber768Scheme is the KEM scheme for key exchange.
-var Kyber768Scheme kem.Scheme = kyber768.Scheme()
-
-// EncryptionKey manages the shared secret and AES-GCM cipher.
-type EncryptionKey struct {
-	SharedSecret []byte
-	AESGCM       cipher.AEAD
-}
-
-// NewEncryptionKey derives an AES-GCM cipher from a shared secret.
+// NewEncryptionKey creates an AES-GCM cipher from a shared secret.
 func NewEncryptionKey(sharedSecret []byte) (*EncryptionKey, error) {
-	block, err := aes.NewCipher(sharedSecret[:32]) // Use first 32 bytes for AES-256
+	if len(sharedSecret) < 32 {
+		return nil, errors.New("shared secret too short for AES-256")
+	}
+	block, err := aes.NewCipher(sharedSecret[:32])
 	if err != nil {
 		return nil, err
 	}
@@ -54,6 +52,7 @@ func NewEncryptionKey(sharedSecret []byte) (*EncryptionKey, error) {
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("Derived encryption key with shared secret: %s", hex.EncodeToString(sharedSecret[:16]))
 	return &EncryptionKey{
 		SharedSecret: sharedSecret,
 		AESGCM:       aesGCM,
@@ -61,90 +60,162 @@ func NewEncryptionKey(sharedSecret []byte) (*EncryptionKey, error) {
 }
 
 // Encrypt encrypts a message using AES-GCM.
-func (ek *EncryptionKey) Encrypt(plaintext []byte) ([]byte, error) {
-	nonce := make([]byte, ek.AESGCM.NonceSize())
+func (enc *EncryptionKey) Encrypt(plaintext []byte) ([]byte, error) {
+	if enc == nil || enc.AESGCM == nil {
+		return nil, errors.New("encryption key is nil")
+	}
+	nonce := make([]byte, enc.AESGCM.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
 	}
-	ciphertext := ek.AESGCM.Seal(nil, nonce, plaintext, nil)
+	ciphertext := enc.AESGCM.Seal(nil, nonce, plaintext, nil)
+	log.Printf("Encrypted message, nonce: %s, ciphertext length: %d", hex.EncodeToString(nonce), len(ciphertext))
 	return append(nonce, ciphertext...), nil
 }
 
 // Decrypt decrypts a message using AES-GCM.
-func (ek *EncryptionKey) Decrypt(ciphertext []byte) ([]byte, error) {
-	if len(ciphertext) < ek.AESGCM.NonceSize() {
+func (enc *EncryptionKey) Decrypt(ciphertext []byte) ([]byte, error) {
+	if enc == nil || enc.AESGCM == nil {
+		return nil, errors.New("encryption key is nil")
+	}
+	if len(ciphertext) < enc.AESGCM.NonceSize() {
 		return nil, errors.New("ciphertext too short")
 	}
-	nonce := ciphertext[:ek.AESGCM.NonceSize()]
-	encrypted := ciphertext[ek.AESGCM.NonceSize():]
-	return ek.AESGCM.Open(nil, nonce, encrypted, nil)
+	nonce := ciphertext[:enc.AESGCM.NonceSize()]
+	encrypted := ciphertext[enc.AESGCM.NonceSize():]
+	log.Printf("Decrypting message, nonce: %s, ciphertext length: %d", hex.EncodeToString(nonce), len(encrypted))
+	plaintext, err := enc.AESGCM.Open(nil, nonce, encrypted, nil)
+	if err != nil {
+		log.Printf("Decryption failed: %v", err)
+		return nil, err
+	}
+	return plaintext, nil
 }
 
-// PerformKyberKeyExchange initiates a Kyber768 key exchange.
-func PerformKyberKeyExchange(conn net.Conn, isInitiator bool) (*EncryptionKey, error) {
-	var err error
+// PerformKEM performs hybrid X25519 + Kyber768 key exchange.
+func PerformKEM(conn net.Conn, isInitiator bool) (*EncryptionKey, error) {
+	if conn == nil {
+		return nil, errors.New("connection is nil")
+	}
+
+	// --------------------
+	// X25519 Key Exchange
+	// --------------------
+	var xPriv [32]byte
+	if _, err := rand.Read(xPriv[:]); err != nil {
+		return nil, err
+	}
+	xPub, err := curve25519.X25519(xPriv[:], curve25519.Basepoint)
+	if err != nil {
+		return nil, err
+	}
+
+	var xShared []byte
+	if isInitiator {
+		if _, err := conn.Write(xPub); err != nil {
+			return nil, err
+		}
+		peerPub := make([]byte, 32)
+		if _, err := io.ReadFull(conn, peerPub); err != nil {
+			return nil, err
+		}
+		xShared, err = curve25519.X25519(xPriv[:], peerPub)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		peerPub := make([]byte, 32)
+		if _, err := io.ReadFull(conn, peerPub); err != nil {
+			return nil, err
+		}
+		if _, err := conn.Write(xPub); err != nil {
+			return nil, err
+		}
+		xShared, err = curve25519.X25519(xPriv[:], peerPub)
+		if err != nil {
+			return nil, err
+		}
+	}
+	log.Printf("X25519 shared: %s", hex.EncodeToString(xShared[:16]))
+
+	// --------------------
+	// Kyber768 KEM
+	// --------------------
+	scheme := kyber768.Scheme()
+	var kemShared []byte
 
 	if isInitiator {
-		// Generate key pair and send public key
-		pubKey, privKey, err := Kyber768Scheme.GenerateKeyPair()
+		peerPubBytes := make([]byte, scheme.PublicKeySize())
+		if _, err := io.ReadFull(conn, peerPubBytes); err != nil {
+			return nil, err
+		}
+		peerPub, err := scheme.UnmarshalBinaryPublicKey(peerPubBytes)
 		if err != nil {
 			return nil, err
 		}
-		pubKeyBytes, err := pubKey.MarshalBinary()
+		ct, shared, err := scheme.Encapsulate(peerPub)
 		if err != nil {
 			return nil, err
 		}
-		if _, err := conn.Write(pubKeyBytes); err != nil {
+		kemShared = shared
+		if _, err := conn.Write(ct); err != nil {
 			return nil, err
 		}
-
-		// Receive encapsulated shared secret
-		ciphertext := make([]byte, Kyber768Scheme.CiphertextSize())
-		if _, err := conn.Read(ciphertext); err != nil {
-			return nil, err
-		}
-		sharedSecret, err := Kyber768Scheme.Decapsulate(privKey, ciphertext)
+	} else {
+		pub, priv, err := scheme.GenerateKeyPair()
 		if err != nil {
 			return nil, err
 		}
-		return NewEncryptionKey(sharedSecret)
+		pubBytes, err := pub.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := conn.Write(pubBytes); err != nil {
+			return nil, err
+		}
+		ct := make([]byte, scheme.CiphertextSize())
+		if _, err := io.ReadFull(conn, ct); err != nil {
+			return nil, err
+		}
+		shared, err := scheme.Decapsulate(priv, ct)
+		if err != nil {
+			return nil, err
+		}
+		kemShared = shared
 	}
+	log.Printf("Kyber768 shared: %s", hex.EncodeToString(kemShared[:16]))
 
-	// Responder
-	pubKeyBytes := make([]byte, Kyber768Scheme.PublicKeySize())
-	if _, err := conn.Read(pubKeyBytes); err != nil {
-		return nil, err
-	}
-	pubKey, err := Kyber768Scheme.UnmarshalBinaryPublicKey(pubKeyBytes)
-	if err != nil {
-		return nil, err
-	}
+	// Combine shared secrets
+	combined := append(xShared, kemShared...)
+	finalShared := sha512.Sum512(combined)
 
-	sharedSecret, ciphertext, err := Kyber768Scheme.Encapsulate(pubKey)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := conn.Write(ciphertext); err != nil {
-		return nil, err
-	}
-	return NewEncryptionKey(sharedSecret)
+	return NewEncryptionKey(finalShared[:])
 }
 
-// SecureMessage encodes and encrypts a message.
-func SecureMessage(msg *Message, ek *EncryptionKey) ([]byte, error) {
+// SecureMessage serializes and encrypts a message.
+func SecureMessage(msg *Message, enc *EncryptionKey) ([]byte, error) {
+	if enc == nil {
+		return nil, errors.New("encryption key is nil")
+	}
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return nil, err
 	}
-	return ek.Encrypt(data)
+	log.Printf("Encoding message, type: %s, data length: %d", msg.Type, len(data))
+	return enc.Encrypt(data)
 }
 
-// DecodeSecureMessage decrypts and decodes a message.
-func DecodeSecureMessage(data []byte, ek *EncryptionKey) (*Message, error) {
-	plaintext, err := ek.Decrypt(data)
+// DecodeSecureMessage decrypts and parses a message.
+func DecodeSecureMessage(data []byte, enc *EncryptionKey) (*Message, error) {
+	if enc == nil {
+		return nil, errors.New("encryption key is nil")
+	}
+	log.Printf("Decoding message, data length: %d", len(data))
+	plaintext, err := enc.Decrypt(data)
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("Decrypted plaintext length: %d", len(plaintext))
 	var msg Message
 	if err := json.Unmarshal(plaintext, &msg); err != nil {
 		return nil, err

@@ -24,6 +24,8 @@
 package security
 
 import (
+	"crypto/cipher"
+
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -41,4 +43,10 @@ type Handshake struct {
 type HandshakeMetrics struct {
 	Latency *prometheus.HistogramVec
 	Errors  *prometheus.CounterVec
+}
+
+// EncryptionKey manages the shared secret and AES-GCM cipher.
+type EncryptionKey struct {
+	SharedSecret []byte
+	AESGCM       cipher.AEAD
 }

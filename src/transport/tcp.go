@@ -25,7 +25,9 @@ package transport
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"time"
@@ -66,22 +68,41 @@ func (s *TCPServer) Start() error {
 func (s *TCPServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	// Perform Kyber768 handshake (server is responder)
+	// Perform KEM handshake (server is responder)
 	ek, err := s.handshake.PerformHandshake(conn, "tcp", false)
 	if err != nil {
 		log.Printf("TCP handshake failed on %s: %v", s.address, err)
 		return
 	}
+	if ek == nil {
+		log.Printf("TCP handshake returned nil encryption key on %s", s.address)
+		return
+	}
 
 	reader := bufio.NewReader(conn)
 	for {
-		data, err := reader.ReadBytes('\n')
-		if err != nil {
-			log.Printf("TCP read error on %s: %v", s.address, err)
+		// Read 4-byte length prefix
+		lengthBuf := make([]byte, 4)
+		if _, err := io.ReadFull(reader, lengthBuf); err != nil {
+			log.Printf("TCP read length error on %s: %v", s.address, err)
+			return
+		}
+		length := binary.BigEndian.Uint32(lengthBuf)
+		if length > 1024*1024 { // Safety limit: 1MB
+			log.Printf("TCP message too large on %s: %d bytes", s.address, length)
 			return
 		}
 
-		msg, err := security.DecodeSecureMessage(data[:len(data)-1], ek)
+		// Read message data
+		data := make([]byte, length)
+		if _, err := io.ReadFull(reader, data); err != nil {
+			log.Printf("TCP read data error on %s: %v", s.address, err)
+			return
+		}
+		log.Printf("Received raw data on %s, length: %d", s.address, len(data))
+
+		// Process the message
+		msg, err := security.DecodeSecureMessage(data, ek)
 		if err != nil {
 			log.Printf("TCP decode error on %s: %v", s.address, err)
 			continue
@@ -99,8 +120,15 @@ func (s *TCPServer) handleConnection(conn net.Conn) {
 				log.Printf("TCP encode response error on %s: %v", s.address, err)
 				continue
 			}
-			if _, err := conn.Write(append(encryptedResp, '\n')); err != nil {
-				log.Printf("TCP write error on %s: %v", s.address, err)
+			// Write length-prefixed response
+			lengthBuf = make([]byte, 4)
+			binary.BigEndian.PutUint32(lengthBuf, uint32(len(encryptedResp)))
+			if _, err := conn.Write(lengthBuf); err != nil {
+				log.Printf("TCP write length error on %s: %v", s.address, err)
+				return
+			}
+			if _, err := conn.Write(encryptedResp); err != nil {
+				log.Printf("TCP write data error on %s: %v", s.address, err)
 				return
 			}
 		}
@@ -110,48 +138,72 @@ func (s *TCPServer) handleConnection(conn net.Conn) {
 func ConnectTCP(address string, messageCh chan *security.Message) error {
 	for attempt := 1; attempt <= 5; attempt++ {
 		conn, err := net.Dial("tcp", address)
-		if err == nil {
-			defer conn.Close()
-
-			// Perform Kyber768 handshake (client is initiator)
-			handshake := security.NewHandshake()
-			ek, err := handshake.PerformHandshake(conn, "tcp", true)
-			if err != nil {
-				log.Printf("TCP handshake failed for %s on attempt %d: %v", address, attempt, err)
-				continue
-			}
-
-			// Send example message
-			msg := &security.Message{Type: "ping", Data: "hello"}
-			data, err := security.SecureMessage(msg, ek)
-			if err != nil {
-				log.Printf("TCP encode error for %s on attempt %d: %v", address, attempt, err)
-				continue
-			}
-			if _, err := conn.Write(append(data, '\n')); err != nil {
-				log.Printf("TCP write error for %s on attempt %d: %v", address, attempt, err)
-				continue
-			}
-
-			// Read response
-			reader := bufio.NewReader(conn)
-			respData, err := reader.ReadBytes('\n')
-			if err != nil {
-				log.Printf("TCP read response error for %s on attempt %d: %v", address, attempt, err)
-				continue
-			}
-			respMsg, err := security.DecodeSecureMessage(respData[:len(respData)-1], ek)
-			if err != nil {
-				log.Printf("TCP decode response error for %s on attempt %d: %v", address, attempt, err)
-				continue
-			}
-			messageCh <- respMsg
-
-			log.Printf("TCP connected to %s", address)
-			return nil
+		if err != nil {
+			log.Printf("TCP connection error: %s attempt %d failed: %v", address, attempt, err)
+			time.Sleep(time.Second * time.Duration(attempt))
+			continue
 		}
-		log.Printf("TCP connection to %s attempt %d failed: %v", address, attempt, err)
-		time.Sleep(time.Second * time.Duration(attempt))
+		defer conn.Close()
+
+		// Perform KEM handshake (client is initiator)
+		handshake := security.NewHandshake()
+		ek, err := handshake.PerformHandshake(conn, "tcp", true)
+		if err != nil {
+			log.Printf("TCP handshake failed for %s on attempt %d: %v", address, err)
+			continue
+		}
+		if ek == nil {
+			log.Printf("TCP handshake returned nil encryption key for %s on attempt %d", address, attempt)
+			continue
+		}
+
+		// Send test message
+		msg := &security.Message{Type: "ping", Data: "hello"}
+		data, err := security.SecureMessage(msg, ek)
+		if err != nil {
+			log.Printf("TCP encode error for %s on attempt %d: %v", address, attempt, err)
+			continue
+		}
+		// Write length-prefixed message
+		lengthBuf := make([]byte, 4)
+		binary.BigEndian.PutUint32(lengthBuf, uint32(len(data)))
+		if _, err := conn.Write(lengthBuf); err != nil {
+			log.Printf("TCP write length error for %s on attempt %d: %v", address, attempt, err)
+			continue
+		}
+		log.Printf("Sending message to %s, data length: %d", address, len(data))
+		if _, err := conn.Write(data); err != nil {
+			log.Printf("TCP write data error for %s on attempt %d: %v", address, attempt, err)
+			continue
+		}
+
+		// Read response
+		reader := bufio.NewReader(conn)
+		lengthBuf = make([]byte, 4)
+		if _, err := io.ReadFull(reader, lengthBuf); err != nil {
+			log.Printf("TCP read length error on %s on attempt %d: %v", address, attempt, err)
+			continue
+		}
+		length := binary.BigEndian.Uint32(lengthBuf)
+		if length > 1024*1024 { // Safety limit: 1MB
+			log.Printf("TCP response too large on %s: %d bytes", address, length)
+			continue
+		}
+		respData := make([]byte, length)
+		if _, err := io.ReadFull(reader, respData); err != nil {
+			log.Printf("TCP read data error on %s on attempt %d: %v", address, attempt, err)
+			continue
+		}
+		log.Printf("Received response from %s, data length: %d", address, len(respData))
+		respMsg, err := security.DecodeSecureMessage(respData, ek)
+		if err != nil {
+			log.Printf("TCP decode response error on %s on attempt %d: %v", address, attempt, err)
+			continue
+		}
+		messageCh <- respMsg
+
+		log.Printf("TCP connected to %s", address)
+		return nil
 	}
 	return fmt.Errorf("failed to connect to %s after 5 attempts", address)
 }
@@ -163,19 +215,29 @@ func SendMessage(address string, msg *security.Message) error {
 	}
 	defer conn.Close()
 
-	// Perform Kyber768 handshake
+	// Perform KEM handshake
 	handshake := security.NewHandshake()
 	ek, err := handshake.PerformHandshake(conn, "tcp", true)
 	if err != nil {
 		return err
+	}
+	if ek == nil {
+		return fmt.Errorf("handshake returned nil encryption key for %s", address)
 	}
 
 	data, err := security.SecureMessage(msg, ek)
 	if err != nil {
 		return err
 	}
-	if _, err := conn.Write(append(data, '\n')); err != nil {
-		return err
+	// Write length-prefixed message
+	lengthBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(lengthBuf, uint32(len(data)))
+	if _, err := conn.Write(lengthBuf); err != nil {
+		return fmt.Errorf("failed to write length to %s: %v", address, err)
+	}
+	log.Printf("Sending message to %s, data length: %d", address, len(data))
+	if _, err := conn.Write(data); err != nil {
+		return fmt.Errorf("failed to write data to %s: %v", address, err)
 	}
 
 	log.Printf("Sent message to %s: Type=%s", address, msg.Type)
