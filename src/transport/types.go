@@ -37,9 +37,10 @@ type IPConfig struct {
 	Port string
 }
 
+// TCPServer represents a TCP server for handling P2P connections
 type TCPServer struct {
-	address   string
 	listener  net.Listener
+	address   string
 	messageCh chan *security.Message
 	rpcServer *rpc.Server
 	handshake *security.Handshake

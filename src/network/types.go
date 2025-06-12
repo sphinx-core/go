@@ -49,9 +49,10 @@ const (
 
 // NodeManager manages nodes and their peers.
 type NodeManager struct {
-	nodes map[string]*Node // All known nodes, keyed by Node.ID
-	peers map[string]*Peer // Connected peers, keyed by Node.ID
-	mu    sync.RWMutex     // Thread safety for node and peer access
+	nodes    map[string]*Node // All known nodes, keyed by Node.ID
+	peers    map[string]*Peer // Connected peers, keyed by Node.ID
+	seenMsgs map[string]bool  // Seen message IDs for deduplication
+	mu       sync.RWMutex     // Thread safety for node and peer access
 }
 
 // Node represents a participant in the blockchain or P2P network.
@@ -75,6 +76,7 @@ type Peer struct {
 	ConnectedAt      time.Time // Connection timestamp
 	LastPing         time.Time // Last ping sent
 	LastPong         time.Time // Last pong received
+	LastSeen         time.Time // Last activity timestamp (added)
 }
 
 // PeerInfo is a shareable snapshot of peer metadata.
@@ -88,4 +90,18 @@ type PeerInfo struct {
 	Timestamp       time.Time  `json:"timestamp"`
 	ProtocolVersion string     `json:"protocol_version"`
 	PublicKey       []byte     `json:"public_key"`
+}
+
+// HasSeenMessage checks if a message ID has been seen.
+func (nm *NodeManager) HasSeenMessage(msgID string) bool {
+	nm.mu.RLock()
+	defer nm.mu.RUnlock()
+	return nm.seenMsgs[msgID]
+}
+
+// MarkMessageSeen marks a message ID as seen.
+func (nm *NodeManager) MarkMessageSeen(msgID string) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	nm.seenMsgs[msgID] = true
 }

@@ -25,11 +25,10 @@ package p2p
 
 import (
 	"log"
+	"net"
 	"strings"
 
 	"github.com/sphinx-core/go/src/network"
-	"github.com/sphinx-core/go/src/security"
-	"github.com/sphinx-core/go/src/transport"
 )
 
 // DiscoverPeers connects to seed nodes and discovers peers.
@@ -55,22 +54,20 @@ func (s *Server) DiscoverPeers() error {
 			continue
 		}
 		ip, port := parts[0], parts[1]
-		node := network.NewNode(seedAddr, ip, port, false, network.RoleNone)
+		if net.ParseIP(ip) == nil {
+			log.Printf("Invalid IP address: %s", ip)
+			continue
+		}
+		if _, err := net.LookupPort("tcp", port); err != nil {
+			log.Printf("Invalid port: %s", port)
+			continue
+		}
 
-		if err := transport.ConnectNode(node, s.messageCh); err != nil {
+		node := network.NewNode(seedAddr, ip, port, false, network.RoleNone)
+		if err := s.peerManager.ConnectPeer(node); err != nil {
 			log.Printf("Failed to connect to seed %s: %v", seedAddr, err)
 			continue
 		}
-
-		if err := s.nodeManager.AddPeer(node); err != nil {
-			log.Printf("Failed to add peer %s (Role=%s): %v", node.ID, node.Role, err)
-			continue
-		}
-
-		peer := s.nodeManager.GetPeers()[node.ID]
-		peer.SendPing()
-		s.Broadcast(&security.Message{Type: "ping", Data: s.localNode.ID})
-		s.nodeManager.BroadcastPeerInfo(peer, transport.SendPeerInfo)
 
 		log.Printf("Connected to seed node %s as peer: ID=%s, Role=%s", seedAddr, node.ID, node.Role)
 	}

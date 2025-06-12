@@ -25,6 +25,7 @@ package p2p
 
 import (
 	"sync"
+	"time"
 
 	"github.com/sphinx-core/go/src/core"
 	"github.com/sphinx-core/go/src/network"
@@ -38,5 +39,36 @@ type Server struct {
 	seedNodes   []string
 	messageCh   chan *security.Message
 	blockchain  *core.Blockchain
+	peerManager *PeerManager // Added for advanced peer management
 	mu          sync.Mutex
+}
+
+// LocalNode returns the server's local node.
+func (s *Server) LocalNode() *network.Node {
+	return s.localNode
+}
+
+// NodeManager returns the server's node manager.
+func (s *Server) NodeManager() *network.NodeManager {
+	return s.nodeManager
+}
+
+// PeerManager returns the server's peer manager.
+func (s *Server) PeerManager() *PeerManager {
+	return s.peerManager
+}
+
+// Peer is an alias for network.Peer to centralize peer management.
+type Peer = network.Peer
+
+// PeerManager handles peer lifecycle and communication.
+type PeerManager struct {
+	server      *Server
+	peers       map[string]*network.Peer // Map of peer ID to peer
+	scores      map[string]int           // Peer scores based on behavior
+	bans        map[string]time.Time     // Banned peers with expiry
+	maxPeers    int                      // Maximum number of peers
+	maxInbound  int                      // Maximum inbound connections
+	maxOutbound int                      // Maximum outbound connections
+	mu          sync.RWMutex             // Mutex for thread-safe access
 }

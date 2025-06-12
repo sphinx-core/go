@@ -29,10 +29,11 @@ import (
 	"github.com/sphinx-core/go/src/transport"
 )
 
-// Server manages all protocol servers.
+// Server encapsulates TCP, WebSocket, HTTP, and P2P servers.
 type Server struct {
 	tcpServer  *transport.TCPServer
 	wsServer   *transport.WebSocketServer
 	httpServer *http.Server
 	p2pServer  *p2p.Server
+	readyCh    chan struct{} // Channel to signal server readiness
 }
