@@ -24,7 +24,9 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
+	"fmt"
 	"math/big"
 	"math/rand"
 	"strings"
@@ -92,6 +94,13 @@ func main() {
 		portConfigs, err = network.GetNodePortConfigs(*numNodes, parsedRoles, flagOverrides)
 		if err != nil {
 			logger.Fatalf("Failed to get node configurations: %v", err)
+		}
+		// Print the dynamically generated portConfigs
+		configJSON, err := json.MarshalIndent(portConfigs, "", "  ")
+		if err != nil {
+			logger.Errorf("Failed to marshal config: %v", err)
+		} else {
+			fmt.Println(string(configJSON))
 		}
 	}
 
