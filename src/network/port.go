@@ -30,11 +30,15 @@ import (
 	"strings"
 )
 
-func loadFromFile(file string) ([]NodePortConfig, error) {
+// LoadFromFile reads a JSON configuration file and unmarshals it into a slice of NodePortConfig.
+func LoadFromFile(file string) ([]NodePortConfig, error) {
+	// Read the entire content of the given file
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %v", err)
 	}
+
+	// Parse JSON into NodePortConfig slice
 	var configs []NodePortConfig
 	if err := json.Unmarshal(data, &configs); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %v", err)
@@ -42,28 +46,31 @@ func loadFromFile(file string) ([]NodePortConfig, error) {
 	return configs, nil
 }
 
-// GetNodePortConfigs returns port configurations for nodes based on input parameters.
+// GetNodePortConfigs generates a list of node port configurations for the specified number of nodes.
+// It supports role assignment and allows overriding port values using flags.
 func GetNodePortConfigs(numNodes int, roles []NodeRole, flagOverrides map[string]string) ([]NodePortConfig, error) {
-	// Validate inputs
+	// Validate number of nodes
 	if numNodes < 1 {
 		return nil, fmt.Errorf("number of nodes must be at least 1")
 	}
+	// Ensure that each node has a corresponding role
 	if len(roles) != numNodes {
 		return nil, fmt.Errorf("number of roles (%d) must match number of nodes (%d)", len(roles), numNodes)
 	}
 
-	// Base ports with enough spacing (each node uses 3 ports: TCP, HTTP, WS)
+	// Define base ports for each service type with room between them to avoid overlap
 	const (
-		baseTCPPort  = 30303 // TCP: 30303, 30306, 30309, ...
-		baseHTTPPort = 8545  // HTTP: 8545, 8548, 8551, ...
-		baseWSPort   = 8600  // WS: 8600, 8603, 8606, ...
-		portStep     = 3     // Increment by 3 to avoid overlap
+		baseTCPPort  = 30303 // Starting TCP port
+		baseHTTPPort = 8545  // Starting HTTP port
+		baseWSPort   = 8600  // Starting WebSocket port
+		portStep     = 3     // Step increment for each node to avoid collisions
 	)
 
-	// Collect all TCP addresses for seed node computation
+	// Precompute all TCP addresses either from flags or by using default values
 	tcpAddrs := make([]string, numNodes)
 	for i := 0; i < numNodes; i++ {
 		tcpPort := baseTCPPort + (i * portStep)
+		// Allow overriding TCP address via flags
 		if addr, ok := flagOverrides[fmt.Sprintf("tcpAddr%d", i)]; ok {
 			tcpAddrs[i] = addr
 		} else {
@@ -71,35 +78,37 @@ func GetNodePortConfigs(numNodes int, roles []NodeRole, flagOverrides map[string
 		}
 	}
 
-	// Generate configurations
+	// Create the node configurations
 	configs := make([]NodePortConfig, numNodes)
 	for i := 0; i < numNodes; i++ {
-		// Name: Node-0, Node-1, etc.
+		// Node name based on index (e.g., "Node-0")
 		name := fmt.Sprintf("Node-%d", i)
 
-		// Role: From provided roles slice
+		// Role for this node from input slice
 		role := roles[i]
 
-		// TCP address: Already computed or overridden
+		// TCP address, either default or overridden
 		tcpAddr := tcpAddrs[i]
 
-		// HTTP port: Base + offset or override
+		// Compute HTTP port for node or use override
 		httpPort := fmt.Sprintf("127.0.0.1:%d", baseHTTPPort+(i*portStep))
 		if port, ok := flagOverrides[fmt.Sprintf("httpPort%d", i)]; ok {
 			httpPort = port
 		}
 
-		// WebSocket port: Base + offset or override
+		// Compute WebSocket port or use override
 		wsPort := fmt.Sprintf("127.0.0.1:%d", baseWSPort+(i*portStep))
 		if port, ok := flagOverrides[fmt.Sprintf("wsPort%d", i)]; ok {
 			wsPort = port
 		}
 
-		// Seed nodes: All TCP addresses except the node's own
+		// Seed nodes: all TCP addresses except the current node’s
 		seedNodes := make([]string, 0, numNodes-1)
 		if seeds, ok := flagOverrides["seeds"]; ok {
+			// If custom seed list is provided via flags, use it
 			seedNodes = strings.Split(seeds, ",")
 		} else {
+			// Otherwise, include all other nodes’ TCP addresses
 			for j, addr := range tcpAddrs {
 				if j != i {
 					seedNodes = append(seedNodes, addr)
@@ -107,6 +116,7 @@ func GetNodePortConfigs(numNodes int, roles []NodeRole, flagOverrides map[string
 			}
 		}
 
+		// Assign computed configuration to the result list
 		configs[i] = NodePortConfig{
 			Name:      name,
 			Role:      role,
@@ -117,16 +127,19 @@ func GetNodePortConfigs(numNodes int, roles []NodeRole, flagOverrides map[string
 		}
 	}
 
-	// Check for port conflicts
+	// Check for duplicate ports across all nodes to ensure uniqueness
 	portSet := make(map[string]struct{})
 	for _, config := range configs {
+		// Check TCP, HTTP, and WS ports
 		for _, addr := range []string{config.TCPAddr, config.HTTPPort, config.WSPort} {
 			if _, exists := portSet[addr]; exists {
+				// Return error if duplicate found
 				return nil, fmt.Errorf("duplicate port %s for node %s", addr, config.Name)
 			}
 			portSet[addr] = struct{}{}
 		}
 	}
 
+	// Return the generated list of node configurations
 	return configs, nil
 }

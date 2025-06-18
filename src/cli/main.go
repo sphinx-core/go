@@ -44,44 +44,55 @@ func main() {
 
 	// Define command-line flags
 	numNodes := flag.Int("numNodes", 3, "Number of nodes to initialize")
-	roles := flag.String("roles", "sender,receiver,validator", "Comma-separated list of node roles (sender,receiver,validator)")
+	roles := flag.String("roles", "sender,receiver,validator", "Comma-separated list of node roles")
 	seeds := flag.String("seeds", "", "Comma-separated list of seed nodes (optional)")
+	configFile := flag.String("configFile", "", "Optional path to a JSON config file for node ports")
 	flag.Parse()
 
 	var wg sync.WaitGroup
 
-	// Parse roles
-	roleList := strings.Split(*roles, ",")
-	parsedRoles := make([]network.NodeRole, len(roleList))
-	for i, r := range roleList {
-		switch r {
-		case "sender":
-			parsedRoles[i] = network.RoleSender
-		case "receiver":
-			parsedRoles[i] = network.RoleReceiver
-		case "validator":
-			parsedRoles[i] = network.RoleValidator
-		default:
-			logger.Fatalf("Invalid role: %s. Must be sender, receiver, or validator", r)
-		}
-	}
+	var portConfigs []network.NodePortConfig
+	var err error
 
-	// Collect flag overrides
-	flagOverrides := make(map[string]string)
-	if *seeds != "" {
-		flagOverrides["seeds"] = *seeds
-	}
-	// Allow per-node overrides (e.g., --tcpAddr0, --httpPort0)
-	flag.Visit(func(f *flag.Flag) {
-		if strings.HasPrefix(f.Name, "tcpAddr") || strings.HasPrefix(f.Name, "httpPort") || strings.HasPrefix(f.Name, "wsPort") {
-			flagOverrides[f.Name] = f.Value.String()
+	if *configFile != "" {
+		// Use config from file
+		portConfigs, err = network.LoadFromFile(*configFile)
+		if err != nil {
+			logger.Fatalf("Failed to load config file: %v", err)
 		}
-	})
+	} else {
+		// Parse roles
+		roleList := strings.Split(*roles, ",")
+		parsedRoles := make([]network.NodeRole, len(roleList))
+		for i, r := range roleList {
+			switch r {
+			case "sender":
+				parsedRoles[i] = network.RoleSender
+			case "receiver":
+				parsedRoles[i] = network.RoleReceiver
+			case "validator":
+				parsedRoles[i] = network.RoleValidator
+			default:
+				logger.Fatalf("Invalid role: %s. Must be sender, receiver, or validator", r)
+			}
+		}
 
-	// Get node port configurations
-	portConfigs, err := network.GetNodePortConfigs(*numNodes, parsedRoles, flagOverrides)
-	if err != nil {
-		logger.Fatalf("Failed to get node configurations: %v", err)
+		// Collect flag overrides
+		flagOverrides := make(map[string]string)
+		if *seeds != "" {
+			flagOverrides["seeds"] = *seeds
+		}
+		flag.Visit(func(f *flag.Flag) {
+			if strings.HasPrefix(f.Name, "tcpAddr") || strings.HasPrefix(f.Name, "httpPort") || strings.HasPrefix(f.Name, "wsPort") {
+				flagOverrides[f.Name] = f.Value.String()
+			}
+		})
+
+		// Generate dynamic config
+		portConfigs, err = network.GetNodePortConfigs(*numNodes, parsedRoles, flagOverrides)
+		if err != nil {
+			logger.Fatalf("Failed to get node configurations: %v", err)
+		}
 	}
 
 	// Map network.NodePortConfig to bind.NodeSetupConfig
