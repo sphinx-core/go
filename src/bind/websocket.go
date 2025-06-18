@@ -20,37 +20,44 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/bind/bind.go
+// go/src/bind/websocket.go
 package bind
 
 import (
-	"fmt"
 	"sync"
+	"time"
 
 	logger "github.com/sphinx-core/go/src/log"
+	"github.com/sphinx-core/go/src/rpc"
+	"github.com/sphinx-core/go/src/security"
 	"github.com/sphinx-core/go/src/transport"
 )
 
-// BindTCPServers binds TCP servers for the given node configurations.
-func BindTCPServers(configs []NodeConfig, wg *sync.WaitGroup) error {
-	for _, config := range configs {
-		if config.Address == "" || config.Name == "" || config.MessageCh == nil || config.RPCServer == nil || config.ReadyCh == nil {
-			logger.Errorf("Invalid configuration for %s: missing required fields", config.Name)
-			return fmt.Errorf("invalid configuration for %s: missing required fields", config.Name)
-		}
-
-		// Create and start TCP server
-		tcpServer := transport.NewTCPServer(config.Address, config.MessageCh, config.RPCServer, config.ReadyCh)
-		wg.Add(1)
-		go func(name, addr string, server *transport.TCPServer) {
-			defer wg.Done()
-			logger.Infof("Starting TCP server for %s on %s", name, addr)
-			if err := server.Start(); err != nil {
-				logger.Errorf("TCP server failed for %s: %v", name, err)
+// startWebSocketServer starts a WebSocket server for the given node.
+func startWebSocketServer(name, port string, messageCh chan *security.Message, rpcServer *rpc.Server, readyCh chan struct{}, wg *sync.WaitGroup) {
+	wsServer := transport.NewWebSocketServer(port, messageCh, rpcServer)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		logger.Infof("Starting WebSocket server for %s on %s", name, port)
+		startCh := make(chan error, 1)
+		go func() {
+			if err := wsServer.Start(); err != nil {
+				startCh <- err
 			} else {
-				logger.Infof("TCP server for %s successfully started", name)
+				startCh <- nil
 			}
-		}(config.Name, config.Address, tcpServer)
-	}
-	return nil
+		}()
+		select {
+		case err := <-startCh:
+			if err != nil {
+				logger.Errorf("WebSocket server failed for %s: %v", name, err)
+				return
+			}
+		case <-time.After(2 * time.Second):
+			logger.Infof("WebSocket server for %s successfully started", name)
+			logger.Infof("Sending ready signal for WebSocket server %s", name)
+			readyCh <- struct{}{}
+		}
+	}()
 }

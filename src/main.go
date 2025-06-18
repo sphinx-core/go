@@ -20,27 +20,21 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/main.go
 package main
 
 import (
-	"encoding/hex"
 	"flag"
-	"fmt"
 	"math/big"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/sphinx-core/go/src/bind"
-	"github.com/sphinx-core/go/src/core"
 	types "github.com/sphinx-core/go/src/core/transaction"
 	"github.com/sphinx-core/go/src/http"
 	logger "github.com/sphinx-core/go/src/log"
 	"github.com/sphinx-core/go/src/network"
-	"github.com/sphinx-core/go/src/p2p"
-	"github.com/sphinx-core/go/src/rpc"
-	"github.com/sphinx-core/go/src/security"
-	"github.com/sphinx-core/go/src/transport"
 )
 
 func main() {
@@ -54,197 +48,41 @@ func main() {
 	flag.Parse()
 
 	var wg sync.WaitGroup
-	readyCh := make(chan struct{}, 3*3)  // 3 nodes × 3 services (HTTP, WS, P2P)
-	tcpReadyCh := make(chan struct{}, 3) // Channel for TCP server readiness
-
-	nodes := []struct {
-		addr     string
-		role     network.NodeRole
-		name     string
-		httpPort string
-		wsPort   string
-	}{
-		{*addrAlice, network.RoleSender, "Alice", *httpAddr, "127.0.0.1:8546"},
-		{*addrBob, network.RoleReceiver, "Bob", "127.0.0.1:8547", "127.0.0.1:8548"},
-		{*addrCharlie, network.RoleValidator, "Charlie", "127.0.0.1:8549", "127.0.0.1:8550"},
-	}
-
 	seedList := strings.Split(*seeds, ",")
-	messageChans := make([]chan *security.Message, len(nodes))
-	blockchains := make([]*core.Blockchain, len(nodes))
-	rpcServers := make([]*rpc.Server, len(nodes))
-	p2pServers := make([]*p2p.Server, len(nodes))
-	publicKeys := make(map[string]string)
 
-	// Initialize node configurations and bind TCP servers
-	tcpConfigs := make([]bind.NodeConfig, len(nodes))
-	for i, node := range nodes {
-		parts := strings.Split(node.addr, ":")
-		if len(parts) != 2 {
-			logger.Fatalf("Invalid address format for %s: %s", node.name, node.addr)
-		}
-		ip, port := parts[0], parts[1]
-		if err := transport.ValidateIP(ip, port); err != nil {
-			logger.Fatalf("Invalid IP or port for %s: %v", node.name, err)
-		}
-
-		logger.Infof("Initializing blockchain for %s", node.name)
-		blockchains[i] = core.NewBlockchain()
-		logger.Infof("Genesis block created for %s, hash: %x", node.name, blockchains[i].GetBestBlockHash())
-
-		messageChans[i] = make(chan *security.Message, 1000) // Increased capacity
-		rpcServers[i] = rpc.NewServer(messageChans[i], blockchains[i])
-
-		// Prepare TCP server configuration
-		tcpConfigs[i] = bind.NodeConfig{
-			Address:   node.addr,
-			Name:      node.name,
-			MessageCh: messageChans[i],
-			RPCServer: rpcServers[i],
-			ReadyCh:   tcpReadyCh,
-		}
+	// Define node configurations
+	configs := []bind.NodeSetupConfig{
+		{
+			Address:   *addrAlice,
+			Name:      "Alice",
+			Role:      network.RoleSender,
+			HTTPPort:  *httpAddr,
+			WSPort:    "127.0.0.1:8546",
+			SeedNodes: seedList,
+		},
+		{
+			Address:   *addrBob,
+			Name:      "Bob",
+			Role:      network.RoleReceiver,
+			HTTPPort:  "127.0.0.1:8547",
+			WSPort:    "127.0.0.1:8548",
+			SeedNodes: seedList,
+		},
+		{
+			Address:   *addrCharlie,
+			Name:      "Charlie",
+			Role:      network.RoleValidator,
+			HTTPPort:  "127.0.0.1:8549",
+			WSPort:    "127.0.0.1:8550",
+			SeedNodes: seedList,
+		},
 	}
 
-	// Bind TCP servers using the bind package
-	if err := bind.BindTCPServers(tcpConfigs, &wg); err != nil {
-		logger.Fatalf("Failed to bind TCP servers: %v", err)
+	// Setup nodes and start servers
+	resources, err := bind.SetupNodes(configs, &wg)
+	if err != nil {
+		logger.Fatalf("Failed to setup nodes: %v", err)
 	}
-
-	// Wait for all TCP servers to be ready
-	logger.Infof("Waiting for %d TCP servers to be ready", len(nodes))
-	for i := 0; i < len(nodes); i++ {
-		select {
-		case <-tcpReadyCh:
-			logger.Infof("TCP server %d of %d ready", i+1, len(nodes))
-		case <-time.After(10 * time.Second):
-			logger.Errorf("Timeout waiting for TCP server %d to be ready after 10s", i+1)
-			logger.Fatalf("Failed to receive all TCP ready signals")
-		}
-	}
-	close(tcpReadyCh)
-	logger.Infof("All TCP servers are ready")
-
-	// Start HTTP, WebSocket, and P2P servers
-	for i, node := range nodes {
-		parts := strings.Split(node.addr, ":")
-		ip, port := parts[0], parts[1]
-
-		// Start HTTP server
-		httpServer := http.NewServer(node.httpPort, messageChans[i], blockchains[i])
-		wg.Add(1)
-		go func(name, port string) {
-			defer wg.Done()
-			logger.Infof("Starting HTTP server for %s on %s", name, port)
-			startCh := make(chan error, 1)
-			go func() {
-				if err := httpServer.Start(); err != nil {
-					startCh <- err
-				} else {
-					startCh <- nil
-				}
-			}()
-			select {
-			case err := <-startCh:
-				if err != nil {
-					logger.Errorf("HTTP server failed for %s: %v", name, err)
-					return
-				}
-			case <-time.After(2 * time.Second):
-				logger.Infof("HTTP server for %s successfully started", name)
-				logger.Infof("Sending ready signal for HTTP server %s", name)
-				readyCh <- struct{}{}
-			}
-		}(node.name, node.httpPort)
-
-		// Start WebSocket server
-		wsServer := transport.NewWebSocketServer(node.wsPort, messageChans[i], rpcServers[i])
-		wg.Add(1)
-		go func(name, port string) {
-			defer wg.Done()
-			logger.Infof("Starting WebSocket server for %s on %s", name, port)
-			startCh := make(chan error, 1)
-			go func() {
-				if err := wsServer.Start(); err != nil {
-					startCh <- err
-				} else {
-					startCh <- nil
-				}
-			}()
-			select {
-			case err := <-startCh:
-				if err != nil {
-					logger.Errorf("WebSocket server failed for %s: %v", name, err)
-					return
-				}
-			case <-time.After(2 * time.Second):
-				logger.Infof("WebSocket server for %s successfully started", name)
-				logger.Infof("Sending ready signal for WebSocket server %s", name)
-				readyCh <- struct{}{}
-			}
-		}(node.name, node.wsPort)
-
-		// Initialize and start P2P server
-		p2pServers[i] = p2p.NewServer(node.addr, ip, port, seedList, blockchains[i])
-		localNode := p2pServers[i].LocalNode()
-		localNode.UpdateRole(node.role)
-		logger.Infof("Node %s initialized with role %s", node.name, node.role)
-
-		if len(localNode.PublicKey) == 0 || len(localNode.PrivateKey) == 0 {
-			logger.Fatalf("Key generation failed for %s", node.name)
-		}
-
-		pubHex := hex.EncodeToString(localNode.PublicKey)
-		logger.Infof("Node %s public key: %s", node.name, pubHex)
-
-		if _, exists := publicKeys[pubHex]; exists {
-			logger.Fatalf("Duplicate public key detected for %s: %s", node.name, pubHex)
-		}
-		publicKeys[pubHex] = node.name
-
-		wg.Add(1)
-		go func(name string, server *p2p.Server) {
-			defer wg.Done()
-			logger.Infof("Starting P2P server for %s on %s", name, server.LocalNode().Address)
-			startCh := make(chan error, 1)
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						logger.Errorf("Panic in P2P server startup for %s: %v", name, r)
-						startCh <- fmt.Errorf("panic: %v", r)
-					}
-				}()
-				logger.Infof("Calling server.Start() for %s", name)
-				err := server.Start()
-				logger.Infof("server.Start() for %s returned with error: %v", name, err)
-				startCh <- err
-			}()
-			select {
-			case err := <-startCh:
-				if err != nil {
-					logger.Errorf("P2P server failed for %s: %v", name, err)
-					return
-				}
-				logger.Infof("P2P server for %s started successfully", name)
-				logger.Infof("Sending ready signal for P2P server %s", name)
-				readyCh <- struct{}{}
-			case <-time.After(2 * time.Second):
-				logger.Warnf("P2P server for %s took too long to start, assuming ready", name)
-				logger.Infof("Sending ready signal for P2P server %s", name)
-				readyCh <- struct{}{}
-			}
-		}(node.name, p2pServers[i])
-	}
-
-	// Wait until all servers are ready (HTTP, WS, P2P)
-	for i := 0; i < len(nodes)*3; i++ {
-		select {
-		case <-readyCh:
-			logger.Infof("Server %d of %d ready", i+1, len(nodes)*3)
-		case <-time.After(10 * time.Second):
-			logger.Fatalf("Timeout waiting for server %d to be ready after 10s", i+1)
-		}
-	}
-	logger.Infof("All servers are ready")
 
 	// Simulate a delay before submitting a transaction
 	time.Sleep(5 * time.Second)
@@ -260,7 +98,7 @@ func main() {
 	}
 
 	logger.Infof("Submitting transaction from Alice to Bob: %+v", tx)
-	err := http.SubmitTransaction(*httpAddr, *tx)
+	err = http.SubmitTransaction(*httpAddr, *tx)
 	if err != nil {
 		logger.Errorf("Failed to submit transaction: %v", err)
 	} else {
@@ -268,10 +106,11 @@ func main() {
 			tx.Sender, tx.Receiver, tx.Amount.String(), tx.Nonce)
 	}
 
+	// Run peer pruning loop
 	go func() {
 		for {
-			for _, server := range p2pServers {
-				server.NodeManager().PruneInactivePeers(30 * time.Second)
+			for _, res := range resources {
+				res.P2PServer.NodeManager().PruneInactivePeers(30 * time.Second)
 			}
 			time.Sleep(10 * time.Second)
 		}
