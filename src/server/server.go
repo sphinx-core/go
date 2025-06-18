@@ -47,7 +47,7 @@ func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string) *Serve
 	ip, port := parts[0], parts[1]
 
 	return &Server{
-		tcpServer:  transport.NewTCPServer(tcpAddr, messageCh, rpcServer),
+		tcpServer:  transport.NewTCPServer(tcpAddr, messageCh, rpcServer, nil), // Pass nil for tcpReadyCh
 		wsServer:   transport.NewWebSocketServer(wsAddr, messageCh, rpcServer),
 		httpServer: http.NewServer(httpAddr, messageCh, blockchain),
 		p2pServer:  p2p.NewServer(p2pAddr, ip, port, seeds, blockchain),

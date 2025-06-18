@@ -39,11 +39,12 @@ type IPConfig struct {
 
 // TCPServer represents a TCP server for handling P2P connections
 type TCPServer struct {
-	listener  net.Listener
-	address   string
-	messageCh chan *security.Message
-	rpcServer *rpc.Server
-	handshake *security.Handshake
+	listener   net.Listener
+	address    string
+	messageCh  chan *security.Message
+	rpcServer  *rpc.Server
+	handshake  *security.Handshake
+	tcpReadyCh chan struct{} // Add channel for readiness signal
 }
 
 type WebSocketServer struct {

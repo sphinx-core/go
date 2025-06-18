@@ -26,7 +26,6 @@ import (
 	"encoding/hex"
 	"flag"
 	"math/big"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -53,7 +52,7 @@ func main() {
 	flag.Parse()
 
 	var wg sync.WaitGroup
-	readyCh := make(chan struct{}, 3*4)  // 3 nodes × 4 services (TCP, HTTP, WS, P2P)
+	readyCh := make(chan struct{}, 3*3)  // 3 nodes × 3 services (HTTP, WS, P2P)
 	tcpReadyCh := make(chan struct{}, 3) // Channel for TCP server readiness
 
 	nodes := []struct {
@@ -70,10 +69,12 @@ func main() {
 
 	seedList := strings.Split(*seeds, ",")
 	messageChans := make([]chan *security.Message, len(nodes))
+	blockchains := make([]*core.Blockchain, len(nodes))
+	rpcServers := make([]*rpc.Server, len(nodes))
 	p2pServers := make([]*p2p.Server, len(nodes))
 	publicKeys := make(map[string]string)
 
-	// Start all servers and collect TCP readiness signals
+	// Initialize and start TCP servers
 	for i, node := range nodes {
 		parts := strings.Split(node.addr, ":")
 		if len(parts) != 2 {
@@ -85,14 +86,14 @@ func main() {
 		}
 
 		logger.Infof("Initializing blockchain for %s", node.name)
-		blockchain := core.NewBlockchain()
-		logger.Infof("Genesis block created for %s, hash: %x", node.name, blockchain.GetBestBlockHash())
+		blockchains[i] = core.NewBlockchain()
+		logger.Infof("Genesis block created for %s, hash: %x", node.name, blockchains[i].GetBestBlockHash())
 
 		messageChans[i] = make(chan *security.Message, 100)
-		rpcServer := rpc.NewServer(messageChans[i], blockchain)
+		rpcServers[i] = rpc.NewServer(messageChans[i], blockchains[i])
 
 		// Start TCP server
-		tcpServer := transport.NewTCPServer(node.addr, messageChans[i], rpcServer)
+		tcpServer := transport.NewTCPServer(node.addr, messageChans[i], rpcServers[i], tcpReadyCh)
 		wg.Add(1)
 		go func(name, addr string) {
 			defer wg.Done()
@@ -101,15 +102,31 @@ func main() {
 				logger.Errorf("TCP server failed for %s: %v", name, err)
 			} else {
 				logger.Infof("TCP server for %s successfully started", name)
-				readyCh <- struct{}{}
-				logger.Infof("Preparing to send TCP ready signal for %s", name)
-				tcpReadyCh <- struct{}{} // Signal TCP server is ready
-				logger.Infof("Sent TCP ready signal for %s", name)
 			}
 		}(node.name, node.addr)
+	}
+
+	// Wait for all TCP servers to be ready
+	logger.Infof("Waiting for %d TCP servers to be ready", len(nodes))
+	for i := 0; i < len(nodes); i++ {
+		select {
+		case <-tcpReadyCh:
+			logger.Infof("TCP server %d of %d ready", i+1, len(nodes))
+		case <-time.After(10 * time.Second):
+			logger.Errorf("Timeout waiting for TCP server %d to be ready after 10s", i+1)
+			logger.Fatalf("Failed to receive all TCP ready signals")
+		}
+	}
+	close(tcpReadyCh)
+	logger.Infof("All TCP servers are ready")
+
+	// Start HTTP, WebSocket, and P2P servers
+	for i, node := range nodes {
+		parts := strings.Split(node.addr, ":")
+		ip, port := parts[0], parts[1]
 
 		// Start HTTP server
-		httpServer := http.NewServer(node.httpPort, messageChans[i], blockchain)
+		httpServer := http.NewServer(node.httpPort, messageChans[i], blockchains[i])
 		wg.Add(1)
 		go func(name, port string) {
 			defer wg.Done()
@@ -123,7 +140,7 @@ func main() {
 		}(node.name, node.httpPort)
 
 		// Start WebSocket server
-		wsServer := transport.NewWebSocketServer(node.wsPort, messageChans[i], rpcServer)
+		wsServer := transport.NewWebSocketServer(node.wsPort, messageChans[i], rpcServers[i])
 		wg.Add(1)
 		go func(name, port string) {
 			defer wg.Done()
@@ -136,9 +153,8 @@ func main() {
 			}
 		}(node.name, node.wsPort)
 
-		// Initialize P2P server but don't start it yet
-		p2pServers[i] = p2p.NewServer(node.addr, ip, port, seedList, blockchain)
-
+		// Initialize and start P2P server
+		p2pServers[i] = p2p.NewServer(node.addr, ip, port, seedList, blockchains[i])
 		localNode := p2pServers[i].LocalNode()
 		localNode.UpdateRole(node.role)
 		logger.Infof("Node %s initialized with role %s", node.name, node.role)
@@ -154,25 +170,7 @@ func main() {
 			logger.Fatalf("Duplicate public key detected for %s: %s", node.name, pubHex)
 		}
 		publicKeys[pubHex] = node.name
-	}
 
-	// Wait for all TCP servers to be ready
-	logger.Infof("Waiting for %d TCP servers to be ready", len(nodes))
-	for i := 0; i < len(nodes); i++ {
-		select {
-		case <-tcpReadyCh:
-			logger.Infof("TCP server %d of %d ready", i+1, len(nodes))
-		case <-time.After(5 * time.Second):
-			logger.Errorf("Timeout waiting for TCP server %d to be ready after 5s", i+1)
-			logger.Fatalf("Failed to receive all TCP ready signals")
-		}
-		runtime.Gosched() // Yield to allow other goroutines to run
-	}
-	close(tcpReadyCh) // Close the channel to prevent further sends
-	logger.Infof("All TCP servers are ready")
-
-	// Start P2P servers
-	for i, node := range nodes {
 		wg.Add(1)
 		go func(name string, server *p2p.Server) {
 			defer wg.Done()
@@ -186,13 +184,13 @@ func main() {
 		}(node.name, p2pServers[i])
 	}
 
-	// Wait until all servers are ready
-	for i := 0; i < len(nodes)*4; i++ {
+	// Wait until all servers are ready (HTTP, WS, P2P)
+	for i := 0; i < len(nodes)*3; i++ {
 		select {
 		case <-readyCh:
-			logger.Infof("Server %d of %d ready", i+1, len(nodes)*4)
-		case <-time.After(15 * time.Second):
-			logger.Fatalf("Timeout waiting for server %d to be ready", i+1)
+			logger.Infof("Server %d of %d ready", i+1, len(nodes)*3)
+		case <-time.After(20 * time.Second):
+			logger.Fatalf("Timeout waiting for server %d to be ready after 20s", i+1)
 		}
 	}
 	logger.Infof("All servers are ready")

@@ -35,5 +35,4 @@ type Server struct {
 	wsServer   *transport.WebSocketServer
 	httpServer *http.Server
 	p2pServer  *p2p.Server
-	readyCh    chan struct{} // Channel to signal server readiness
 }

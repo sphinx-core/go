@@ -39,12 +39,13 @@ import (
 
 // NewTCPServer creates and returns a new TCPServer instance
 // with the given address, channel for messages, and rpc server.
-func NewTCPServer(address string, messageCh chan *security.Message, rpcServer *rpc.Server) *TCPServer {
+func NewTCPServer(address string, messageCh chan *security.Message, rpcServer *rpc.Server, tcpReadyCh chan struct{}) *TCPServer {
 	return &TCPServer{
-		address:   address,
-		messageCh: messageCh,
-		rpcServer: rpcServer,
-		handshake: security.NewHandshake(),
+		address:    address,
+		messageCh:  messageCh,
+		rpcServer:  rpcServer,
+		handshake:  security.NewHandshake(),
+		tcpReadyCh: tcpReadyCh,
 	}
 }
 
@@ -53,12 +54,17 @@ func (s *TCPServer) Start() error {
 	listener, err := net.Listen("tcp", s.address)
 	if err != nil {
 		log.Printf("Failed to bind TCP listener on %s: %v", s.address, err)
-		return err
+		return fmt.Errorf("failed to bind TCP listener on %s: %v", s.address, err)
 	}
 	s.listener = listener
-	log.Printf("TCP server listening on %s", s.address)
+	log.Printf("TCP server successfully bound to %s", s.address)
 	log.Printf("Sending TCP ready signal for %s", s.address)
-	// Note: The signal is sent in main.go, not here, but log for clarity
+	if s.tcpReadyCh != nil {
+		s.tcpReadyCh <- struct{}{}
+		log.Printf("Sent TCP ready signal for %s", s.address)
+	} else {
+		log.Printf("No tcpReadyCh provided for %s", s.address)
+	}
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -66,6 +72,7 @@ func (s *TCPServer) Start() error {
 			log.Printf("TCP accept error on %s: %v", s.address, err)
 			continue
 		}
+		log.Printf("Accepted new connection on %s from %s", s.address, conn.RemoteAddr().String())
 		go s.handleConnection(conn)
 	}
 }
