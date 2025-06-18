@@ -26,6 +26,8 @@ package main
 import (
 	"flag"
 	"math/big"
+	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,29 +39,50 @@ import (
 )
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
 	logger.Init()
 
 	// Define command-line flags
-	addrAlice := flag.String("addrAlice", "127.0.0.1:30303", "TCP server address for Alice")
-	addrBob := flag.String("addrBob", "127.0.0.1:30304", "TCP server address for Bob")
-	addrCharlie := flag.String("addrCharlie", "127.0.0.1:30305", "TCP server address for Charlie")
-	httpAddr := flag.String("httpAddr", "127.0.0.1:8545", "HTTP server address for Alice")
-	seeds := flag.String("seeds", "127.0.0.1:30304,127.0.0.1:30305", "Comma-separated list of seed nodes")
+	numNodes := flag.Int("numNodes", 3, "Number of nodes to initialize")
+	roles := flag.String("roles", "sender,receiver,validator", "Comma-separated list of node roles (sender,receiver,validator)")
+	seeds := flag.String("seeds", "", "Comma-separated list of seed nodes (optional)")
 	flag.Parse()
 
 	var wg sync.WaitGroup
 
-	// Collect flag overrides
-	flagOverrides := map[string]string{
-		"addrAlice":   *addrAlice,
-		"addrBob":     *addrBob,
-		"addrCharlie": *addrCharlie,
-		"httpAddr":    *httpAddr,
-		"seeds":       *seeds,
+	// Parse roles
+	roleList := strings.Split(*roles, ",")
+	parsedRoles := make([]network.NodeRole, len(roleList))
+	for i, r := range roleList {
+		switch r {
+		case "sender":
+			parsedRoles[i] = network.RoleSender
+		case "receiver":
+			parsedRoles[i] = network.RoleReceiver
+		case "validator":
+			parsedRoles[i] = network.RoleValidator
+		default:
+			logger.Fatalf("Invalid role: %s. Must be sender, receiver, or validator", r)
+		}
 	}
 
+	// Collect flag overrides
+	flagOverrides := make(map[string]string)
+	if *seeds != "" {
+		flagOverrides["seeds"] = *seeds
+	}
+	// Allow per-node overrides (e.g., --tcpAddr0, --httpPort0)
+	flag.Visit(func(f *flag.Flag) {
+		if strings.HasPrefix(f.Name, "tcpAddr") || strings.HasPrefix(f.Name, "httpPort") || strings.HasPrefix(f.Name, "wsPort") {
+			flagOverrides[f.Name] = f.Value.String()
+		}
+	})
+
 	// Get node port configurations
-	portConfigs := network.GetNodePortConfigs(flagOverrides)
+	portConfigs, err := network.GetNodePortConfigs(*numNodes, parsedRoles, flagOverrides)
+	if err != nil {
+		logger.Fatalf("Failed to get node configurations: %v", err)
+	}
 
 	// Map network.NodePortConfig to bind.NodeSetupConfig
 	configs := make([]bind.NodeSetupConfig, len(portConfigs))
@@ -83,9 +106,27 @@ func main() {
 	// Simulate a delay before submitting a transaction
 	time.Sleep(5 * time.Second)
 
+	// Find sender and receiver nodes
+	var senders, receivers []network.NodePortConfig
+	for _, pc := range portConfigs {
+		if pc.Role == network.RoleSender {
+			senders = append(senders, pc)
+		} else if pc.Role == network.RoleReceiver {
+			receivers = append(receivers, pc)
+		}
+	}
+	if len(senders) == 0 || len(receivers) == 0 {
+		logger.Fatalf("Missing sender or receiver node")
+	}
+	sender := senders[rand.Intn(len(senders))]
+	var senderAddr, senderHTTPPort, receiverAddr string
+	senderAddr = sender.TCPAddr
+	senderHTTPPort = sender.HTTPPort
+	receiverAddr = receivers[rand.Intn(len(receivers))].TCPAddr
+
 	tx := &types.Transaction{
-		Sender:    "127.0.0.1:30303", // Alice's TCP address
-		Receiver:  "127.0.0.1:30304", // Bob's TCP address
+		Sender:    senderAddr,
+		Receiver:  receiverAddr,
 		Amount:    big.NewInt(1000),
 		GasLimit:  big.NewInt(21000),
 		GasPrice:  big.NewInt(1),
@@ -93,8 +134,8 @@ func main() {
 		Nonce:     1,
 	}
 
-	logger.Infof("Submitting transaction from Alice to Bob: %+v", tx)
-	err = http.SubmitTransaction(portConfigs[0].HTTPPort, *tx) // Use Alice's HTTP port
+	logger.Infof("Submitting transaction from %s to %s: %+v", senderAddr, receiverAddr, tx)
+	err = http.SubmitTransaction(senderHTTPPort, *tx)
 	if err != nil {
 		logger.Errorf("Failed to submit transaction: %v", err)
 	} else {

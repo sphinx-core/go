@@ -66,6 +66,20 @@ func (nm *NodeManager) PruneInactivePeers(timeout time.Duration) {
 	}
 }
 
+// HasSeenMessage checks if a message ID has been seen.
+func (nm *NodeManager) HasSeenMessage(msgID string) bool {
+	nm.mu.RLock()
+	defer nm.mu.RUnlock()
+	return nm.seenMsgs[msgID]
+}
+
+// MarkMessageSeen marks a message ID as seen.
+func (nm *NodeManager) MarkMessageSeen(msgID string) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	nm.seenMsgs[msgID] = true
+}
+
 // AddPeer adds a node as a peer, marking it as connected.
 func (nm *NodeManager) AddPeer(node *Node) error {
 	nm.mu.Lock()

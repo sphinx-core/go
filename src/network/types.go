@@ -94,7 +94,7 @@ type PeerInfo struct {
 
 // NodePortConfig defines port assignments for a node.
 type NodePortConfig struct {
-	Name      string   // Node name (e.g., Alice, Bob, Charlie)
+	Name      string   // Node name (e.g., Node-0, Node-1)
 	Role      NodeRole // Node role (sender, receiver, validator)
 	TCPAddr   string   // TCP address (e.g., 127.0.0.1:30303)
 	HTTPPort  string   // HTTP port (e.g., 127.0.0.1:8545)

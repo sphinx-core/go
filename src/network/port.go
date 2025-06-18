@@ -24,69 +24,109 @@
 package network
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
 	"strings"
 )
 
-// HasSeenMessage checks if a message ID has been seen.
-func (nm *NodeManager) HasSeenMessage(msgID string) bool {
-	nm.mu.RLock()
-	defer nm.mu.RUnlock()
-	return nm.seenMsgs[msgID]
+func loadFromFile(file string) ([]NodePortConfig, error) {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %v", err)
+	}
+	var configs []NodePortConfig
+	if err := json.Unmarshal(data, &configs); err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %v", err)
+	}
+	return configs, nil
 }
 
-// MarkMessageSeen marks a message ID as seen.
-func (nm *NodeManager) MarkMessageSeen(msgID string) {
-	nm.mu.Lock()
-	defer nm.mu.Unlock()
-	nm.seenMsgs[msgID] = true
-}
-
-// GetNodePortConfigs returns port configurations for all nodes, applying flag overrides.
-func GetNodePortConfigs(flagOverrides map[string]string) []NodePortConfig {
-	// Default configurations
-	defaultConfigs := []NodePortConfig{
-		{
-			Name:      "Alice",
-			Role:      RoleSender,
-			TCPAddr:   "127.0.0.1:30303",
-			HTTPPort:  "127.0.0.1:8545",
-			WSPort:    "127.0.0.1:8546",
-			SeedNodes: []string{"127.0.0.1:30304", "127.0.0.1:30305"},
-		},
-		{
-			Name:      "Bob",
-			Role:      RoleReceiver,
-			TCPAddr:   "127.0.0.1:30304",
-			HTTPPort:  "127.0.0.1:8547",
-			WSPort:    "127.0.0.1:8548",
-			SeedNodes: []string{"127.0.0.1:30303", "127.0.0.1:30305"},
-		},
-		{
-			Name:      "Charlie",
-			Role:      RoleValidator,
-			TCPAddr:   "127.0.0.1:30305",
-			HTTPPort:  "127.0.0.1:8549",
-			WSPort:    "127.0.0.1:8550",
-			SeedNodes: []string{"127.0.0.1:30303", "127.0.0.1:30304"},
-		},
+// GetNodePortConfigs returns port configurations for nodes based on input parameters.
+func GetNodePortConfigs(numNodes int, roles []NodeRole, flagOverrides map[string]string) ([]NodePortConfig, error) {
+	// Validate inputs
+	if numNodes < 1 {
+		return nil, fmt.Errorf("number of nodes must be at least 1")
+	}
+	if len(roles) != numNodes {
+		return nil, fmt.Errorf("number of roles (%d) must match number of nodes (%d)", len(roles), numNodes)
 	}
 
-	// Apply flag overrides
-	for i, config := range defaultConfigs {
-		if addr, ok := flagOverrides["addr"+config.Name]; ok {
-			defaultConfigs[i].TCPAddr = addr
+	// Base ports with enough spacing (each node uses 3 ports: TCP, HTTP, WS)
+	const (
+		baseTCPPort  = 30303 // TCP: 30303, 30306, 30309, ...
+		baseHTTPPort = 8545  // HTTP: 8545, 8548, 8551, ...
+		baseWSPort   = 8600  // WS: 8600, 8603, 8606, ...
+		portStep     = 3     // Increment by 3 to avoid overlap
+	)
+
+	// Collect all TCP addresses for seed node computation
+	tcpAddrs := make([]string, numNodes)
+	for i := 0; i < numNodes; i++ {
+		tcpPort := baseTCPPort + (i * portStep)
+		if addr, ok := flagOverrides[fmt.Sprintf("tcpAddr%d", i)]; ok {
+			tcpAddrs[i] = addr
+		} else {
+			tcpAddrs[i] = fmt.Sprintf("127.0.0.1:%d", tcpPort)
+		}
+	}
+
+	// Generate configurations
+	configs := make([]NodePortConfig, numNodes)
+	for i := 0; i < numNodes; i++ {
+		// Name: Node-0, Node-1, etc.
+		name := fmt.Sprintf("Node-%d", i)
+
+		// Role: From provided roles slice
+		role := roles[i]
+
+		// TCP address: Already computed or overridden
+		tcpAddr := tcpAddrs[i]
+
+		// HTTP port: Base + offset or override
+		httpPort := fmt.Sprintf("127.0.0.1:%d", baseHTTPPort+(i*portStep))
+		if port, ok := flagOverrides[fmt.Sprintf("httpPort%d", i)]; ok {
+			httpPort = port
 		}
 
-		if config.Name == "Alice" {
-			if httpAddr, ok := flagOverrides["httpAddr"]; ok {
-				defaultConfigs[i].HTTPPort = httpAddr
+		// WebSocket port: Base + offset or override
+		wsPort := fmt.Sprintf("127.0.0.1:%d", baseWSPort+(i*portStep))
+		if port, ok := flagOverrides[fmt.Sprintf("wsPort%d", i)]; ok {
+			wsPort = port
+		}
+
+		// Seed nodes: All TCP addresses except the node's own
+		seedNodes := make([]string, 0, numNodes-1)
+		if seeds, ok := flagOverrides["seeds"]; ok {
+			seedNodes = strings.Split(seeds, ",")
+		} else {
+			for j, addr := range tcpAddrs {
+				if j != i {
+					seedNodes = append(seedNodes, addr)
+				}
 			}
 		}
 
-		if seeds, ok := flagOverrides["seeds"]; ok {
-			defaultConfigs[i].SeedNodes = strings.Split(seeds, ",")
+		configs[i] = NodePortConfig{
+			Name:      name,
+			Role:      role,
+			TCPAddr:   tcpAddr,
+			HTTPPort:  httpPort,
+			WSPort:    wsPort,
+			SeedNodes: seedNodes,
 		}
 	}
 
-	return defaultConfigs
+	// Check for port conflicts
+	portSet := make(map[string]struct{})
+	for _, config := range configs {
+		for _, addr := range []string{config.TCPAddr, config.HTTPPort, config.WSPort} {
+			if _, exists := portSet[addr]; exists {
+				return nil, fmt.Errorf("duplicate port %s for node %s", addr, config.Name)
+			}
+			portSet[addr] = struct{}{}
+		}
+	}
+
+	return configs, nil
 }
