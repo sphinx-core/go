@@ -29,7 +29,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sphinx-core/go/src/core"
 	types "github.com/sphinx-core/go/src/core/transaction"
-	"github.com/sphinx-core/go/src/security"
+	security "github.com/sphinx-core/go/src/handshake"
 )
 
 // Server represents an HTTP server.

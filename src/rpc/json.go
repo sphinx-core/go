@@ -31,7 +31,7 @@ import (
 	"time"
 
 	types "github.com/sphinx-core/go/src/core/transaction"
-	"github.com/sphinx-core/go/src/security"
+	security "github.com/sphinx-core/go/src/handshake"
 )
 
 // Standard JSON-RPC error codes

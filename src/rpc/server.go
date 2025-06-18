@@ -25,7 +25,7 @@ package rpc
 
 import (
 	"github.com/sphinx-core/go/src/core"
-	"github.com/sphinx-core/go/src/security"
+	security "github.com/sphinx-core/go/src/handshake"
 )
 
 // NewServer creates a new RPC server instance.

@@ -29,8 +29,8 @@ import (
 	"net"
 	"time"
 
+	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/network"
-	"github.com/sphinx-core/go/src/security"
 )
 
 // ValidateIP checks whether the provided IP and port are valid.

@@ -27,9 +27,9 @@ import (
 	"sync"
 	"time"
 
+	security "github.com/sphinx-core/go/src/handshake"
 	logger "github.com/sphinx-core/go/src/log"
 	"github.com/sphinx-core/go/src/rpc"
-	"github.com/sphinx-core/go/src/security"
 	"github.com/sphinx-core/go/src/transport"
 )
 

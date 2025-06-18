@@ -30,8 +30,8 @@ import (
 
 	"github.com/sphinx-core/go/src/core"
 	types "github.com/sphinx-core/go/src/core/transaction"
+	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/network"
-	"github.com/sphinx-core/go/src/security"
 	"github.com/sphinx-core/go/src/transport"
 )
 

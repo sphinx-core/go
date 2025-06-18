@@ -28,8 +28,8 @@ import (
 	"time"
 
 	"github.com/sphinx-core/go/src/core"
+	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/network"
-	"github.com/sphinx-core/go/src/security"
 )
 
 // Server represents a P2P server.

@@ -28,9 +28,9 @@ import (
 	"time"
 
 	"github.com/sphinx-core/go/src/core"
+	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/http"
 	logger "github.com/sphinx-core/go/src/log"
-	"github.com/sphinx-core/go/src/security"
 )
 
 // startHTTPServer starts an HTTP server for the given node.

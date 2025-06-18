@@ -25,10 +25,10 @@ package bind
 
 import (
 	"github.com/sphinx-core/go/src/core"
+	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/network"
 	"github.com/sphinx-core/go/src/p2p"
 	"github.com/sphinx-core/go/src/rpc"
-	"github.com/sphinx-core/go/src/security"
 )
 
 // NodeConfig defines the configuration for a node’s TCP server.

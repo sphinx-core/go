@@ -26,7 +26,7 @@ package rpc
 import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sphinx-core/go/src/core"
-	"github.com/sphinx-core/go/src/security"
+	security "github.com/sphinx-core/go/src/handshake"
 )
 
 // Metrics holds RPC-related Prometheus metrics.

@@ -28,8 +28,8 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
+	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/rpc"
-	"github.com/sphinx-core/go/src/security"
 )
 
 type IPConfig struct {

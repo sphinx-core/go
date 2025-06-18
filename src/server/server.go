@@ -28,10 +28,10 @@ import (
 	"strings"
 
 	"github.com/sphinx-core/go/src/core"
+	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/http"
 	"github.com/sphinx-core/go/src/p2p"
 	"github.com/sphinx-core/go/src/rpc"
-	"github.com/sphinx-core/go/src/security"
 	"github.com/sphinx-core/go/src/transport"
 )
 

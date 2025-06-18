@@ -28,7 +28,7 @@ import (
 	"net/http"
 
 	types "github.com/sphinx-core/go/src/core/transaction"
-	"github.com/sphinx-core/go/src/security"
+	security "github.com/sphinx-core/go/src/handshake"
 )
 
 // SubmitTransaction sends a transaction via HTTP.

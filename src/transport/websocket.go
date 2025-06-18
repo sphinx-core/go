@@ -31,8 +31,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/rpc"
-	"github.com/sphinx-core/go/src/security"
 )
 
 // NewWebSocketServer initializes and returns a new WebSocketServer struct.

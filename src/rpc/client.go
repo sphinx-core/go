@@ -27,7 +27,7 @@ import (
 	"encoding/json"
 	"net"
 
-	"github.com/sphinx-core/go/src/security"
+	security "github.com/sphinx-core/go/src/handshake"
 )
 
 // CallRPC sends a JSON-RPC request to a peer.
