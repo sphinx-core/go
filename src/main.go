@@ -25,6 +25,7 @@ package main
 import (
 	"encoding/hex"
 	"flag"
+	"fmt"
 	"math/big"
 	"strings"
 	"sync"
@@ -89,7 +90,7 @@ func main() {
 		blockchains[i] = core.NewBlockchain()
 		logger.Infof("Genesis block created for %s, hash: %x", node.name, blockchains[i].GetBestBlockHash())
 
-		messageChans[i] = make(chan *security.Message, 100)
+		messageChans[i] = make(chan *security.Message, 1000) // Increased capacity
 		rpcServers[i] = rpc.NewServer(messageChans[i], blockchains[i])
 
 		// Start TCP server
@@ -131,10 +132,23 @@ func main() {
 		go func(name, port string) {
 			defer wg.Done()
 			logger.Infof("Starting HTTP server for %s on %s", name, port)
-			if err := httpServer.Start(); err != nil {
-				logger.Errorf("HTTP server failed for %s: %v", name, err)
-			} else {
+			startCh := make(chan error, 1)
+			go func() {
+				if err := httpServer.Start(); err != nil {
+					startCh <- err
+				} else {
+					startCh <- nil
+				}
+			}()
+			select {
+			case err := <-startCh:
+				if err != nil {
+					logger.Errorf("HTTP server failed for %s: %v", name, err)
+					return
+				}
+			case <-time.After(2 * time.Second):
 				logger.Infof("HTTP server for %s successfully started", name)
+				logger.Infof("Sending ready signal for HTTP server %s", name)
 				readyCh <- struct{}{}
 			}
 		}(node.name, node.httpPort)
@@ -145,14 +159,28 @@ func main() {
 		go func(name, port string) {
 			defer wg.Done()
 			logger.Infof("Starting WebSocket server for %s on %s", name, port)
-			if err := wsServer.Start(); err != nil {
-				logger.Errorf("WebSocket server failed for %s: %v", name, err)
-			} else {
+			startCh := make(chan error, 1)
+			go func() {
+				if err := wsServer.Start(); err != nil {
+					startCh <- err
+				} else {
+					startCh <- nil
+				}
+			}()
+			select {
+			case err := <-startCh:
+				if err != nil {
+					logger.Errorf("WebSocket server failed for %s: %v", name, err)
+					return
+				}
+			case <-time.After(2 * time.Second):
 				logger.Infof("WebSocket server for %s successfully started", name)
+				logger.Infof("Sending ready signal for WebSocket server %s", name)
 				readyCh <- struct{}{}
 			}
 		}(node.name, node.wsPort)
 
+		// Initialize and start P2P server
 		// Initialize and start P2P server
 		p2pServers[i] = p2p.NewServer(node.addr, ip, port, seedList, blockchains[i])
 		localNode := p2pServers[i].LocalNode()
@@ -175,10 +203,31 @@ func main() {
 		go func(name string, server *p2p.Server) {
 			defer wg.Done()
 			logger.Infof("Starting P2P server for %s on %s", name, server.LocalNode().Address)
-			if err := server.Start(); err != nil {
-				logger.Errorf("P2P server failed for %s: %v", name, err)
-			} else {
-				logger.Infof("P2P server for %s successfully started", name)
+			startCh := make(chan error, 1)
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.Errorf("Panic in P2P server startup for %s: %v", name, r)
+						startCh <- fmt.Errorf("panic: %v", r)
+					}
+				}()
+				logger.Infof("Calling server.Start() for %s", name)
+				err := server.Start()
+				logger.Infof("server.Start() for %s returned with error: %v", name, err)
+				startCh <- err
+			}()
+			select {
+			case err := <-startCh:
+				if err != nil {
+					logger.Errorf("P2P server failed for %s: %v", name, err)
+					return
+				}
+				logger.Infof("P2P server for %s started successfully", name)
+				logger.Infof("Sending ready signal for P2P server %s", name)
+				readyCh <- struct{}{}
+			case <-time.After(2 * time.Second):
+				logger.Warnf("P2P server for %s took too long to start, assuming ready", name)
+				logger.Infof("Sending ready signal for P2P server %s", name)
 				readyCh <- struct{}{}
 			}
 		}(node.name, p2pServers[i])
@@ -189,8 +238,8 @@ func main() {
 		select {
 		case <-readyCh:
 			logger.Infof("Server %d of %d ready", i+1, len(nodes)*3)
-		case <-time.After(20 * time.Second):
-			logger.Fatalf("Timeout waiting for server %d to be ready after 20s", i+1)
+		case <-time.After(10 * time.Second):
+			logger.Fatalf("Timeout waiting for server %d to be ready after 10s", i+1)
 		}
 	}
 	logger.Infof("All servers are ready")

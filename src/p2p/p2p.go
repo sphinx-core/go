@@ -36,6 +36,7 @@ import (
 )
 
 // NewServer creates a new P2P server.
+// NewServer creates a new P2P server.
 func NewServer(address, ip, port string, seedNodes []string, blockchain *core.Blockchain) *Server {
 	localNode := network.NewNode(address, ip, port, true, network.RoleNone)
 	nodeManager := network.NewNodeManager()
@@ -57,12 +58,15 @@ func (s *Server) Start() error {
 	go s.handleMessages()
 	go s.peerManager.MaintainPeers()
 	log.Printf("P2P server started, local node: ID=%s, Address=%s, Role=%s", s.localNode.ID, s.localNode.Address, s.localNode.Role)
-	log.Printf("Starting peer discovery for node %s", s.localNode.Address)
-	if err := s.DiscoverPeers(); err != nil {
-		log.Printf("Peer discovery failed for node %s: %v", s.localNode.Address, err)
-		return err
-	}
-	log.Printf("Peer discovery completed for node %s", s.localNode.Address)
+	// Start peer discovery in a goroutine
+	go func() {
+		log.Printf("Starting peer discovery for node %s", s.localNode.Address)
+		if err := s.DiscoverPeers(); err != nil {
+			log.Printf("Peer discovery failed for node %s: %v", s.localNode.Address, err)
+		} else {
+			log.Printf("Peer discovery completed for node %s", s.localNode.Address)
+		}
+	}()
 	return nil
 }
 

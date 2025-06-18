@@ -58,26 +58,35 @@ func (pm *PeerManager) ConnectPeer(node *network.Node) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
+	log.Printf("Starting ConnectPeer for node %s (Address=%s)", node.ID, node.Address)
 	// Check if banned
 	if banExpiry, banned := pm.bans[node.ID]; banned && time.Now().Before(banExpiry) {
+		log.Printf("Peer %s is banned until %v", node.ID, banExpiry)
 		return fmt.Errorf("peer %s is banned until %v", node.ID, banExpiry)
 	}
 
 	// Check peer limits
 	if len(pm.peers) >= pm.maxPeers {
+		log.Printf("Maximum peer limit reached: %d", pm.maxPeers)
 		return errors.New("maximum peer limit reached")
 	}
 
 	// Connect via transport
+	log.Printf("Calling transport.ConnectNode for %s", node.Address)
 	if err := transport.ConnectNode(node, pm.server.messageCh); err != nil {
+		log.Printf("Failed to connect to %s: %v", node.ID, err)
 		return fmt.Errorf("failed to connect to %s: %v", node.ID, err)
 	}
+	log.Printf("transport.ConnectNode succeeded for %s", node.Address)
 
 	// Perform version handshake
+	log.Printf("Performing handshake with %s", node.ID)
 	if err := pm.performHandshake(node); err != nil {
+		log.Printf("Handshake failed with %s: %v", node.ID, err)
 		transport.DisconnectNode(node)
 		return fmt.Errorf("handshake failed with %s: %v", node.ID, err)
 	}
+	log.Printf("Handshake succeeded with %s", node.ID)
 
 	// Add peer
 	peer := &network.Peer{
@@ -87,6 +96,7 @@ func (pm *PeerManager) ConnectPeer(node *network.Node) error {
 		LastSeen:         time.Now(),
 	}
 	if err := pm.server.nodeManager.AddPeer(node); err != nil {
+		log.Printf("Failed to add peer %s: %v", node.ID, err)
 		transport.DisconnectNode(node)
 		return fmt.Errorf("failed to add peer %s: %v", node.ID, err)
 	}
@@ -104,12 +114,15 @@ func (pm *PeerManager) ConnectPeer(node *network.Node) error {
 		Role:    pm.server.localNode.Role,
 		Status:  network.NodeStatusActive,
 	}})
+	log.Printf("Sent initial messages to %s", node.ID)
 
 	return nil
 }
 
 // performHandshake negotiates protocol version and capabilities.
+
 func (pm *PeerManager) performHandshake(node *network.Node) error {
+	log.Printf("Sending version message to %s", node.Address)
 	nonce := make([]byte, 8)
 	rand.Read(nonce)
 	versionMsg := &security.Message{
@@ -123,9 +136,12 @@ func (pm *PeerManager) performHandshake(node *network.Node) error {
 		},
 	}
 	if err := transport.SendMessage(node.Address, versionMsg); err != nil {
+		log.Printf("Failed to send version message to %s: %v", node.Address, err)
 		return err
 	}
+	log.Printf("Version message sent to %s, waiting for response", node.Address)
 	time.Sleep(1 * time.Second) // Placeholder for response
+	log.Printf("Handshake placeholder completed for %s", node.Address)
 	return nil
 }
 

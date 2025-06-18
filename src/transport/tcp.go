@@ -25,6 +25,7 @@ package transport
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -146,72 +147,89 @@ func (s *TCPServer) handleConnection(conn net.Conn) {
 
 // ConnectTCP tries to establish a TCP connection to address, sending/receiving messages on messageCh.
 func ConnectTCP(address string, messageCh chan *security.Message) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	for attempt := 1; attempt <= 10; attempt++ {
-		conn, err := net.DialTimeout("tcp", address, 2*time.Second)
-		if err != nil {
-			sleepDuration := time.Second * time.Duration(1<<min(attempt-1, 4))
-			log.Printf("TCP connection error: %s attempt %d failed: %v, retrying in %v", address, attempt, err, sleepDuration)
-			time.Sleep(sleepDuration)
-			continue
-		}
-		defer conn.Close()
+		select {
+		case <-ctx.Done():
+			log.Printf("Overall timeout connecting to %s after %d attempts: %v", address, attempt, ctx.Err())
+			return fmt.Errorf("timeout connecting to %s after %d attempts: %v", address, attempt, ctx.Err())
+		default:
+			conn, err := net.DialTimeout("tcp", address, 2*time.Second)
+			if err != nil {
+				sleepDuration := time.Second * time.Duration(1<<min(attempt-1, 4))
+				log.Printf("TCP connection error: %s attempt %d failed: %v, retrying in %v", address, attempt, err, sleepDuration)
+				time.Sleep(sleepDuration)
+				continue
+			}
+			defer conn.Close()
 
-		handshake := security.NewHandshake()
-		enc, err := handshake.PerformHandshake(conn, "tcp", true)
-		if err != nil {
-			log.Printf("TCP handshake failed for %s on attempt %d: %v", address, attempt, err)
-			continue
-		}
-		if enc == nil {
-			log.Printf("TCP handshake returned nil encryption key for %s on attempt %d", address, attempt)
-			continue
-		}
+			handshake := security.NewHandshake()
+			enc, err := handshake.PerformHandshake(conn, "tcp", true)
+			if err != nil {
+				log.Printf("TCP handshake failed for %s on attempt %d: %v", address, attempt, err)
+				continue
+			}
+			if enc == nil {
+				log.Printf("TCP handshake returned nil encryption key for %s on attempt %d", address, attempt)
+				continue
+			}
 
-		msg := &security.Message{Type: "ping", Data: "hello"}
-		data, err := security.SecureMessage(msg, enc)
-		if err != nil {
-			log.Printf("TCP encode error for %s on attempt %d: %v", address, attempt, err)
-			continue
-		}
-		lengthBuf := make([]byte, 4)
-		binary.BigEndian.PutUint32(lengthBuf, uint32(len(data)))
-		if _, err := conn.Write(lengthBuf); err != nil {
-			log.Printf("TCP write length error for %s on attempt %d: %v", address, attempt, err)
-			continue
-		}
-		log.Printf("Sending message to %s, data length: %d", address, len(data))
-		if _, err := conn.Write(data); err != nil {
-			log.Printf("TCP write data error for %s on attempt %d: %v", address, attempt, err)
-			continue
-		}
+			msg := &security.Message{Type: "ping", Data: "hello"}
+			data, err := security.SecureMessage(msg, enc)
+			if err != nil {
+				log.Printf("TCP encode error for %s on attempt %d: %v", address, attempt, err)
+				continue
+			}
+			lengthBuf := make([]byte, 4)
+			binary.BigEndian.PutUint32(lengthBuf, uint32(len(data)))
+			if _, err := conn.Write(lengthBuf); err != nil {
+				log.Printf("TCP write length error for %s on attempt %d: %v", address, attempt, err)
+				continue
+			}
+			log.Printf("Sending message to %s, data length: %d", address, len(data))
+			if _, err := conn.Write(data); err != nil {
+				log.Printf("TCP write data error for %s on attempt %d: %v", address, attempt, err)
+				continue
+			}
 
-		reader := bufio.NewReader(conn)
-		lengthBuf = make([]byte, 4)
-		if _, err := io.ReadFull(reader, lengthBuf); err != nil {
-			log.Printf("TCP read length error on %s on attempt %d: %v", address, attempt, err)
-			continue
-		}
-		length := binary.BigEndian.Uint32(lengthBuf)
-		if length > 1024*1024 {
-			log.Printf("TCP response too large on %s: %d bytes", address, length)
-			continue
-		}
-		respData := make([]byte, length)
-		if _, err := io.ReadFull(reader, respData); err != nil {
-			log.Printf("TCP read data error on %s on attempt %d: %v", address, attempt, err)
-			continue
-		}
-		log.Printf("Received response from %s, data length: %d", address, len(respData))
-		respMsg, err := security.DecodeSecureMessage(respData, enc)
-		if err != nil {
-			log.Printf("TCP decode response error on %s on attempt %d: %v", address, attempt, err)
-			continue
-		}
-		messageCh <- respMsg
+			reader := bufio.NewReader(conn)
+			lengthBuf = make([]byte, 4)
+			if _, err := io.ReadFull(reader, lengthBuf); err != nil {
+				log.Printf("TCP read length error on %s on attempt %d: %v", address, attempt, err)
+				continue
+			}
+			length := binary.BigEndian.Uint32(lengthBuf)
+			if length > 1024*1024 {
+				log.Printf("TCP response too large on %s: %d bytes", address, length)
+				continue
+			}
+			respData := make([]byte, length)
+			if _, err := io.ReadFull(reader, respData); err != nil {
+				log.Printf("TCP read data error on %s on attempt %d: %v", address, attempt, err)
+				continue
+			}
+			log.Printf("Received response from %s, data length: %d", address, len(respData))
+			respMsg, err := security.DecodeSecureMessage(respData, enc)
+			if err != nil {
+				log.Printf("TCP decode response error on %s on attempt %d: %v", address, attempt, err)
+				continue
+			}
+			log.Printf("Attempting to send response to messageCh for %s, message type: %s", address, respMsg.Type)
+			select {
+			case messageCh <- respMsg:
+				log.Printf("Sent response to messageCh for %s", address)
+			case <-ctx.Done():
+				log.Printf("Timeout sending to messageCh for %s: %v", address, ctx.Err())
+				return fmt.Errorf("timeout sending to messageCh for %s: %v", address, ctx.Err())
+			}
 
-		log.Printf("TCP connected to %s", address)
-		return nil
+			log.Printf("TCP connected to %s", address)
+			return nil
+		}
 	}
+	log.Printf("Failed to connect to %s after 10 attempts", address)
 	return fmt.Errorf("failed to connect to %s after 10 attempts", address)
 }
 

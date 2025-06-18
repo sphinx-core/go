@@ -32,14 +32,14 @@ import (
 	"github.com/sphinx-core/go/src/security"
 )
 
-// Server manages the P2P network.
+// Server represents a P2P server.
 type Server struct {
 	localNode   *network.Node
 	nodeManager *network.NodeManager
+	peerManager *PeerManager
 	seedNodes   []string
 	messageCh   chan *security.Message
 	blockchain  *core.Blockchain
-	peerManager *PeerManager // Added for advanced peer management
 	mu          sync.Mutex
 }
 
