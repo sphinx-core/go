@@ -26,7 +26,6 @@ package main
 import (
 	"flag"
 	"math/big"
-	"strings"
 	"sync"
 	"time"
 
@@ -40,6 +39,7 @@ import (
 func main() {
 	logger.Init()
 
+	// Define command-line flags
 	addrAlice := flag.String("addrAlice", "127.0.0.1:30303", "TCP server address for Alice")
 	addrBob := flag.String("addrBob", "127.0.0.1:30304", "TCP server address for Bob")
 	addrCharlie := flag.String("addrCharlie", "127.0.0.1:30305", "TCP server address for Charlie")
@@ -48,34 +48,30 @@ func main() {
 	flag.Parse()
 
 	var wg sync.WaitGroup
-	seedList := strings.Split(*seeds, ",")
 
-	// Define node configurations
-	configs := []bind.NodeSetupConfig{
-		{
-			Address:   *addrAlice,
-			Name:      "Alice",
-			Role:      network.RoleSender,
-			HTTPPort:  *httpAddr,
-			WSPort:    "127.0.0.1:8546",
-			SeedNodes: seedList,
-		},
-		{
-			Address:   *addrBob,
-			Name:      "Bob",
-			Role:      network.RoleReceiver,
-			HTTPPort:  "127.0.0.1:8547",
-			WSPort:    "127.0.0.1:8548",
-			SeedNodes: seedList,
-		},
-		{
-			Address:   *addrCharlie,
-			Name:      "Charlie",
-			Role:      network.RoleValidator,
-			HTTPPort:  "127.0.0.1:8549",
-			WSPort:    "127.0.0.1:8550",
-			SeedNodes: seedList,
-		},
+	// Collect flag overrides
+	flagOverrides := map[string]string{
+		"addrAlice":   *addrAlice,
+		"addrBob":     *addrBob,
+		"addrCharlie": *addrCharlie,
+		"httpAddr":    *httpAddr,
+		"seeds":       *seeds,
+	}
+
+	// Get node port configurations
+	portConfigs := network.GetNodePortConfigs(flagOverrides)
+
+	// Map network.NodePortConfig to bind.NodeSetupConfig
+	configs := make([]bind.NodeSetupConfig, len(portConfigs))
+	for i, pc := range portConfigs {
+		configs[i] = bind.NodeSetupConfig{
+			Address:   pc.TCPAddr,
+			Name:      pc.Name,
+			Role:      pc.Role,
+			HTTPPort:  pc.HTTPPort,
+			WSPort:    pc.WSPort,
+			SeedNodes: pc.SeedNodes,
+		}
 	}
 
 	// Setup nodes and start servers
@@ -88,8 +84,8 @@ func main() {
 	time.Sleep(5 * time.Second)
 
 	tx := &types.Transaction{
-		Sender:    "127.0.0.1:30303",
-		Receiver:  "127.0.0.1:30304",
+		Sender:    "127.0.0.1:30303", // Alice's TCP address
+		Receiver:  "127.0.0.1:30304", // Bob's TCP address
 		Amount:    big.NewInt(1000),
 		GasLimit:  big.NewInt(21000),
 		GasPrice:  big.NewInt(1),
@@ -98,7 +94,7 @@ func main() {
 	}
 
 	logger.Infof("Submitting transaction from Alice to Bob: %+v", tx)
-	err = http.SubmitTransaction(*httpAddr, *tx)
+	err = http.SubmitTransaction(portConfigs[0].HTTPPort, *tx) // Use Alice's HTTP port
 	if err != nil {
 		logger.Errorf("Failed to submit transaction: %v", err)
 	} else {

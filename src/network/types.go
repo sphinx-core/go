@@ -92,16 +92,12 @@ type PeerInfo struct {
 	PublicKey       []byte     `json:"public_key"`
 }
 
-// HasSeenMessage checks if a message ID has been seen.
-func (nm *NodeManager) HasSeenMessage(msgID string) bool {
-	nm.mu.RLock()
-	defer nm.mu.RUnlock()
-	return nm.seenMsgs[msgID]
-}
-
-// MarkMessageSeen marks a message ID as seen.
-func (nm *NodeManager) MarkMessageSeen(msgID string) {
-	nm.mu.Lock()
-	defer nm.mu.Unlock()
-	nm.seenMsgs[msgID] = true
+// NodePortConfig defines port assignments for a node.
+type NodePortConfig struct {
+	Name      string   // Node name (e.g., Alice, Bob, Charlie)
+	Role      NodeRole // Node role (sender, receiver, validator)
+	TCPAddr   string   // TCP address (e.g., 127.0.0.1:30303)
+	HTTPPort  string   // HTTP port (e.g., 127.0.0.1:8545)
+	WSPort    string   // WebSocket port (e.g., 127.0.0.1:8546)
+	SeedNodes []string // Seed node addresses (e.g., [127.0.0.1:30304, 127.0.0.1:30305])
 }
