@@ -31,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sphinx-core/go/src/bind"
 	"github.com/sphinx-core/go/src/core"
 	types "github.com/sphinx-core/go/src/core/transaction"
 	"github.com/sphinx-core/go/src/http"
@@ -75,7 +76,8 @@ func main() {
 	p2pServers := make([]*p2p.Server, len(nodes))
 	publicKeys := make(map[string]string)
 
-	// Initialize and start TCP servers
+	// Initialize node configurations and bind TCP servers
+	tcpConfigs := make([]bind.NodeConfig, len(nodes))
 	for i, node := range nodes {
 		parts := strings.Split(node.addr, ":")
 		if len(parts) != 2 {
@@ -93,18 +95,19 @@ func main() {
 		messageChans[i] = make(chan *security.Message, 1000) // Increased capacity
 		rpcServers[i] = rpc.NewServer(messageChans[i], blockchains[i])
 
-		// Start TCP server
-		tcpServer := transport.NewTCPServer(node.addr, messageChans[i], rpcServers[i], tcpReadyCh)
-		wg.Add(1)
-		go func(name, addr string) {
-			defer wg.Done()
-			logger.Infof("Starting TCP server for %s on %s", name, addr)
-			if err := tcpServer.Start(); err != nil {
-				logger.Errorf("TCP server failed for %s: %v", name, err)
-			} else {
-				logger.Infof("TCP server for %s successfully started", name)
-			}
-		}(node.name, node.addr)
+		// Prepare TCP server configuration
+		tcpConfigs[i] = bind.NodeConfig{
+			Address:   node.addr,
+			Name:      node.name,
+			MessageCh: messageChans[i],
+			RPCServer: rpcServers[i],
+			ReadyCh:   tcpReadyCh,
+		}
+	}
+
+	// Bind TCP servers using the bind package
+	if err := bind.BindTCPServers(tcpConfigs, &wg); err != nil {
+		logger.Fatalf("Failed to bind TCP servers: %v", err)
 	}
 
 	// Wait for all TCP servers to be ready
@@ -180,7 +183,6 @@ func main() {
 			}
 		}(node.name, node.wsPort)
 
-		// Initialize and start P2P server
 		// Initialize and start P2P server
 		p2pServers[i] = p2p.NewServer(node.addr, ip, port, seedList, blockchains[i])
 		localNode := p2pServers[i].LocalNode()
