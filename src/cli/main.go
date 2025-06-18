@@ -109,9 +109,10 @@ func main() {
 	// Find sender and receiver nodes
 	var senders, receivers []network.NodePortConfig
 	for _, pc := range portConfigs {
-		if pc.Role == network.RoleSender {
+		switch pc.Role {
+		case network.RoleSender:
 			senders = append(senders, pc)
-		} else if pc.Role == network.RoleReceiver {
+		case network.RoleReceiver:
 			receivers = append(receivers, pc)
 		}
 	}
