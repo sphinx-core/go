@@ -18,3 +18,15 @@
 02:03:13.758679 db@open done T·58.07617ms
 02:03:19.380427 db@close closing
 02:03:19.380748 db@close done T·318.734µs
+=============== Jun 20, 2025 (WIB) ===============
+05:13:56.428643 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+05:13:56.433762 version@stat F·[1] S·35KiB[35KiB] Sc·[0.25]
+05:13:56.433806 db@open opening
+05:13:56.433979 journal@recovery F·1
+05:13:56.434360 journal@recovery recovering @3
+05:13:56.444396 memdb@flush created L0@5 N·9 S·35KiB "leaf-0,d15":"leaf-4,d19"
+05:13:56.445135 version@stat F·[2] S·70KiB[70KiB] Sc·[0.50]
+05:13:56.492135 db@janitor F·4 G·0
+05:13:56.492196 db@open done T·58.372246ms
+05:14:02.273325 db@close closing
+05:14:02.273633 db@close done T·305.78µs
