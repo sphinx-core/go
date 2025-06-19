@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/core/stark/verifier/verifier.go
 package verifier
 
 import (
@@ -30,9 +31,9 @@ import (
 )
 
 /*
-#cgo LDFLAGS: -L${SRCDIR}/../../libstark -lstark_wrapper -lstark -lgmp -lboost_system -lboost_filesystem
-#cgo CXXFLAGS: -I${SRCDIR}/../../libstark/include
-#include "../../cwrapper/stark_wrapper.h"
+#cgo CXXFLAGS: -I${SRCDIR}/../../../crypto/libstark/libstark/src -I${SRCDIR}/../../wrapper -I/opt/homebrew/include
+#cgo LDFLAGS: -L${SRCDIR}/../../../crypto/libstark/libstark/build -L/opt/homebrew/lib -lstark -lgmp -lboost_system -lboost_filesystem -ljsoncpp -lssl -lcrypto
+#include "stark.h"
 */
 import "C"
 

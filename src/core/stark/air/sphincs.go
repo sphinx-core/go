@@ -24,12 +24,12 @@
 package air
 
 import (
-	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
+	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
 )
 
 // SphincsAIR represents the AIR for SPHINCS+ signature verification
 type SphincsAIR struct {
-	Params     *sphincs.SPHINCSParams
+	Params     *parameters.Parameters
 	Message    []byte
 	Signature  []byte
 	PublicKey  []byte
@@ -37,7 +37,7 @@ type SphincsAIR struct {
 }
 
 // NewSphincsAIR creates an AIR instance
-func NewSphincsAIR(params *sphincs.SPHINCSParams, message, sigBytes, pkBytes, merkleRoot []byte) (*SphincsAIR, error) {
+func NewSphincsAIR(params *parameters.Parameters, message, sigBytes, pkBytes, merkleRoot []byte) (*SphincsAIR, error) {
 	return &SphincsAIR{
 		Params:     params,
 		Message:    message,
@@ -45,18 +45,4 @@ func NewSphincsAIR(params *sphincs.SPHINCSParams, message, sigBytes, pkBytes, me
 		PublicKey:  pkBytes,
 		MerkleRoot: merkleRoot,
 	}, nil
-}
-
-// Evaluate represents the SPHINCS+ verification circuit (placeholder for C++ AIR)
-// Actual constraints are implemented in stark_wrapper.cpp
-func (air *SphincsAIR) Evaluate() bool {
-	sig, err := sphincs.DeserializeSignature(air.Params, air.Signature)
-	if err != nil {
-		return false
-	}
-	pk, err := sphincs.DeserializePK(air.Params, air.PublicKey)
-	if err != nil {
-		return false
-	}
-	return sphincs.Spx_verify(air.Params, air.Message, sig, pk)
 }
