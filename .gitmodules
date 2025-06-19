@@ -1,0 +1,3 @@
+[submodule "src/crypto/libSTARK"]
+	path = src/crypto/libSTARK
+	url = https://github.com/elibensasson/libSTARK.git
