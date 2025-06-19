@@ -20,25 +20,43 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/core/sphincs/config/params.go
-package params
+// go/src/core/stark/air/sphincs.go
+package air
 
 import (
-	"errors"
-
-	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
+	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
 )
 
-// SPHINCSParameters wraps the SPHINCS+ parameter configuration.
-type SPHINCSParameters struct {
-	Params *parameters.Parameters
+// SphincsAIR represents the AIR for SPHINCS+ signature verification
+type SphincsAIR struct {
+	Params     *sphincs.SPHINCSParams
+	Message    []byte
+	Signature  []byte
+	PublicKey  []byte
+	MerkleRoot []byte
 }
 
-// NewSPHINCSParameters initializes SPHINCS+ parameters for SHAKE256-128f-robust (LV-1 of NIST claimed).
-func NewSPHINCSParameters() (*SPHINCSParameters, error) {
-	params := parameters.MakeSphincsPlusSHAKE256192fRobust(false)
-	if params == nil {
-		return nil, errors.New("failed to initialize SPHINCS+ parameters")
+// NewSphincsAIR creates an AIR instance
+func NewSphincsAIR(params *sphincs.SPHINCSParams, message, sigBytes, pkBytes, merkleRoot []byte) (*SphincsAIR, error) {
+	return &SphincsAIR{
+		Params:     params,
+		Message:    message,
+		Signature:  sigBytes,
+		PublicKey:  pkBytes,
+		MerkleRoot: merkleRoot,
+	}, nil
+}
+
+// Evaluate represents the SPHINCS+ verification circuit (placeholder for C++ AIR)
+// Actual constraints are implemented in stark_wrapper.cpp
+func (air *SphincsAIR) Evaluate() bool {
+	sig, err := sphincs.DeserializeSignature(air.Params, air.Signature)
+	if err != nil {
+		return false
 	}
-	return &SPHINCSParameters{Params: params}, nil
+	pk, err := sphincs.DeserializePK(air.Params, air.PublicKey)
+	if err != nil {
+		return false
+	}
+	return sphincs.Spx_verify(air.Params, air.Message, sig, pk)
 }
