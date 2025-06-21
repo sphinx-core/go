@@ -32,7 +32,7 @@ import (
 	"github.com/sphinx-core/go/src/core/hashtree"
 	sigproof "github.com/sphinx-core/go/src/core/proof"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
-	sign "github.com/sphinx-core/go/src/core/sphincs/sign"
+	sign "github.com/sphinx-core/go/src/core/sphincs/sign/backend"
 	"github.com/syndtr/goleveldb/leveldb"
 )
 

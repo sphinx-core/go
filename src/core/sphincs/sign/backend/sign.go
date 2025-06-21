@@ -23,11 +23,8 @@
 package sign
 
 import (
-	"crypto/rand" // Add for nonce generation
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"time" // Add for timestamp generation
 
 	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
 	"github.com/sphinx-core/go/src/core/hashtree"
@@ -48,24 +45,6 @@ func NewSphincsManager(db *leveldb.DB, keyManager *key.KeyManager, parameters *p
 		keyManager: keyManager,
 		parameters: parameters,
 	}
-}
-
-// generateNonce creates a cryptographically secure 8-byte nonce
-func generateNonce() ([]byte, error) {
-	nonce := make([]byte, 8) // 8-byte nonce
-	_, err := rand.Read(nonce)
-	if err != nil {
-		return nil, err
-	}
-	return nonce, nil
-}
-
-// generateTimestamp creates an 8-byte Unix timestamp (seconds since epoch)
-func generateTimestamp() []byte {
-	timestamp := time.Now().Unix()
-	timestampBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(timestampBytes, uint64(timestamp))
-	return timestampBytes
 }
 
 // SignMessage signs a given message using the secret key, including a timestamp and nonce
