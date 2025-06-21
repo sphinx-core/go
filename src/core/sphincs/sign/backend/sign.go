@@ -23,12 +23,9 @@
 package sign
 
 import (
-	// Add for nonce generation
-
 	"encoding/hex"
 	"errors"
 
-	// Add for timestamp generation
 	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
 	"github.com/sphinx-core/go/src/core/hashtree"
 	params "github.com/sphinx-core/go/src/core/sphincs/config"
