@@ -32,7 +32,7 @@ import (
 
 // generateNonce creates a cryptographically secure 8-byte nonce
 func generateNonce() ([]byte, error) {
-	nonce := make([]byte, 8) // 8-byte nonce
+	nonce := make([]byte, 16) // 16-byte nonce
 	_, err := rand.Read(nonce)
 	if err != nil {
 		return nil, err
@@ -40,7 +40,7 @@ func generateNonce() ([]byte, error) {
 	return nonce, nil
 }
 
-// generateTimestamp creates an 8-byte Unix timestamp (seconds since epoch)
+// generateTimestamp creates an 16-byte Unix timestamp (seconds since epoch)
 func generateTimestamp() []byte {
 	timestamp := time.Now().Unix()
 	timestampBytes := make([]byte, 8)
