@@ -23,11 +23,11 @@
 package main
 
 import (
-	"encoding/binary" // Add for timestamp decoding
+	"encoding/binary"
 	"fmt"
 	"log"
 	"os"
-	"time" // Add for timestamp validation
+	"time"
 
 	"github.com/sphinx-core/go/src/core/hashtree"
 	sigproof "github.com/sphinx-core/go/src/core/proof"

@@ -23,9 +23,12 @@
 package sign
 
 import (
+	// Add for nonce generation
+
 	"encoding/hex"
 	"errors"
 
+	// Add for timestamp generation
 	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
 	"github.com/sphinx-core/go/src/core/hashtree"
 	params "github.com/sphinx-core/go/src/core/sphincs/config"
@@ -45,6 +48,37 @@ func NewSphincsManager(db *leveldb.DB, keyManager *key.KeyManager, parameters *p
 		keyManager: keyManager,
 		parameters: parameters,
 	}
+}
+
+// StoreTimestampNonce stores a timestamp-nonce pair in LevelDB to prevent signature reuse
+// This ensures that a signature cannot be replayed, as the unique pair is recorded
+func (sm *SphincsManager) StoreTimestampNonce(timestamp, nonce []byte) error {
+	if sm.db == nil {
+		return errors.New("LevelDB is not initialized")
+	}
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	timestampNonce := append(timestamp, nonce...)
+	return sm.db.Put(timestampNonce, []byte("seen"), nil)
+}
+
+// CheckTimestampNonce checks if a timestamp-nonce pair exists in LevelDB
+// Returns true if the pair exists (indicating reuse), false otherwise
+func (sm *SphincsManager) CheckTimestampNonce(timestamp, nonce []byte) (bool, error) {
+	if sm.db == nil {
+		return false, errors.New("LevelDB is not initialized")
+	}
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	timestampNonce := append(timestamp, nonce...)
+	_, err := sm.db.Get(timestampNonce, nil)
+	if err == nil {
+		return true, nil // Pair exists, indicating potential reuse
+	}
+	if err == leveldb.ErrNotFound {
+		return false, nil // Pair does not exist, no reuse detected
+	}
+	return false, err // Other database error
 }
 
 // SignMessage signs a given message using the secret key, including a timestamp and nonce
@@ -124,16 +158,18 @@ func (sm *SphincsManager) SignMessage(message []byte, deserializedSK *sphincs.SP
 	}
 
 	// Save the leaf nodes (signature parts) into LevelDB in batch mode for performance efficiency
-	if err := hashtree.SaveLeavesBatchToDB(sm.db, sigParts); err != nil {
-		// Return an error if saving the leaves to LevelDB fails
-		return nil, nil, nil, nil, err
-	}
+	if sm.db != nil {
+		if err := hashtree.SaveLeavesBatchToDB(sm.db, sigParts); err != nil {
+			// Return an error if saving the leaves to LevelDB fails
+			return nil, nil, nil, nil, err
+		}
 
-	// Optionally prune old leaves from the database to prevent the storage from growing indefinitely
-	// In this example, we keep the last 5 leaves and prune older ones
-	if err := hashtree.PruneOldLeaves(sm.db, 5); err != nil {
-		// Return an error if the pruning operation fails
-		return nil, nil, nil, nil, err
+		// Optionally prune old leaves from the database to prevent the storage from growing indefinitely
+		// In this example, we keep the last 5 leaves and prune older ones
+		if err := hashtree.PruneOldLeaves(sm.db, 5); err != nil {
+			// Return an error if the pruning operation fails
+			return nil, nil, nil, nil, err
+		}
 	}
 
 	// Return the signature, Merkle root, timestamp, and nonce

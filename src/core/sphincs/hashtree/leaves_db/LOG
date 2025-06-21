@@ -30,3 +30,31 @@
 05:13:56.492196 db@open done T·58.372246ms
 05:14:02.273325 db@close closing
 05:14:02.273633 db@close done T·305.78µs
+=============== Jun 22, 2025 (WIB) ===============
+04:13:48.980313 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+04:13:48.987800 version@stat F·[2] S·70KiB[70KiB] Sc·[0.50]
+04:13:48.987855 db@open opening
+04:13:48.988049 journal@recovery F·1
+04:13:48.989855 journal@recovery recovering @6
+04:13:49.007459 memdb@flush created L0@8 N·9 S·35KiB "leaf-0,d25":"leaf-4,d29"
+04:13:49.008607 version@stat F·[3] S·105KiB[105KiB] Sc·[0.75]
+04:13:49.047534 db@janitor F·5 G·0
+04:13:49.047589 db@open done T·59.702284ms
+=============== Jun 22, 2025 (WIB) ===============
+04:14:48.235729 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+04:14:48.235981 version@stat F·[3] S·105KiB[105KiB] Sc·[0.75]
+04:14:48.236003 db@open opening
+04:14:48.236089 journal@recovery F·1
+04:14:48.238843 journal@recovery recovering @9
+04:14:48.246395 memdb@flush created L0@11 N·10 S·35KiB "\x00\x00\x00..0Ƚ,v40":"leaf-4,d39"
+04:14:48.246734 version@stat F·[4] S·140KiB[140KiB] Sc·[1.00]
+04:14:48.298055 db@janitor F·6 G·0
+04:14:48.298111 db@open done T·62.094183ms
+04:14:48.298448 table@compaction L0·4 -> L1·0 S·140KiB Q·41
+04:14:48.310974 table@build created L1@14 N·1 S·134B "\x00\x00\x00..0Ƚ,v40":"\x00\x00\x00..0Ƚ,v40"
+04:14:48.311047 version@stat F·[0 1] S·134B[0B 134B] Sc·[0.00 0.00]
+04:14:48.340939 table@compaction committed F-3 S-140KiB Ke·0 D·36 T·42.416704ms
+04:14:48.341249 table@remove removed @11
+04:14:48.341387 table@remove removed @8
+04:14:48.341529 table@remove removed @5
+04:14:48.342114 table@remove removed @2

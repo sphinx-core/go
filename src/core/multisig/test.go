@@ -31,12 +31,14 @@ import (
 )
 
 func main() {
+	// Initialize wallet configuration
 	walletConfig, err := utils.NewWalletConfig()
 	if err != nil {
 		log.Fatal("Failed to initialize wallet config:", err)
 	}
 	defer walletConfig.Close()
 
+	// Set quorum for multisignature (e.g., 3 participants required)
 	quorum := 3
 	manager, err := multisig.NewMultiSig(quorum)
 	if err != nil {
@@ -53,18 +55,27 @@ func main() {
 	message := []byte("This is a test message.")
 	for i := 0; i < quorum; i++ {
 		partyID := fmt.Sprintf("Participant%d", i+1)
-		sig, merkleRoot, err := manager.SignMessage(message, privKeys[i], partyID)
+		// SignMessage returns signature, Merkle root, timestamp, and nonce
+		// Timestamp ensures signatures are temporally bound, preventing reuse of old signatures
+		// Nonce ensures each signature is unique, even for identical messages
+		sig, merkleRoot, timestamp, nonce, err := manager.SignMessage(message, privKeys[i], partyID)
 		if err != nil {
 			log.Fatalf("Error signing message for %s: %v", partyID, err)
 		}
-		fmt.Printf("%s signed the message. Signature: %x, Merkle Root: %x\n", partyID, sig, merkleRoot)
+		fmt.Printf("%s signed the message. Signature: %x, Merkle Root: %x, Timestamp: %x, Nonce: %x\n", partyID, sig, merkleRoot, timestamp, nonce)
 
-		err = manager.AddSig(i, sig)
+		// Add the signature, timestamp, nonce, and Merkle root to the multisig
+		// Timestamp and nonce are checked for freshness and uniqueness to prevent reuse
+		// Merkle root ensures signature integrity
+		err = manager.AddSig(i, sig, timestamp, nonce, merkleRoot)
 		if err != nil {
-			log.Fatalf("Error adding signature: %v", err)
+			log.Fatalf("Error adding signature for %s: %v", partyID, err)
 		}
 	}
 
+	// Verify all signatures to ensure quorum is met
+	// Verification checks timestamp freshness, nonce uniqueness, SPHINCS+ cryptographic validity,
+	// and Merkle root integrity, preventing Alice from reusing signatures
 	isValid, err := manager.VerifySignatures(message)
 	if err != nil {
 		log.Fatalf("Error verifying signatures: %v", err)
@@ -76,10 +87,18 @@ func main() {
 	}
 
 	// Example of using AddSigFromPubKey
-	pubKey := manager.GetStoredPK()[0] // Use public key here
-	sig := []byte("signature data here")
-	err = manager.AddSigFromPubKey(pubKey, sig)
+	// Use the first participant's public key, signature, timestamp, nonce, and Merkle root
+	pubKey := manager.GetStoredPK()[0]
+	// For demonstration, reuse the first signature (in practice, generate a new valid signature)
+	sig, merkleRoot, timestamp, nonce, err := manager.SignMessage(message, privKeys[0], "Participant1")
+	if err != nil {
+		log.Fatalf("Error signing message for AddSigFromPubKey: %v", err)
+	}
+	// AddSigFromPubKey includes timestamp and nonce checks to prevent reuse
+	// Alice cannot lie about reusing a signature due to timestamp-nonce storage in LevelDB
+	err = manager.AddSigFromPubKey(pubKey, sig, timestamp, nonce, merkleRoot)
 	if err != nil {
 		log.Fatalf("Error adding signature from pubKey: %v", err)
 	}
+	fmt.Println("Signature added successfully using AddSigFromPubKey.")
 }

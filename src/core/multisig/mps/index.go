@@ -23,8 +23,10 @@
 package multisig
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log"
+	"time"
 )
 
 // GetIndex returns the index of a given public key (pk) in the list of participant keys.
@@ -43,8 +45,8 @@ func (m *MultisigManager) GetIndex(pk []byte) int {
 }
 
 // AddSig adds a signature to the multisig at the given index corresponding to a participant's public key.
-// This method is used to record a signature from a participant in the multisig.
-func (m *MultisigManager) AddSig(index int, sig []byte) error {
+// This method is used to record a signature from a participant in the multisig, along with timestamp and nonce.
+func (m *MultisigManager) AddSig(index int, sig, timestamp, nonce, merkleRoot []byte) error {
 	m.mu.Lock()         // Lock for writing to ensure thread-safety while modifying state
 	defer m.mu.Unlock() // Unlock after the operation is complete
 
@@ -53,14 +55,42 @@ func (m *MultisigManager) AddSig(index int, sig []byte) error {
 		return fmt.Errorf("invalid index %d", index)
 	}
 
-	// Store the signature indexed by the participant's public key (converted to hex string)
-	m.signatures[fmt.Sprintf("%x", m.storedPK[index])] = sig
+	partyID := fmt.Sprintf("%x", m.storedPK[index])
+	// Check timestamp freshness to prevent reuse of old signatures
+	// This ensures Alice cannot reuse an old signature, as outdated timestamps are rejected
+	timestampInt := binary.BigEndian.Uint64(timestamp)
+	currentTimestamp := uint64(time.Now().Unix())
+	if currentTimestamp-timestampInt > 300 { // 5-minute window
+		return fmt.Errorf("timestamp for %s is too old, possible reuse attempt", partyID)
+	}
+
+	// Check for signature reuse by verifying timestamp-nonce pair
+	// This prevents Alice from reusing a signature, as duplicates are detected
+	exists, err := m.manager.CheckTimestampNonce(timestamp, nonce)
+	if err != nil {
+		return fmt.Errorf("failed to check timestamp-nonce pair for %s: %v", partyID, err)
+	}
+	if exists {
+		return fmt.Errorf("signature reuse detected for %s: timestamp-nonce pair already exists", partyID)
+	}
+
+	// Store timestamp-nonce pair to prevent future reuse
+	err = m.manager.StoreTimestampNonce(timestamp, nonce)
+	if err != nil {
+		return fmt.Errorf("failed to store timestamp-nonce pair for %s: %v", partyID, err)
+	}
+
+	// Store the signature, timestamp, nonce, and Merkle root
+	m.signatures[partyID] = sig
+	m.timestamps[partyID] = timestamp
+	m.nonces[partyID] = nonce
+	m.merkleRoots[partyID] = merkleRoot
 	return nil
 }
 
 // AddSigFromPubKey adds a signature to the multisig based on the provided public key (pubKey).
 // This method allows for signing directly using the public key instead of the index.
-func (m *MultisigManager) AddSigFromPubKey(pubKey []byte, sig []byte) error {
+func (m *MultisigManager) AddSigFromPubKey(pubKey, sig, timestamp, nonce, merkleRoot []byte) error {
 	// Retrieve the index for the given public key
 	index := m.GetIndex(pubKey)
 	if index == -1 {
@@ -68,6 +98,6 @@ func (m *MultisigManager) AddSigFromPubKey(pubKey []byte, sig []byte) error {
 		return fmt.Errorf("public key not found in multisig keys")
 	}
 
-	// Call the AddSig method to add the signature at the correct index
-	return m.AddSig(index, sig)
+	// Call AddSig to add the signature, timestamp, nonce, and Merkle root
+	return m.AddSig(index, sig, timestamp, nonce, merkleRoot)
 }

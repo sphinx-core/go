@@ -34,7 +34,8 @@ import (
 	"github.com/sphinx-core/go/src/core/hashtree"
 	sigproof "github.com/sphinx-core/go/src/core/proof"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
-	sign "github.com/sphinx-core/go/src/core/sphincs/sign"
+	sign "github.com/sphinx-core/go/src/core/sphincs/sign/backend"
+
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
@@ -48,12 +49,13 @@ type MultisigManager struct {
 	signatures map[string][]byte
 	partyPK    map[string][]byte
 	proofs     map[string][]byte
-	// Store timestamp and nonce for each party to prevent signature reuse
-	timestamps map[string][]byte
-	nonces     map[string][]byte
-	storedPK   [][]byte // Public keys
-	storedSK   [][]byte // Private keys
-	mu         sync.RWMutex
+	// Store timestamp, nonce, and Merkle root for each party to prevent signature reuse
+	timestamps  map[string][]byte
+	nonces      map[string][]byte
+	merkleRoots map[string][]byte
+	storedPK    [][]byte // Public keys
+	storedSK    [][]byte // Private keys
+	mu          sync.RWMutex
 }
 
 // GetStoredPK returns the stored public keys of all participants
@@ -123,16 +125,17 @@ func NewMultiSig(n int) (*MultisigManager, error) {
 	}
 
 	return &MultisigManager{
-		km:         km,
-		manager:    manager,
-		quorum:     n,
-		signatures: make(map[string][]byte),
-		partyPK:    make(map[string][]byte),
-		proofs:     make(map[string][]byte),
-		timestamps: make(map[string][]byte), // Initialize timestamp storage
-		nonces:     make(map[string][]byte), // Initialize nonce storage
-		storedPK:   pubKeys,
-		storedSK:   privKeys,
+		km:          km,
+		manager:     manager,
+		quorum:      n,
+		signatures:  make(map[string][]byte),
+		partyPK:     make(map[string][]byte),
+		proofs:      make(map[string][]byte),
+		timestamps:  make(map[string][]byte),
+		nonces:      make(map[string][]byte),
+		merkleRoots: make(map[string][]byte), // Initialize Merkle root storage
+		storedPK:    pubKeys,
+		storedSK:    privKeys,
 	}, nil
 }
 
@@ -147,7 +150,7 @@ func (m *MultisigManager) SignMessage(message []byte, privKey []byte, partyID st
 	sk, pk, err := m.km.DeserializeKeyPair(privKey, nil)
 	if err != nil {
 		log.Printf("Failed to deserialize private key: %v", err)
-		return nil, nil, nil, nil, fmt.Errorf("failed to deserialize private key:ianza: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to deserialize private key: %v", err)
 	}
 
 	// Sign the message with timestamp and nonce to prevent reuse
@@ -171,33 +174,39 @@ func (m *MultisigManager) SignMessage(message []byte, privKey []byte, partyID st
 		return nil, nil, nil, nil, fmt.Errorf("failed to serialize public key: %v", err)
 	}
 
-	// Store timestamp-nonce pair in LevelDB to detect reuse
-	// This ensures Alice cannot reuse a signature, as the unique timestamp-nonce pair will be checked
-	timestampNonce := append(timestamp, nonce...)
-	err = m.manager.db.Put(timestampNonce, []byte("seen"), nil)
+	// Check for signature reuse by verifying timestamp-nonce pair
+	// This prevents Alice from reusing a signature, as duplicates are detected
+	exists, err := m.manager.CheckTimestampNonce(timestamp, nonce)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("failed to check timestamp-nonce pair for %s: %v", partyID, err)
+	}
+	if exists {
+		return nil, nil, nil, nil, fmt.Errorf("signature reuse detected for %s: timestamp-nonce pair already exists", partyID)
+	}
+
+	// Store timestamp-nonce pair to prevent future reuse
+	// This ensures Alice cannot reuse a signature, as the unique timestamp-nonce pair is recorded
+	err = m.manager.StoreTimestampNonce(timestamp, nonce)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to store timestamp-nonce pair: %v", err)
 	}
 
-	// Generate and store proof asynchronously
-	go func() {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		m.signatures[partyID] = sigBytes
-		m.partyPK[partyID] = pkBytes
-		m.timestamps[partyID] = timestamp
-		m.nonces[partyID] = nonce
+	// Store data for the party
+	m.signatures[partyID] = sigBytes
+	m.partyPK[partyID] = pkBytes
+	m.timestamps[partyID] = timestamp
+	m.nonces[partyID] = nonce
+	m.merkleRoots[partyID] = merkleRootBytes
 
-		// Generate proof including timestamp and nonce to ensure integrity
-		// The proof binds the signature to the message, timestamp, nonce, and public key
-		// Alice cannot lie about the signature's context due to this binding
-		proof, err := sigproof.GenerateSigProof([][]byte{append(timestamp, append(nonce, message...)...)}, [][]byte{merkleRootBytes}, pkBytes)
-		if err != nil {
-			log.Printf("Failed to generate proof for partyID %s: %v", partyID, err)
-			return
-		}
-		m.proofs[partyID] = proof
-	}()
+	// Generate proof including timestamp and nonce to ensure integrity
+	// The proof binds the signature to the message, timestamp, nonce, and public key
+	// Alice cannot lie about the signature's context due to this binding
+	proof, err := sigproof.GenerateSigProof([][]byte{append(timestamp, append(nonce, message...)...)}, [][]byte{merkleRootBytes}, pkBytes)
+	if err != nil {
+		log.Printf("Failed to generate proof for partyID %s: %v", partyID, err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to generate proof for %s: %v", partyID, err)
+	}
+	m.proofs[partyID] = proof
 
 	return sigBytes, merkleRootBytes, timestamp, nonce, nil
 }
@@ -219,12 +228,13 @@ func (m *MultisigManager) VerifySignatures(message []byte) (bool, error) {
 
 	// Step 5: Loop through each participant's signature in the signatures map.
 	for partyID, sigBytes := range m.signatures {
-		// Step 6: Retrieve the public key, timestamp, and nonce of the participant.
+		// Step 6: Retrieve the public key, timestamp, nonce, and Merkle root of the participant.
 		publicKey := m.partyPK[partyID]
 		timestamp := m.timestamps[partyID]
 		nonce := m.nonces[partyID]
-		if publicKey == nil || timestamp == nil || nonce == nil {
-			return false, fmt.Errorf("missing public key, timestamp, or nonce for %s", partyID)
+		merkleRootBytes := m.merkleRoots[partyID]
+		if publicKey == nil || timestamp == nil || nonce == nil || merkleRootBytes == nil {
+			return false, fmt.Errorf("missing public key, timestamp, nonce, or Merkle root for %s", partyID)
 		}
 
 		// Step 7: Check timestamp freshness to prevent reuse of old signatures
@@ -235,10 +245,13 @@ func (m *MultisigManager) VerifySignatures(message []byte) (bool, error) {
 			return false, fmt.Errorf("timestamp for %s is too old, possible reuse attempt", partyID)
 		}
 
-		// Step 8: Check for signature reuse by verifying timestamp-nonce pair in LevelDB
+		// Step 8: Check for signature reuse by verifying timestamp-nonce pair
 		// This prevents Alice from reusing a signature, as duplicates are detected
-		timestampNonce := append(timestamp, nonce...)
-		if _, err := m.manager.db.Get(timestampNonce, nil); err == nil {
+		exists, err := m.manager.CheckTimestampNonce(timestamp, nonce)
+		if err != nil {
+			return false, fmt.Errorf("failed to check timestamp-nonce pair for %s: %v", partyID, err)
+		}
+		if exists {
 			return false, fmt.Errorf("signature reuse detected for %s: timestamp-nonce pair already exists", partyID)
 		}
 
@@ -256,37 +269,35 @@ func (m *MultisigManager) VerifySignatures(message []byte) (bool, error) {
 			return false, fmt.Errorf("error deserializing signature for %s: %v", partyID, err)
 		}
 
-		// Step 13: Retrieve the Merkle root hash.
-		merkleRootBytes := m.signatures[partyID]
-		// Step 14: Create a HashTreeNode with the Merkle root bytes.
+		// Step 13: Create a HashTreeNode with the Merkle root bytes.
 		merkleRoot := &hashtree.HashTreeNode{Hash: uint256.NewInt(0).SetBytes(merkleRootBytes)}
 
-		// Step 15: Verify the signature with timestamp and nonce
+		// Step 14: Verify the signature with timestamp and nonce
 		// SPHINCS+ ensures cryptographic security, preventing forgery
 		// Timestamp and nonce ensure uniqueness and freshness, preventing reuse
 		// Merkle root ensures signature integrity
 		isValidSig := m.manager.VerifySignature(message, timestamp, nonce, sig, deserializedPK, merkleRoot)
 		if isValidSig {
-			// Step 16: If the signature is valid, increment the counter.
+			// Step 15: If the signature is valid, increment the counter.
 			validSignatures++
-			// Step 17: Store timestamp-nonce pair in LevelDB to prevent future reuse
-			err = m.manager.db.Put(timestampNonce, []byte("seen"), nil)
+			// Step 16: Store timestamp-nonce pair to prevent future reuse
+			err = m.manager.StoreTimestampNonce(timestamp, nonce)
 			if err != nil {
 				return false, fmt.Errorf("failed to store timestamp-nonce pair for %s: %v", partyID, err)
 			}
 		} else {
-			// Step 18: If the signature is invalid, return false.
+			// Step 17: If the signature is invalid, return false.
 			return false, fmt.Errorf("signature from participant %s is invalid", partyID)
 		}
 	}
 
-	// Step 19: Check if enough valid signatures meet the quorum.
+	// Step 18: Check if enough valid signatures meet the quorum.
 	if validSignatures < m.quorum {
-		// Step 20: If not enough valid signatures, return false.
+		// Step 19: If not enough valid signatures, return false.
 		return false, fmt.Errorf("not enough valid signatures to meet the quorum")
 	}
 
-	// Step 21: If all checks pass, return true.
+	// Step 20: If all checks pass, return true.
 	return true, nil
 }
 
@@ -306,7 +317,7 @@ func (m *MultisigManager) ValidateProof(partyID string, message []byte) (bool, e
 	}
 
 	// Step 4: Retrieve the Merkle root hash, timestamp, and nonce.
-	merkleRootHash := m.signatures[partyID]
+	merkleRootHash := m.merkleRoots[partyID]
 	timestamp := m.timestamps[partyID]
 	nonce := m.nonces[partyID]
 	if merkleRootHash == nil || timestamp == nil || nonce == nil {

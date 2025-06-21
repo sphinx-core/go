@@ -23,6 +23,8 @@
 package sign
 
 import (
+	"sync"
+
 	params "github.com/sphinx-core/go/src/core/sphincs/config"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -35,4 +37,5 @@ type SphincsManager struct {
 	db         *leveldb.DB
 	keyManager *key.KeyManager
 	parameters *params.SPHINCSParameters // Add SPHINCSParameters
+	mu         sync.RWMutex              // Mutex for thread-safe database access
 }
