@@ -97,7 +97,7 @@ func main() {
 
 	// Alice signs the message for tx1 = sig1(proof1(m1, nonce, timestamp, root, pk))
 	// Signing is performed locally; tx1 may be submitted to a blockchain for on-chain processing
-	message := []byte("Hello, world again!")
+	message := []byte("Hello, world!")
 	// SignMessage generates sig1 with timestamp and nonce to prevent reuse
 	sig, merkleRoot, timestamp, nonce, err := manager.SignMessage(message, deserializedSK)
 	if err != nil {
@@ -212,7 +212,7 @@ func main() {
 
 	// --- Simulate Alice attempting tx2 = sig1(proof2(m2, nonce, timestamp, root, pk)) ---
 	// Demonstrates that Alice cannot reuse sig1
-	message2 := []byte("Different message!")
+	message2 := []byte("Hello, world again!")
 	// Reuse sig1 with proof2
 	proof2, err := sigproof.GenerateSigProof([][]byte{append(timestamp, append(nonce, message2...)...)}, [][]byte{merkleRootHash}, pkBytes)
 	if err != nil {
