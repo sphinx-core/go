@@ -23,8 +23,11 @@
 package sign
 
 import (
+	"crypto/rand" // Add for nonce generation
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"time" // Add for timestamp generation
 
 	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
 	"github.com/sphinx-core/go/src/core/hashtree"
@@ -34,13 +37,6 @@ import (
 )
 
 // SIPS-0002 https://github.com/sphinx-core/sips/wiki/SIPS-0002
-
-// SphincsManager holds a reference to KeyManager
-type SphincsManager struct {
-	db         *leveldb.DB
-	keyManager *key.KeyManager
-	parameters *params.SPHINCSParameters // Add SPHINCSParameters
-}
 
 // NewSphincsManager creates a new instance of SphincsManager with KeyManager and LevelDB instance
 func NewSphincsManager(db *leveldb.DB, keyManager *key.KeyManager, parameters *params.SPHINCSParameters) *SphincsManager {
@@ -54,27 +50,56 @@ func NewSphincsManager(db *leveldb.DB, keyManager *key.KeyManager, parameters *p
 	}
 }
 
-// SignMessage signs a given message using the secret key
-// SignMessage signs a given message using the secret key
-func (km *SphincsManager) SignMessage(message []byte, deserializedSK *sphincs.SPHINCS_SK) (*sphincs.SPHINCS_SIG, *hashtree.HashTreeNode, error) {
+// generateNonce creates a cryptographically secure 8-byte nonce
+func generateNonce() ([]byte, error) {
+	nonce := make([]byte, 8) // 8-byte nonce
+	_, err := rand.Read(nonce)
+	if err != nil {
+		return nil, err
+	}
+	return nonce, nil
+}
+
+// generateTimestamp creates an 8-byte Unix timestamp (seconds since epoch)
+func generateTimestamp() []byte {
+	timestamp := time.Now().Unix()
+	timestampBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(timestampBytes, uint64(timestamp))
+	return timestampBytes
+}
+
+// SignMessage signs a given message using the secret key, including a timestamp and nonce
+func (sm *SphincsManager) SignMessage(message []byte, deserializedSK *sphincs.SPHINCS_SK) (*sphincs.SPHINCS_SIG, *hashtree.HashTreeNode, []byte, []byte, error) {
 	// Ensure the parameters are initialized
-	if km.parameters == nil || km.parameters.Params == nil {
-		return nil, nil, errors.New("SPHINCSParameters are not initialized")
+	if sm.parameters == nil || sm.parameters.Params == nil {
+		return nil, nil, nil, nil, errors.New("SPHINCSParameters are not initialized")
 	}
 
-	// Use SPHINCSParameters for signing
-	params := km.parameters.Params
+	// Generate a timestamp
+	timestamp := generateTimestamp()
 
-	// Sign the message
-	signature := sphincs.Spx_sign(params, message, deserializedSK)
+	// Generate a nonce
+	nonce, err := generateNonce()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	// Combine timestamp, nonce, and message
+	messageWithTimestampAndNonce := append(timestamp, append(nonce, message...)...)
+
+	// Use SPHINCSParameters for signing
+	params := sm.parameters.Params
+
+	// Sign the message with timestamp and nonce
+	signature := sphincs.Spx_sign(params, messageWithTimestampAndNonce, deserializedSK)
 	if signature == nil {
-		return nil, nil, errors.New("failed to sign message")
+		return nil, nil, nil, nil, errors.New("failed to sign message")
 	}
 
 	// Serialize the generated signature into a byte array
 	sigBytes, err := signature.SerializeSignature()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// Split the serialized signature into parts to build a Merkle tree
@@ -116,42 +141,38 @@ func (km *SphincsManager) SignMessage(message []byte, deserializedSK *sphincs.SP
 	// Build a Merkle tree from the signature parts and retrieve the root node
 	merkleRoot, err := buildHashTreeFromSignature(sigParts)
 	if err != nil {
-		// Return an error if the Merkle tree construction fails
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// Save the leaf nodes (signature parts) into LevelDB in batch mode for performance efficiency
-	if err := hashtree.SaveLeavesBatchToDB(km.db, sigParts); err != nil {
+	if err := hashtree.SaveLeavesBatchToDB(sm.db, sigParts); err != nil {
 		// Return an error if saving the leaves to LevelDB fails
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// Optionally prune old leaves from the database to prevent the storage from growing indefinitely
 	// In this example, we keep the last 5 leaves and prune older ones
-	if err := hashtree.PruneOldLeaves(km.db, 5); err != nil {
+	if err := hashtree.PruneOldLeaves(sm.db, 5); err != nil {
 		// Return an error if the pruning operation fails
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
-	// Return the generated signature and the root node of the Merkle tree
-	return signature, merkleRoot, nil
+	// Return the signature, Merkle root, timestamp, and nonce
+	return signature, merkleRoot, timestamp, nonce, nil
 }
 
-// VerifySignature verifies if a signature is valid for a given message and public key
-// Parameters:
-// - params: SPHINCS+ parameters used for the signature verification process.
-// - message: The original message that was signed.
-// - sig: The signature that needs to be verified.
-// - pk: The public key used to verify the signature.
-// - merkleRoot: The Merkle tree root used for verifying the integrity of the signature.
-func (sm *SphincsManager) VerifySignature(message []byte, sig *sphincs.SPHINCS_SIG, pk *sphincs.SPHINCS_PK, merkleRoot *hashtree.HashTreeNode) bool {
+// VerifySignature verifies if a signature is valid for a given message, timestamp, nonce, and public key
+func (sm *SphincsManager) VerifySignature(message, timestamp, nonce []byte, sig *sphincs.SPHINCS_SIG, pk *sphincs.SPHINCS_PK, merkleRoot *hashtree.HashTreeNode) bool {
 	// Ensure the parameters are initialized
 	if sm.parameters == nil || sm.parameters.Params == nil {
 		return false
 	}
 
+	// Combine timestamp, nonce, and message
+	messageWithTimestampAndNonce := append(timestamp, append(nonce, message...)...)
+
 	// Use SPHINCS+ verification
-	isValid := sphincs.Spx_verify(sm.parameters.Params, message, sig, pk)
+	isValid := sphincs.Spx_verify(sm.parameters.Params, messageWithTimestampAndNonce, sig, pk)
 	if !isValid {
 		return false
 	}
@@ -200,13 +221,12 @@ func (sm *SphincsManager) VerifySignature(message []byte, sig *sphincs.SPHINCS_S
 	return hex.EncodeToString(rebuiltRootHashBytes) == hex.EncodeToString(merkleRootHashBytes)
 }
 
-// Helper functions for serialization and deserialization
-// SerializeSignature serializes the signature (sig) into a byte slice
+// SerializeSignature serializes the signature into a byte slice
 func (sm *SphincsManager) SerializeSignature(sig *sphincs.SPHINCS_SIG) ([]byte, error) {
 	return sig.SerializeSignature() // Calls the signature's built-in SerializeSignature method
 }
 
-// DeserializeSignature deserializes a byte slice into a signature (sig) using the provided parameters
+// DeserializeSignature deserializes a byte slice into a signature
 func (sm *SphincsManager) DeserializeSignature(sigBytes []byte) (*sphincs.SPHINCS_SIG, error) {
 	// Ensure the SPHINCSParameters are initialized
 	if sm.parameters == nil || sm.parameters.Params == nil {
@@ -220,7 +240,6 @@ func (sm *SphincsManager) DeserializeSignature(sigBytes []byte) (*sphincs.SPHINC
 	return sphincs.DeserializeSignature(sphincsParams, sigBytes)
 }
 
-// buildMerkleTreeFromSignature builds the Merkle tree from the signature parts and returns the root node
 // buildHashTreeFromSignature constructs a Merkle tree from the provided signature parts
 // and returns the root node of the tree.
 //
