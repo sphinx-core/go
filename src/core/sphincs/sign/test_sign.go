@@ -212,7 +212,7 @@ func main() {
 
 	// --- Simulate Alice attempting tx2 = sig1(proof2(m2, nonce, timestamp, root, pk)) ---
 	// Demonstrates that Alice cannot reuse sig1
-	message2 := []byte("Hello, world again!")
+	message2 := []byte("Hello, world!")
 	// Reuse sig1 with proof2
 	proof2, err := sigproof.GenerateSigProof([][]byte{append(timestamp, append(nonce, message2...)...)}, [][]byte{merkleRootHash}, pkBytes)
 	if err != nil {
