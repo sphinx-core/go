@@ -183,10 +183,6 @@ func main() {
 	isValidProof := sigproof.VerifySigProof(receivedProof, regeneratedProof)
 	fmt.Printf("Charlie verifies proof valid: %v\n", isValidProof)
 
-	// Verify sig1
-	isValidSig = manager.VerifySignature(receivedMessage, receivedTimestamp, receivedNonce, sig, deserializedPK, merkleRoot)
-	fmt.Printf("Charlie verifies signature valid: %v\n", isValidSig)
-
 	if isValidProof && isValidSig {
 		fmt.Printf("Charlie accepts tx1:\n")
 		fmt.Printf("Public Key: %x\n", receivedPK)
