@@ -1,4 +1,3 @@
-// go/src/crypto/zkstarks/stark.go
 package zkstarks
 
 import (

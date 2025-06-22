@@ -3,6 +3,7 @@ module github.com/sphinx-core/go
 go 1.23.0
 
 require (
+	github.com/actuallyachraf/zkstarks v0.0.0-20200418145505-eacc19aaad40
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/cloudflare/circl v1.6.1
 	github.com/gin-gonic/gin v1.10.1
@@ -16,6 +17,8 @@ require (
 )
 
 require (
+	github.com/actuallyachraf/algebra v0.1.0 // indirect
+	github.com/actuallyachraf/go-merkle v0.0.0-20200130102531-0ff8ce0d081e // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect

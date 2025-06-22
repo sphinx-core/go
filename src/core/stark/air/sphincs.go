@@ -21,109 +21,73 @@
 // SOFTWARE.
 
 // go/src/core/stark/air/sphincs.go
-package stark
+package sign
 
 import (
 	"errors"
-	"math/big"
 
-	"github.com/actuallyachraf/algebra/ff"
-	"github.com/actuallyachraf/algebra/poly"
-	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
-	"github.com/sphinx-core/go/src/core/zkstarks"
+	"github.com/actuallyachraf/zkstarks"
+	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
+	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 )
 
-// SphincsAIR represents the AIR for SPHINCS+ signature verification
-type SphincsAIR struct {
-	Params     *parameters.Parameters
-	Message    []byte
-	Signature  []byte
-	PublicKey  []byte
-	MerkleRoot []byte
-	Trace      []ff.FieldElement // Computation trace for verification
-	Polynomial poly.Polynomial   // Interpolated polynomial over trace
+// SPHINCSSigner implements Signer for SPHINCS+ signatures and integrates with zkstarks
+type SPHINCSSigner struct {
+	KeyManager *key.KeyManager
 }
 
-// NewSphincsAIR creates an AIR instance and generates the computation trace
-func NewSphincsAIR(params *parameters.Parameters, message, sigBytes, pkBytes, merkleRoot []byte) (*SphincsAIR, error) {
-	// Validate inputs
-	if params == nil || message == nil || sigBytes == nil || pkBytes == nil || merkleRoot == nil {
-		return nil, errors.New("invalid input parameters")
+// NewSPHINCSSigner creates a new signer with keys ready
+func NewSPHINCSSigner() (*SPHINCSSigner, error) {
+	km, err := key.NewKeyManager()
+	if err != nil {
+		return nil, err
+	}
+	return &SPHINCSSigner{KeyManager: km}, nil
+}
+
+// VerifySignature verifies a single SPHINCS+ signature for a message and pk
+func (s *SPHINCSSigner) VerifySignature(pk *sphincs.SPHINCS_PK, msg, sig []byte) bool {
+	return sphincs.Spx_verify(pk, msg, sig)
+}
+
+// GenerateSTARKProof creates a STARK proof for the batch of signatures
+func (s *SPHINCSSigner) GenerateSTARKProof(batch BatchSignatures) (*STARKProofResult, error) {
+	if len(batch.Signatures) != len(batch.Messages) || len(batch.Messages) != len(batch.PublicKeys) {
+		return nil, errors.New("batch length mismatch")
 	}
 
-	// Generate computation trace (simplified example)
-	trace, err := generateVerificationTrace(params, message, sigBytes, pkBytes, merkleRoot)
+	// 1. Construct computation trace encoding the verification of each signature
+	//    - For each (pk,msg,sig), verify SPHINCS+ signature
+	//    - Encode the steps into a trace compatible with your zkstarks package
+
+	trace, err := s.buildVerificationTrace(batch)
 	if err != nil {
 		return nil, err
 	}
 
-	// Interpolate polynomial over trace
-	domain := generateTraceDomain(len(trace))
-	points := generatePoints(domain, trace)
-	polynomial := poly.Lagrange(points, zkstarks.PrimeField.Modulus())
+	// 2. Generate the STARK proof for this trace using zkstarks library
+	proof, publicInputs, err := zkstarks.GenerateProof(trace)
+	if err != nil {
+		return nil, err
+	}
 
-	return &SphincsAIR{
-		Params:     params,
-		Message:    message,
-		Signature:  sigBytes,
-		PublicKey:  pkBytes,
-		MerkleRoot: merkleRoot,
-		Trace:      trace,
-		Polynomial: polynomial,
+	return &STARKProofResult{
+		Proof:        proof,
+		PublicInputs: publicInputs,
 	}, nil
 }
 
-// generateVerificationTrace creates a simplified computation trace for SPHINCS+ verification
-func generateVerificationTrace(params *parameters.Parameters, message, sigBytes, pkBytes, merkleRoot []byte) ([]ff.FieldElement, error) {
-	// Placeholder: Simulate trace for SPHINCS+ verification
-	// In practice, this would involve stepping through Spx_verify and encoding intermediate states
-	trace := make([]ff.FieldElement, 1024) // Example size, adjust based on verification steps
-	for i := 0; i < len(trace); i++ {
-		// Example: Encode signature bytes as field elements (simplified)
-		if i < len(sigBytes) {
-			trace[i] = zkstarks.PrimeField.NewFieldElementFromInt64(int64(sigBytes[i]))
-		} else {
-			trace[i] = zkstarks.PrimeField.NewFieldElementFromInt64(0)
-		}
-	}
-	return trace, nil
+// VerifySTARKProof verifies the STARK proof that compresses all signatures
+func (s *SPHINCSSigner) VerifySTARKProof(proof *STARKProofResult) (bool, error) {
+	valid, err := zkstarks.VerifyProof(proof.Proof, proof.PublicInputs)
+	return valid, err
 }
 
-// generateTraceDomain creates a domain for the trace (similar to GenElems in stark.go)
-func generateTraceDomain(size int) []ff.FieldElement {
-	g := zkstarks.PrimeFieldGen.Exp(big.NewInt(3145728)) // Same generator as in stark.go
-	return zkstarks.GenElems(g, size)
-}
+// buildVerificationTrace builds the computation trace for verifying all PQ signatures
+func (s *SPHINCSSigner) buildVerificationTrace(batch BatchSignatures) ([]zkstarks.TraceStep, error) {
+	// TODO: Implement domain-specific logic to build the trace representing all PQ signature verifications.
+	// This depends on how your zkstarks.TraceStep and DomainParameters are structured.
 
-// generatePoints pairs domain elements with trace values
-func generatePoints(x, y []ff.FieldElement) []poly.Point {
-	if len(x) != len(y) {
-		panic("mismatched lengths")
-	}
-	points := make([]poly.Point, len(x))
-	for i := 0; i < len(x); i++ {
-		points[i] = poly.NewPoint(x[i].Big(), y[i].Big())
-	}
-	return points
-}
-
-// GenerateConstraints produces polynomial constraints for SPHINCS+ verification
-func (air *SphincsAIR) GenerateConstraints(g ff.FieldElement) (poly.Polynomial, poly.Polynomial, poly.Polynomial) {
-	// Simplified constraints (replace with actual SPHINCS+ verification logic)
-	// Example: Constraint that signature bytes match expected values
-	num0 := air.Polynomial.Sub(poly.NewPolynomialInts(1), zkstarks.PrimeField.Modulus())
-	dem0 := poly.NewPolynomialInts(-1, 1)
-	constraint1, _ := num0.Div(dem0, zkstarks.PrimeField.Modulus())
-
-	// Constraint for Merkle root (placeholder)
-	num1 := air.Polynomial.Sub(poly.NewPolynomialInts(2338775057), zkstarks.PrimeField.Modulus())
-	dem1 := poly.NewPolynomialInts(0, 1).Sub(poly.NewPolynomial([]ff.FieldElement{g.Exp(big.NewInt(1022))}), zkstarks.PrimeField.Modulus())
-	constraint2, _ := num1.Div(dem1, zkstarks.PrimeField.Modulus())
-
-	// Constraint for verification logic (placeholder)
-	num2 := air.Polynomial.Sub(poly.NewPolynomialInts(0), zkstarks.PrimeField.Modulus())
-	dem2 := poly.NewPolynomialInts(0, 1).Sub(poly.NewPolynomialInts(1), nil)
-	constraint3, _ := num2.Div(dem2, zkstarks.PrimeField.Modulus())
-
-	return constraint1, constraint2, constraint3
+	// Placeholder: Just return empty trace
+	return nil, errors.New("buildVerificationTrace not implemented")
 }
