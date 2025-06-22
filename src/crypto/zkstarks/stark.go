@@ -1,3 +1,4 @@
+// go/src/crypto/zkstarks/stark.go
 package zkstarks
 
 import (
@@ -36,6 +37,7 @@ type DomainParameters struct {
 	PolynomialEvaluations []*big.Int        `json:"polynomial_evaluations"`
 	EvaluationRoot        []byte            `json:"evaluation_commitment"`
 }
+
 // Unpack returns the domain parameters as separate vars
 
 // JSONDomainParams encode values properly for safe serialization.
@@ -186,7 +188,7 @@ func (params *DomainParameters) UnmarshalJSON(b []byte) error {
 		params.PolynomialEvaluations[i] = elem
 	}
 
-	params.EvaluationRoot,_ = hex.DecodeString(jsonDomParams.EvaluationRoot)
+	params.EvaluationRoot, _ = hex.DecodeString(jsonDomParams.EvaluationRoot)
 
 	return nil
 }
