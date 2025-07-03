@@ -24,25 +24,71 @@
 package sign
 
 import (
+	"math/big"
+
+	"github.com/actuallyachraf/algebra/ff"
+	"github.com/actuallyachraf/algebra/poly"
 	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
+	params "github.com/sphinx-core/go/src/core/sphincs/config"
 )
 
-// BatchSignatures holds a block of PQ signatures with messages and public keys
-type BatchSignatures struct {
-	Signatures [][]byte              // Serialized PQ signatures (e.g. SPHINCS+)
-	Messages   [][]byte              // Corresponding messages signed
-	PublicKeys []*sphincs.SPHINCS_PK // Corresponding public keys
+// STARKProof represents the STARK proof for multiple SPHINCS+ signatures.
+type STARKProof struct {
+	DomainParams *DomainParameters // Domain parameters for the STARK proof.
+	Signatures   []Signature       // Signatures included in the proof.
+	Commitment   []byte            // Merkle root of signatures, messages, and public keys.
+	FsChan       *Channel          // Fiat-Shamir channel for non-interactivity.
 }
 
-// STARKProofResult contains the generated STARK proof and auxiliary data
-type STARKProofResult struct {
-	Proof        []byte
-	PublicInputs []byte // Serialized public inputs like Merkle roots, commitments etc
+// Signature represents a SPHINCS+ signature with its associated message and public key.
+type Signature struct {
+	Message   []byte
+	Signature *sphincs.SPHINCS_SIG // Uses *sphincs.SPHINCS_SIG
+	PublicKey *sphincs.SPHINCS_PK
 }
 
-// Signer interface defines methods for PQ signature verification & proof generation
-type Signer interface {
-	VerifySignature(pk *sphincs.SPHINCS_PK, msg, sig []byte) bool
-	GenerateSTARKProof(batch BatchSignatures) (*STARKProofResult, error)
-	VerifySTARKProof(proof *STARKProofResult) (bool, error)
+// Channel represents a Fiat-Shamir channel for non-interactive proofs.
+type Channel struct {
+	State []byte
+}
+
+// SignManager manages the aggregation of SPHINCS+ signatures into a STARK proof.
+type SignManager struct {
+	Params *params.SPHINCSParameters // SPHINCS+ parameters.
+}
+
+// NewSignManager initializes a new SignManager with SPHINCS+ parameters.
+func NewSignManager() (*SignManager, error) {
+	spxParams, err := params.NewSPHINCSParameters()
+	if err != nil {
+		return nil, err
+	}
+	return &SignManager{Params: spxParams}, nil
+}
+
+// DomainParameters represents the domain parameters for the STARK proof.
+type DomainParameters struct {
+	Trace                 []ff.FieldElement `json:"computation_trace"`
+	GeneratorG            ff.FieldElement   `json:"G_generator"`
+	SubgroupG             []ff.FieldElement `json:"G_subgroup"`
+	GeneratorH            ff.FieldElement   `json:"H_generator"`
+	SubgroupH             []ff.FieldElement `json:"H_subgroup"`
+	EvaluationDomain      []ff.FieldElement `json:"evaluation_domain"`
+	Polynomial            poly.Polynomial   `json:"interpoland_polynomial"`
+	PolynomialEvaluations []*big.Int        `json:"polynomial_evaluations"`
+	EvaluationRoot        []byte            `json:"evaluation_commitment"`
+}
+
+// JSONDomainParams encodes values properly for safe serialization.
+type JSONDomainParams struct {
+	Field                 string
+	Trace                 []string `json:"computation_trace"`
+	GeneratorG            string   `json:"G_generator"`
+	SubgroupG             []string `json:"G_subgroup"`
+	GeneratorH            string   `json:"H_generator"`
+	SubgroupH             []string `json:"H_subgroup"`
+	EvaluationDomain      []string `json:"evaluation_domain"`
+	Polynomial            []string `json:"interpoland_polynomial"`
+	PolynomialEvaluations []string `json:"polynomial_evaluations"`
+	EvaluationRoot        string   `json:"evaluation_commitment"`
 }

@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/core/sign/sign.go
+// go/src/core/stark/sphincs.go
 package sign
 
 import (
@@ -35,7 +35,6 @@ import (
 	"github.com/actuallyachraf/algebra/poly"
 	"github.com/actuallyachraf/go-merkle"
 	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
-	params "github.com/sphinx-core/go/src/core/sphincs/config"
 )
 
 // PrimeField is the finite field used for STARK computations (q = 3221225473).
@@ -43,54 +42,6 @@ var PrimeField, _ = ff.NewFiniteField(new(nt.Integer).SetUint64(3221225473))
 
 // PrimeFieldGen is a generator of the field.
 var PrimeFieldGen = PrimeField.NewFieldElementFromInt64(5)
-
-// Signature represents a SPHINCS+ signature with its associated message and public key.
-type Signature struct {
-	Message   []byte
-	Signature *sphincs.SPHINCS_SIG // Uses *sphincs.SPHINCS_SIG
-	PublicKey *sphincs.SPHINCS_PK
-}
-
-// SignManager manages the aggregation of SPHINCS+ signatures into a STARK proof.
-type SignManager struct {
-	Params *params.SPHINCSParameters // SPHINCS+ parameters.
-}
-
-// NewSignManager initializes a new SignManager with SPHINCS+ parameters.
-func NewSignManager() (*SignManager, error) {
-	spxParams, err := params.NewSPHINCSParameters()
-	if err != nil {
-		return nil, err
-	}
-	return &SignManager{Params: spxParams}, nil
-}
-
-// DomainParameters represents the domain parameters for the STARK proof.
-type DomainParameters struct {
-	Trace                 []ff.FieldElement `json:"computation_trace"`
-	GeneratorG            ff.FieldElement   `json:"G_generator"`
-	SubgroupG             []ff.FieldElement `json:"G_subgroup"`
-	GeneratorH            ff.FieldElement   `json:"H_generator"`
-	SubgroupH             []ff.FieldElement `json:"H_subgroup"`
-	EvaluationDomain      []ff.FieldElement `json:"evaluation_domain"`
-	Polynomial            poly.Polynomial   `json:"interpoland_polynomial"`
-	PolynomialEvaluations []*big.Int        `json:"polynomial_evaluations"`
-	EvaluationRoot        []byte            `json:"evaluation_commitment"`
-}
-
-// JSONDomainParams encodes values properly for safe serialization.
-type JSONDomainParams struct {
-	Field                 string
-	Trace                 []string `json:"computation_trace"`
-	GeneratorG            string   `json:"G_generator"`
-	SubgroupG             []string `json:"G_subgroup"`
-	GeneratorH            string   `json:"H_generator"`
-	SubgroupH             []string `json:"H_subgroup"`
-	EvaluationDomain      []string `json:"evaluation_domain"`
-	Polynomial            []string `json:"interpoland_polynomial"`
-	PolynomialEvaluations []string `json:"polynomial_evaluations"`
-	EvaluationRoot        string   `json:"evaluation_commitment"`
-}
 
 // MarshalJSON populates the JSON properly for unexported fields.
 func (params *DomainParameters) MarshalJSON() ([]byte, error) {
@@ -212,11 +163,6 @@ func (params *DomainParameters) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Channel represents a Fiat-Shamir channel for non-interactive proofs.
-type Channel struct {
-	State []byte
-}
-
 // NewChannel initializes a new Fiat-Shamir channel.
 func NewChannel() *Channel {
 	return &Channel{State: []byte{}}
@@ -225,14 +171,6 @@ func NewChannel() *Channel {
 // Send appends data to the channel state (simplified Fiat-Shamir).
 func (c *Channel) Send(data []byte) {
 	c.State = append(c.State, data...)
-}
-
-// STARKProof represents the STARK proof for multiple SPHINCS+ signatures.
-type STARKProof struct {
-	DomainParams *DomainParameters // Domain parameters for the STARK proof.
-	Signatures   []Signature       // Signatures included in the proof.
-	Commitment   []byte            // Merkle root of signatures, messages, and public keys.
-	FsChan       *Channel          // Fiat-Shamir channel for non-interactivity.
 }
 
 // GenerateSTARKProof generates a STARK proof for a list of SPHINCS+ signatures.
