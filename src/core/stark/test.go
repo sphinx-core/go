@@ -171,9 +171,10 @@ func main() {
 	fmt.Println("Verifying STARK proof...")
 	verifyStart := time.Now()
 	// Log proof details before verification
-	fmt.Printf("  Commitment (hex): %s\n", hex.EncodeToString(proof.Commitment))
-	fmt.Printf("  Evaluation Root (hex): %s\n", hex.EncodeToString(proof.DomainParams.EvaluationRoot))
-	fmt.Printf("  Computation Trace (first 5 elements, hex):")
+	fmt.Println("  Proof details before verification:")
+	fmt.Printf("    Commitment (hex): %s\n", hex.EncodeToString(proof.Commitment))
+	fmt.Printf("    Evaluation Root (hex): %s\n", hex.EncodeToString(proof.DomainParams.EvaluationRoot))
+	fmt.Printf("    Computation Trace (first 5 elements, hex):")
 	for i, elem := range proof.DomainParams.Trace[:min(5, len(proof.DomainParams.Trace))] {
 		fmt.Printf(" %s", elem.Big().Text(16))
 		if i < min(5, len(proof.DomainParams.Trace))-1 {
@@ -181,7 +182,7 @@ func main() {
 		}
 	}
 	fmt.Println()
-	fmt.Printf("  Polynomial Evaluations (first 5, hex):")
+	fmt.Printf("    Polynomial Evaluations (first 5, hex):")
 	for i, eval := range proof.DomainParams.PolynomialEvaluations[:min(5, len(proof.DomainParams.PolynomialEvaluations))] {
 		fmt.Printf(" %s", eval.Text(16))
 		if i < min(5, len(proof.DomainParams.PolynomialEvaluations))-1 {
@@ -191,6 +192,26 @@ func main() {
 	fmt.Println()
 	valid, err := sm.VerifySTARKProof(proof)
 	verifyDuration := time.Since(verifyStart).Seconds()
+	// Log proof details after verification
+	fmt.Println("  Proof details after verification:")
+	fmt.Printf("    Commitment (hex): %s\n", hex.EncodeToString(proof.Commitment))
+	fmt.Printf("    Evaluation Root (hex): %s\n", hex.EncodeToString(proof.DomainParams.EvaluationRoot))
+	fmt.Printf("    Computation Trace (first 5 elements, hex):")
+	for i, elem := range proof.DomainParams.Trace[:min(5, len(proof.DomainParams.Trace))] {
+		fmt.Printf(" %s", elem.Big().Text(16))
+		if i < min(5, len(proof.DomainParams.Trace))-1 {
+			fmt.Print(",")
+		}
+	}
+	fmt.Println()
+	fmt.Printf("    Polynomial Evaluations (first 5, hex):")
+	for i, eval := range proof.DomainParams.PolynomialEvaluations[:min(5, len(proof.DomainParams.PolynomialEvaluations))] {
+		fmt.Printf(" %s", eval.Text(16))
+		if i < min(5, len(proof.DomainParams.PolynomialEvaluations))-1 {
+			fmt.Print(",")
+		}
+	}
+	fmt.Println()
 	if err != nil {
 		fmt.Printf("Test Case 1 failed: Failed to verify STARK proof: %v\n", err)
 		return
@@ -262,9 +283,10 @@ func main() {
 	fmt.Println("Verifying STARK proof...")
 	verifyStart = time.Now()
 	// Log proof details before verification
-	fmt.Printf("  Commitment (hex): %s\n", hex.EncodeToString(proof.Commitment))
-	fmt.Printf("  Evaluation Root (hex): %s\n", hex.EncodeToString(proof.DomainParams.EvaluationRoot))
-	fmt.Printf("  Computation Trace (first 5 elements, hex):")
+	fmt.Println("  Proof details before verification:")
+	fmt.Printf("    Commitment (hex): %s\n", hex.EncodeToString(proof.Commitment))
+	fmt.Printf("    Evaluation Root (hex): %s\n", hex.EncodeToString(proof.DomainParams.EvaluationRoot))
+	fmt.Printf("    Computation Trace (first 5 elements, hex):")
 	for i, elem := range proof.DomainParams.Trace[:min(5, len(proof.DomainParams.Trace))] {
 		fmt.Printf(" %s", elem.Big().Text(16))
 		if i < min(5, len(proof.DomainParams.Trace))-1 {
@@ -272,7 +294,7 @@ func main() {
 		}
 	}
 	fmt.Println()
-	fmt.Printf("  Polynomial Evaluations (first 5, hex):")
+	fmt.Printf("    Polynomial Evaluations (first 5, hex):")
 	for i, eval := range proof.DomainParams.PolynomialEvaluations[:min(5, len(proof.DomainParams.PolynomialEvaluations))] {
 		fmt.Printf(" %s", eval.Text(16))
 		if i < min(5, len(proof.DomainParams.PolynomialEvaluations))-1 {
@@ -282,6 +304,26 @@ func main() {
 	fmt.Println()
 	valid, err = sm.VerifySTARKProof(proof)
 	verifyDuration = time.Since(verifyStart).Seconds()
+	// Log proof details after verification
+	fmt.Println("  Proof details after verification:")
+	fmt.Printf("    Commitment (hex): %s\n", hex.EncodeToString(proof.Commitment))
+	fmt.Printf("    Evaluation Root (hex): %s\n", hex.EncodeToString(proof.DomainParams.EvaluationRoot))
+	fmt.Printf("    Computation Trace (first 5 elements, hex):")
+	for i, elem := range proof.DomainParams.Trace[:min(5, len(proof.DomainParams.Trace))] {
+		fmt.Printf(" %s", elem.Big().Text(16))
+		if i < min(5, len(proof.DomainParams.Trace))-1 {
+			fmt.Print(",")
+		}
+	}
+	fmt.Println()
+	fmt.Printf("    Polynomial Evaluations (first 5, hex):")
+	for i, eval := range proof.DomainParams.PolynomialEvaluations[:min(5, len(proof.DomainParams.PolynomialEvaluations))] {
+		fmt.Printf(" %s", eval.Text(16))
+		if i < min(5, len(proof.DomainParams.PolynomialEvaluations))-1 {
+			fmt.Print(",")
+		}
+	}
+	fmt.Println()
 	if err != nil {
 		fmt.Printf("Test Case 2 failed: Failed to verify STARK proof: %v\n", err)
 		return
@@ -350,9 +392,10 @@ func main() {
 	fmt.Println("Verifying STARK proof (expecting failure due to invalid signature)...")
 	verifyStart = time.Now()
 	// Log proof details before verification
-	fmt.Printf("  Commitment (hex): %s\n", hex.EncodeToString(proof.Commitment))
-	fmt.Printf("  Evaluation Root (hex): %s\n", hex.EncodeToString(proof.DomainParams.EvaluationRoot))
-	fmt.Printf("  Computation Trace (first 5 elements, hex):")
+	fmt.Println("  Proof details before verification:")
+	fmt.Printf("    Commitment (hex): %s\n", hex.EncodeToString(proof.Commitment))
+	fmt.Printf("    Evaluation Root (hex): %s\n", hex.EncodeToString(proof.DomainParams.EvaluationRoot))
+	fmt.Printf("    Computation Trace (first 5 elements, hex):")
 	for i, elem := range proof.DomainParams.Trace[:min(5, len(proof.DomainParams.Trace))] {
 		fmt.Printf(" %s", elem.Big().Text(16))
 		if i < min(5, len(proof.DomainParams.Trace))-1 {
@@ -360,7 +403,7 @@ func main() {
 		}
 	}
 	fmt.Println()
-	fmt.Printf("  Polynomial Evaluations (first 5, hex):")
+	fmt.Printf("    Polynomial Evaluations (first 5, hex):")
 	for i, eval := range proof.DomainParams.PolynomialEvaluations[:min(5, len(proof.DomainParams.PolynomialEvaluations))] {
 		fmt.Printf(" %s", eval.Text(16))
 		if i < min(5, len(proof.DomainParams.PolynomialEvaluations))-1 {
@@ -370,6 +413,26 @@ func main() {
 	fmt.Println()
 	valid, err = sm.VerifySTARKProof(proof)
 	verifyDuration = time.Since(verifyStart).Seconds()
+	// Log proof details after verification
+	fmt.Println("  Proof details after verification:")
+	fmt.Printf("    Commitment (hex): %s\n", hex.EncodeToString(proof.Commitment))
+	fmt.Printf("    Evaluation Root (hex): %s\n", hex.EncodeToString(proof.DomainParams.EvaluationRoot))
+	fmt.Printf("    Computation Trace (first 5 elements, hex):")
+	for i, elem := range proof.DomainParams.Trace[:min(5, len(proof.DomainParams.Trace))] {
+		fmt.Printf(" %s", elem.Big().Text(16))
+		if i < min(5, len(proof.DomainParams.Trace))-1 {
+			fmt.Print(",")
+		}
+	}
+	fmt.Println()
+	fmt.Printf("    Polynomial Evaluations (first 5, hex):")
+	for i, eval := range proof.DomainParams.PolynomialEvaluations[:min(5, len(proof.DomainParams.PolynomialEvaluations))] {
+		fmt.Printf(" %s", eval.Text(16))
+		if i < min(5, len(proof.DomainParams.PolynomialEvaluations))-1 {
+			fmt.Print(",")
+		}
+	}
+	fmt.Println()
 	if err != nil {
 		fmt.Printf("Test Case 4 failed: Failed to verify STARK proof: %v (total time: %.3f sec)\n", err, time.Since(start).Seconds())
 		return
