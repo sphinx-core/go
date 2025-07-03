@@ -20,20 +20,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/core/sphincs/config/params.go
+// go/src/core/sphincs/config/types.go
 package params
 
-import (
-	"errors"
+import "github.com/kasperdi/SPHINCSPLUS-golang/parameters"
 
-	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
-)
-
-// NewSPHINCSParameters initializes SPHINCS+ parameters for SHAKE256-128f-robust (LV-1 of NIST claimed).
-func NewSPHINCSParameters() (*SPHINCSParameters, error) {
-	params := parameters.MakeSphincsPlusSHAKE256128fRobust(false)
-	if params == nil {
-		return nil, errors.New("failed to initialize SPHINCS+ parameters")
-	}
-	return &SPHINCSParameters{Params: params}, nil
+// SPHINCSParameters wraps the SPHINCS+ parameter configuration.
+type SPHINCSParameters struct {
+	Params *parameters.Parameters
 }
