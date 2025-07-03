@@ -47,7 +47,7 @@ var PrimeFieldGen = PrimeField.NewFieldElementFromInt64(5)
 // Signature represents a SPHINCS+ signature with its associated message and public key.
 type Signature struct {
 	Message   []byte
-	Signature []byte
+	Signature *sphincs.SPHINCS_SIG // Uses *sphincs.SPHINCS_SIG
 	PublicKey *sphincs.SPHINCS_PK
 }
 
@@ -304,34 +304,31 @@ func (sm *SignManager) generateVerificationTrace(signatures []Signature) ([]ff.F
 
 // verifySignature checks if a SPHINCS+ signature is valid for the given message and public key.
 func (sm *SignManager) verifySignature(sig Signature) bool {
-	if sm.Params == nil || sm.Params.Params == nil {
+	if sm.Params == nil || sm.Params.Params == nil || sig.Signature == nil || sig.PublicKey == nil || sig.Message == nil {
 		return false
 	}
 
-	// sig.PublicKey is already *sphincs.SPHINCS_PK, so pass it directly.
-	pk := sig.PublicKey
-
-	// Deserialize sig.Signature []byte into *sphincs.SPHINCS_SIG
-	var signature sphincs.SPHINCS_SIG
-	err := signature.Deserialize(sig.Signature)
-	if err != nil {
-		return false
-	}
-
-	// Now call Spx_verify with the right types
-	return sphincs.Spx_verify(sm.Params.Params, &signature, pk, sig.Message)
+	return sphincs.Spx_verify(sm.Params.Params, sig.Message, sig.Signature, sig.PublicKey)
 }
 
 // commitToSignatures creates a Merkle tree commitment for signatures, messages, and public keys.
 func (sm *SignManager) commitToSignatures(signatures []Signature) ([]byte, error) {
 	data := make([][]byte, len(signatures))
 	for i, sig := range signatures {
+		if sig.Signature == nil || sig.PublicKey == nil || sig.Message == nil {
+			return nil, errors.New("invalid signature data")
+		}
 		pkBytes, err := sig.PublicKey.SerializePK()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to serialize public key: %v", err)
+		}
+		// Serialize SPHINCS_SIG using SerializeSignature
+		sigBytes, err := sig.Signature.SerializeSignature()
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize signature: %v", err)
 		}
 		// Concatenate message, signature, and public key bytes.
-		combined := append(append(sig.Message, sig.Signature...), pkBytes...)
+		combined := append(append(sig.Message, sigBytes...), pkBytes...)
 		data[i] = combined
 	}
 	return merkle.Root(data), nil
@@ -400,11 +397,19 @@ func (sm *SignManager) VerifySTARKProof(proof *STARKProof) (bool, error) {
 	// Step 1: Verify the signature commitment.
 	data := make([][]byte, len(proof.Signatures))
 	for i, sig := range proof.Signatures {
+		if sig.Signature == nil || sig.PublicKey == nil || sig.Message == nil {
+			return false, errors.New("invalid signature data")
+		}
 		pkBytes, err := sig.PublicKey.SerializePK()
 		if err != nil {
-			return false, err
+			return false, fmt.Errorf("failed to serialize public key: %v", err)
 		}
-		data[i] = append(append(sig.Message, sig.Signature...), pkBytes...)
+		// Serialize SPHINCS_SIG using SerializeSignature
+		sigBytes, err := sig.Signature.SerializeSignature()
+		if err != nil {
+			return false, fmt.Errorf("failed to serialize signature: %v", err)
+		}
+		data[i] = append(append(sig.Message, sigBytes...), pkBytes...)
 	}
 	if computedRoot := merkle.Root(data); !bytesEqual(computedRoot, proof.Commitment) {
 		return false, errors.New("signature commitment mismatch")
