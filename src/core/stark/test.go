@@ -2,176 +2,175 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
 
-	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
 	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
-	"github.com/sphinx-core/go/src/core/sign"
+	params "github.com/sphinx-core/go/src/core/sphincs/config"
+	sign "github.com/sphinx-core/go/src/core/stark/zk"
 )
 
-// generateTestMessage creates a random test message of specified length.
-func generateTestMessage(length int) []byte {
-	message := make([]byte, length)
-	rand.Read(message)
-	return message
+// generateSignature creates a SPHINCS+ signature for a given message.
+func generateSignature(sphincsParams *params.SPHINCSParameters, message []byte) (sign.Signature, error) {
+	// Generate key pair
+	sk, pk := sphincs.Spx_keygen(sphincsParams.Params)
+
+	// Sign the message
+	sig := sphincs.Spx_sign(sphincsParams.Params, message, sk)
+
+	// Create Signature struct
+	signature := sign.Signature{
+		Message:   message,
+		Signature: sig,
+		PublicKey: pk,
+	}
+
+	return signature, nil
 }
 
 func main() {
-	// Initialize SPHINCS+ parameters (adjust based on your parameters package).
-	// Using typical values for SPHINCS+-128s-robust with SHAKE-256.
-	sphincsParams := &parameters.Parameters{
-		N:         16, // Security parameter (bytes)
-		K:         10, // FORS trees
-		A:         6,  // FORS tree height
-		H:         66, // Hypertree height
-		D:         7,  // Hypertree layers
-		Len:       34, // WOTS+ signature length
-		LogT:      4,  // FORS tree logarithm
-		RANDOMIZE: true,
-		Tweak:     &parameters.Tweak{Hmsg: hmsgMock, PRFmsg: prfmsgMock}, // Mock tweak functions
-	}
-
 	// Initialize SignManager
 	sm, err := sign.NewSignManager()
 	if err != nil {
-		fmt.Println("Failed to create SignManager:", err)
+		fmt.Printf("Test failed: Failed to create SignManager: %v\n", err)
 		return
 	}
-	// Override params for testing (since NewSignManager may set different defaults)
-	sm.Params.Params = sphincsParams
 
-	// Test 1: Generate and verify a STARK proof with valid signatures
-	fmt.Println("=== Test 1: Valid Signatures ===")
-	numSignatures := 5
-	signatures := make([]sign.Signature, numSignatures)
-	for i := 0; i < numSignatures; i++ {
-		// Generate keypair
-		sk, pk := sphincs.Spx_keygen(sphincsParams)
-		// Generate a random message
-		message := generateTestMessage(32)
-		// Sign the message
-		sig := sphincs.Spx_sign(sphincsParams, message, sk)
-		// Create Signature struct
-		signatures[i] = sign.Signature{
-			Message:   message,
-			Signature: sig,
-			PublicKey: pk,
-		}
-		// Verify individual signature
-		valid := sm.verifySignature(signatures[i])
-		fmt.Printf("Signature %d valid: %v\n", i+1, valid)
-		if !valid {
-			fmt.Printf("Error: Individual signature %d verification failed\n", i+1)
-			return
-		}
+	// Use the provided NewSPHINCSParameters to initialize parameters
+	sphincsParams, err := params.NewSPHINCSParameters()
+	if err != nil {
+		fmt.Printf("Test failed: Failed to initialize SPHINCS+ parameters: %v\n", err)
+		return
+	}
+
+	// Test Case 1: Single valid signature
+	fmt.Println("Test Case 1: Single valid signature")
+	message1 := []byte("test message 1")
+	sig1, err := generateSignature(sphincsParams, message1)
+	if err != nil {
+		fmt.Printf("Test Case 1 failed: Failed to generate signature: %v\n", err)
+		return
 	}
 
 	// Generate STARK proof
-	proof, err := sm.GenerateSTARKProof(signatures)
+	proof, err := sm.GenerateSTARKProof([]sign.Signature{sig1})
 	if err != nil {
-		fmt.Println("Failed to generate STARK proof:", err)
+		fmt.Printf("Test Case 1 failed: Failed to generate STARK proof: %v\n", err)
 		return
 	}
-	fmt.Println("STARK proof generated successfully")
 
 	// Verify STARK proof
 	valid, err := sm.VerifySTARKProof(proof)
 	if err != nil {
-		fmt.Println("Failed to verify STARK proof:", err)
+		fmt.Printf("Test Case 1 failed: Failed to verify STARK proof: %v\n", err)
 		return
 	}
-	fmt.Printf("STARK proof valid: %v\n", valid)
-	if !valid {
-		fmt.Println("Error: STARK proof verification failed")
-		return
-	}
-
-	// Test 2: Test with invalid signature (tampered message)
-	fmt.Println("\n=== Test 2: Invalid Signature (Tampered Message) ===")
-	invalidSignatures := make([]sign.Signature, 1)
-	sk, pk := sphincs.Spx_keygen(sphincsParams)
-	message := generateTestMessage(32)
-	sig := sphincs.Spx_sign(sphincsParams, message, sk)
-	// Tamper the message
-	tamperedMessage := append(message, []byte("tamper")...)
-	invalidSignatures[0] = sign.Signature{
-		Message:   tamperedMessage,
-		Signature: sig,
-		PublicKey: pk,
-	}
-	invalidProof, err := sm.GenerateSTARKProof(invalidSignatures)
-	if err != nil {
-		fmt.Println("Failed to generate STARK proof for invalid signature:", err)
-		return
-	}
-	valid, err = sm.VerifySTARKProof(invalidProof)
-	if err != nil {
-		fmt.Println("Error during invalid STARK proof verification:", err)
-	} else if valid {
-		fmt.Println("Error: Invalid STARK proof unexpectedly verified")
+	if valid {
+		fmt.Println("Test Case 1 passed: STARK proof is valid")
 	} else {
-		fmt.Println("Invalid STARK proof correctly rejected")
+		fmt.Println("Test Case 1 failed: STARK proof is invalid")
 	}
 
-	// Test 3: Test serialization and deserialization of a signature
-	fmt.Println("\n=== Test 3: Signature Serialization/Deserialization ===")
-	sigBytes, err := signatures[0].Signature.SerializeSignature()
+	// Test Case 2: Multiple valid signatures
+	fmt.Println("\nTest Case 2: Multiple valid signatures")
+	messages := [][]byte{
+		[]byte("test message 1"),
+		[]byte("test message 2"),
+		[]byte("test message 3"),
+	}
+	signatures := make([]sign.Signature, len(messages))
+	for i, msg := range messages {
+		sig, err := generateSignature(sphincsParams, msg)
+		if err != nil {
+			fmt.Printf("Test Case 2 failed: Failed to generate signature %d: %v\n", i+1, err)
+			return
+		}
+		signatures[i] = sig
+	}
+
+	// Generate STARK proof
+	proof, err = sm.GenerateSTARKProof(signatures)
 	if err != nil {
-		fmt.Println("Failed to serialize signature:", err)
+		fmt.Printf("Test Case 2 failed: Failed to generate STARK proof: %v\n", err)
 		return
 	}
-	deserializedSig, err := sphincs.DeserializeSignature(sphincsParams, sigBytes)
+
+	// Verify STARK proof
+	valid, err = sm.VerifySTARKProof(proof)
 	if err != nil {
-		fmt.Println("Failed to deserialize signature:", err)
+		fmt.Printf("Test Case 2 failed: Failed to verify STARK proof: %v\n", err)
+		return
+	}
+	if valid {
+		fmt.Println("Test Case 2 passed: STARK proof is valid")
+	} else {
+		fmt.Println("Test Case 2 failed: STARK proof is invalid")
+	}
+
+	// Test Case 3: Empty signature list
+	fmt.Println("\nTest Case 3: Empty signature list")
+	_, err = sm.GenerateSTARKProof([]sign.Signature{})
+	if err == nil || err.Error() != "no signatures provided" {
+		fmt.Printf("Test Case 3 failed: Expected error 'no signatures provided', got: %v\n", err)
+	} else {
+		fmt.Println("Test Case 3 passed: Correctly rejected empty signature list")
+	}
+
+	// Test Case 4: Invalid signature (tampered message)
+	fmt.Println("\nTest Case 4: Invalid signature (tampered message)")
+	sigInvalid := sig1
+	sigInvalid.Message = []byte("tampered message")
+	proof, err = sm.GenerateSTARKProof([]sign.Signature{sigInvalid})
+	if err != nil {
+		fmt.Printf("Test Case 4 failed: Failed to generate STARK proof: %v\n", err)
+		return
+	}
+
+	// Verify STARK proof (should fail due to invalid signature)
+	valid, err = sm.VerifySTARKProof(proof)
+	if err != nil {
+		fmt.Printf("Test Case 4 failed: Failed to verify STARK proof: %v\n", err)
+		return
+	}
+	if !valid {
+		fmt.Println("Test Case 4 passed: Correctly rejected invalid signature")
+	} else {
+		fmt.Println("Test Case 4 failed: Accepted invalid signature")
+	}
+
+	// Test Case 5: Too many signatures
+	fmt.Println("\nTest Case 5: Too many signatures")
+	largeSignatures := make([]sign.Signature, 1025)
+	for i := 0; i < 1025; i++ {
+		sig, err := generateSignature(sphincsParams, []byte(fmt.Sprintf("message %d", i)))
+		if err != nil {
+			fmt.Printf("Test Case 5 failed: Failed to generate signature %d: %v\n", i+1, err)
+			return
+		}
+		largeSignatures[i] = sig
+	}
+	_, err = sm.GenerateSTARKProof(largeSignatures)
+	if err == nil || err.Error() != "too many signatures; maximum is 1024" {
+		fmt.Printf("Test Case 5 failed: Expected error 'too many signatures; maximum is 1024', got: %v\n", err)
+	} else {
+		fmt.Println("Test Case 5 passed: Correctly rejected too many signatures")
+	}
+
+	// Test Case 6: Serialization and deserialization of a signature
+	fmt.Println("\nTest Case 6: Serialization and deserialization")
+	sigBytes, err := sig1.Signature.SerializeSignature()
+	if err != nil {
+		fmt.Printf("Test Case 6 failed: Failed to serialize signature: %v\n", err)
+		return
+	}
+	deserializedSig, err := sphincs.DeserializeSignature(sphincsParams.Params, sigBytes)
+	if err != nil {
+		fmt.Printf("Test Case 6 failed: Failed to deserialize signature: %v\n", err)
 		return
 	}
 	// Verify deserialized signature
-	valid = sphincs.Spx_verify(sphincsParams, signatures[0].Message, deserializedSig, signatures[0].PublicKey)
-	fmt.Printf("Deserialized signature valid: %v\n", valid)
+	valid = sphincs.Spx_verify(sphincsParams.Params, sig1.Message, deserializedSig, sig1.PublicKey)
 	if !valid {
-		fmt.Println("Error: Deserialized signature verification failed")
+		fmt.Println("Test Case 6 failed: Deserialized signature is invalid")
 		return
 	}
-
-	// Test 4: Test with empty signatures
-	fmt.Println("\n=== Test 4: Empty Signatures ===")
-	_, err = sm.GenerateSTARKProof([]sign.Signature{})
-	if err == nil {
-		fmt.Println("Error: Empty signatures should have caused an error")
-		return
-	}
-	fmt.Println("Empty signatures correctly rejected:", err)
-
-	// Test 5: Test with too many signatures
-	fmt.Println("\n=== Test 5: Too Many Signatures ===")
-	largeSignatures := make([]sign.Signature, 1025)
-	for i := 0; i < 1025; i++ {
-		sk, pk := sphincs.Spx_keygen(sphincsParams)
-		message := generateTestMessage(32)
-		sig := sphincs.Spx_sign(sphincsParams, message, sk)
-		largeSignatures[i] = sign.Signature{
-			Message:   message,
-			Signature: sig,
-			PublicKey: pk,
-		}
-	}
-	_, err = sm.GenerateSTARKProof(largeSignatures)
-	if err == nil {
-		fmt.Println("Error: Too many signatures should have caused an error")
-		return
-	}
-	fmt.Println("Too many signatures correctly rejected:", err)
-
-	fmt.Println("\nAll tests completed successfully!")
-}
-
-// Mock Tweak functions (replace with actual implementations from your parameters package)
-func hmsgMock(r, pkSeed, pkRoot, m []byte) []byte {
-	// Placeholder: Concatenate inputs and return (simplified)
-	return append(append(append(r, pkSeed...), pkRoot...), m...)
-}
-
-func prfmsgMock(skPrf, opt, m []byte) []byte {
-	// Placeholder: Concatenate inputs and return (simplified)
-	return append(append(skPrf, opt...), m...)
+	fmt.Println("Test Case 6 passed: Signature serialization and deserialization successful")
 }
