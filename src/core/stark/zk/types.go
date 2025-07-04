@@ -21,7 +21,7 @@
 // SOFTWARE.
 
 // go/src/core/stark/zk/types.go
-package sign
+package zk
 
 import (
 	"math/big"
@@ -46,6 +46,9 @@ type Signature struct {
 	Signature *sphincs.SPHINCS_SIG // Uses *sphincs.SPHINCS_SIG
 	PublicKey *sphincs.SPHINCS_PK
 }
+
+// SignWrapper wraps signature generation and verification functionality.
+type Signer struct{}
 
 // Channel represents a Fiat-Shamir channel for non-interactive proofs.
 type Channel struct {

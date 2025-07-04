@@ -21,7 +21,7 @@
 // SOFTWARE.
 
 // go/src/core/stark/zk/air.go
-package sign
+package zk
 
 import (
 	"encoding/hex"
