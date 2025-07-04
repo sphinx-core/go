@@ -28,17 +28,34 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
+	sphincs "github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
 	params "github.com/sphinx-core/go/src/core/sphincs/config"
+	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 	sign "github.com/sphinx-core/go/src/core/stark/zk"
 )
+
+// min returns the minimum of two integers.
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 // generateSignature creates a SPHINCS+ signature for a given message with detailed logging and size measurements.
 func generateSignature(sphincsParams *params.SPHINCSParameters, message []byte) (sign.Signature, error) {
 	fmt.Printf("  Generating key pair...\n")
 	start := time.Now()
-	// Generate key pair
-	sk, pk := sphincs.Spx_keygen(sphincsParams.Params)
+	// Initialize KeyManager
+	km, err := key.NewKeyManager()
+	if err != nil {
+		return sign.Signature{}, fmt.Errorf("failed to create KeyManager: %v", err)
+	}
+	// Generate key pair using KeyManager
+	sk, pk, err := km.GenerateKey()
+	if err != nil {
+		return sign.Signature{}, fmt.Errorf("failed to generate key pair: %v", err)
+	}
 	keyGenDuration := time.Since(start).Seconds()
 
 	// Log key pair details and sizes
@@ -56,10 +73,21 @@ func generateSignature(sphincsParams *params.SPHINCSParameters, message []byte) 
 	fmt.Printf("    Public Key size: %.2f KB\n", float64(len(pkBytes))/1024.0)
 	fmt.Printf("    Key generation time: %.3f sec\n", keyGenDuration)
 
+	// Convert key.SPHINCS_SK to sphincs.SPHINCS_SK for signing
+	sphincsSK := &sphincs.SPHINCS_SK{
+		SKseed: sk.SKseed,
+		SKprf:  sk.SKprf,
+		PKseed: sk.PKseed,
+		PKroot: sk.PKroot,
+	}
+
 	fmt.Printf("  Signing message: %s\n", string(message))
 	start = time.Now()
-	// Sign the message
-	sig := sphincs.Spx_sign(sphincsParams.Params, message, sk)
+	// Sign the message using the sphincs package
+	sig := sphincs.Spx_sign(sphincsParams.Params, message, sphincsSK)
+	if sig == nil {
+		return sign.Signature{}, fmt.Errorf("failed to sign message: signature is nil")
+	}
 	signDuration := time.Since(start).Seconds()
 
 	// Log signature details and size
@@ -72,7 +100,7 @@ func generateSignature(sphincsParams *params.SPHINCSParameters, message []byte) 
 	fmt.Printf("    Signature size: %.2f KB\n", float64(len(sigBytes))/1024.0)
 	fmt.Printf("    Signature generation time: %.3f sec\n", signDuration)
 
-	// Verify signature
+	// Verify signature using the sphincs package
 	fmt.Printf("  Verifying signature...\n")
 	start = time.Now()
 	valid := sphincs.Spx_verify(sphincsParams.Params, message, sig, pk)
@@ -86,8 +114,8 @@ func generateSignature(sphincsParams *params.SPHINCSParameters, message []byte) 
 	// Create Signature struct
 	signature := sign.Signature{
 		Message:   message,
-		Signature: sig,
-		PublicKey: pk,
+		Signature: sig, // Assumes sphincs.SPHINCS_SIG is compatible with sign.Signature
+		PublicKey: pk,  // sphincs.SPHINCS_PK is returned by key.GenerateKey
 	}
 	return signature, nil
 }
@@ -230,6 +258,13 @@ func main() {
 		[]byte("test message 1"),
 		[]byte("test message 2"),
 		[]byte("test message 3"),
+		[]byte("test message 4"),
+		[]byte("test message 5"),
+		[]byte("test message 6"),
+		[]byte("test message 7"),
+		[]byte("test message 8"),
+		[]byte("test message 9"),
+		[]byte("test message 10"),
 	}
 	signatures := make([]sign.Signature, len(messages))
 	for i, msg := range messages {
@@ -482,11 +517,11 @@ func main() {
 	fmt.Println("Deserializing signature...")
 	deserializeStart := time.Now()
 	deserializedSig, err := sphincs.DeserializeSignature(sphincsParams.Params, sigBytes)
-	deserializeDuration := time.Since(deserializeStart).Seconds()
 	if err != nil {
 		fmt.Printf("Test Case 6 failed: Failed to deserialize signature: %v (total time: %.3f sec)\n", err, time.Since(start).Seconds())
 		return
 	}
+	deserializeDuration := time.Since(deserializeStart).Seconds()
 	fmt.Printf("  Deserialization time: %.3f sec\n", deserializeDuration)
 	fmt.Println("Signature deserialized successfully.")
 
@@ -501,12 +536,4 @@ func main() {
 		return
 	}
 	fmt.Printf("Test Case 6 passed: Signature serialization and deserialization successful (total time: %.3f sec)\n", time.Since(start).Seconds())
-}
-
-// min returns the minimum of two integers.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
