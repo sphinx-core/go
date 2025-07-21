@@ -8,8 +8,8 @@ import (
 	"io/ioutil"
 	"testing"
 
-	"github.com/kasperdi/SPHINCSPLUS-golang/address"
-	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
+	"github.com/sphinx-core/go/src/crypto/SPHINCS-AAA/address"
+	"github.com/sphinx-core/go/src/crypto/SPHINCS-AAA/parameters"
 )
 
 func TestChainIndexStepsTooLow(t *testing.T) {

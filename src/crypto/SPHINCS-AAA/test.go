@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
-	"github.com/kasperdi/SPHINCSPLUS-golang/tweakable"
+	"github.com/sphinx-core/go/src/crypto/SPHINCS-AAA/parameters"
+	"github.com/sphinx-core/go/src/crypto/SPHINCS-AAA/tweakable"
 )
 
 func main() {
