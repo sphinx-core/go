@@ -3,10 +3,10 @@ package sphincs
 import (
 	"errors"
 
-	"github.com/kasperdi/SPHINCSPLUS-golang/fors"
-	"github.com/kasperdi/SPHINCSPLUS-golang/hypertree"
-	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
-	"github.com/kasperdi/SPHINCSPLUS-golang/xmss"
+	"github.com/sphinx-core/go/src/crypto/SPHINCSPLUS-AAA1/fors"
+	"github.com/sphinx-core/go/src/crypto/SPHINCSPLUS-AAA1/hypertree"
+	"github.com/sphinx-core/go/src/crypto/SPHINCSPLUS-AAA1/parameters"
+	"github.com/sphinx-core/go/src/crypto/SPHINCSPLUS-AAA1/xmss"
 )
 
 // TODO: Add error handling

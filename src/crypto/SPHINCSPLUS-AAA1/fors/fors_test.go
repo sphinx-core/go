@@ -8,8 +8,8 @@ import (
 	"io/ioutil"
 	"testing"
 
-	"github.com/kasperdi/SPHINCSPLUS-golang/address"
-	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
+	"github.com/sphinx-core/go/src/crypto/SPHINCSPLUS-AAA1/address"
+	"github.com/sphinx-core/go/src/crypto/SPHINCSPLUS-AAA1/parameters"
 )
 
 // Runs the subtests below for all 24 variants.

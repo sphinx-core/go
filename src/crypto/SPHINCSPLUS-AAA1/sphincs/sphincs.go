@@ -4,11 +4,11 @@ import (
 	"crypto/rand"
 	"math"
 
-	"github.com/kasperdi/SPHINCSPLUS-golang/address"
-	"github.com/kasperdi/SPHINCSPLUS-golang/fors"
-	"github.com/kasperdi/SPHINCSPLUS-golang/hypertree"
-	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
-	"github.com/kasperdi/SPHINCSPLUS-golang/util"
+	"github.com/sphinx-core/go/src/crypto/SPHINCSPLUS-AAA1/address"
+	"github.com/sphinx-core/go/src/crypto/SPHINCSPLUS-AAA1/fors"
+	"github.com/sphinx-core/go/src/crypto/SPHINCSPLUS-AAA1/hypertree"
+	"github.com/sphinx-core/go/src/crypto/SPHINCSPLUS-AAA1/parameters"
+	"github.com/sphinx-core/go/src/crypto/SPHINCSPLUS-AAA1/util"
 )
 
 type SPHINCS_PK struct {
@@ -101,7 +101,7 @@ func Spx_sign_with_params(params *parameters.Parameters, M []byte, SK *SPHINCS_S
 	digest := params.Tweak.Hmsg(R, SK.PKseed, SK.PKroot, M)
 	tmp_md_bytes := int(math.Floor(float64(params.K*params.A+7) / 8))
 	tmp_idx_tree_bytes := int(math.Floor(float64(params.H-params.H/params.D+7) / 8))
-	tmp_idx_leaf_bytes := int(math.Floor(float64(params.H/params.D+7)) / 8)
+	tmp_idx_leaf_bytes := int(math.Floor(float64(params.H/params.D+7) / 8))
 
 	tmp_md := digest[:tmp_md_bytes]
 	tmp_idx_tree := digest[tmp_md_bytes:(tmp_md_bytes + tmp_idx_tree_bytes)]
@@ -139,7 +139,7 @@ func Spx_verify_with_params(params *parameters.Parameters, M []byte, SIG *SPHINC
 
 	tmp_md_bytes := int(math.Floor(float64(params.K*params.A+7) / 8))
 	tmp_idx_tree_bytes := int(math.Floor(float64(params.H-params.H/params.D+7) / 8))
-	tmp_idx_leaf_bytes := int(math.Floor(float64(params.H/params.D+7)) / 8)
+	tmp_idx_leaf_bytes := int(math.Floor(float64(params.H/params.D+7) / 8))
 
 	tmp_md := digest[:tmp_md_bytes]
 	tmp_idx_tree := digest[tmp_md_bytes:(tmp_md_bytes + tmp_idx_tree_bytes)]
