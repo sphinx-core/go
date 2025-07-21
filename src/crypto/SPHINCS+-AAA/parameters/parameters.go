@@ -1,6 +1,7 @@
 package parameters
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/kasperdi/SPHINCSPLUS-golang/tweakable"
@@ -107,6 +108,12 @@ func MakeSphincsPlusSHAKE256128sSimple(RANDOMIZE bool) *Parameters {
 	return MakeSphincsPlus(16, 16, 63, 7, 14, 12, "SHAKE256-simple", RANDOMIZE)
 }
 
+// New function for AAA-1
+// New function for AAA-1
+func MakeSphincsPlusSHAKE256128fRobustAAA1(RANDOMIZE bool) *Parameters {
+	return MakeSphincsPlus(16, 256, 30, 2, 5, 8, "SHAKE256-robust", RANDOMIZE)
+}
+
 func MakeSphincsPlus(n int, w int, h int, d int, k int, logt int, hashFunc string, RANDOMIZE bool) *Parameters {
 	params := new(Parameters)
 	params.N = n
@@ -122,10 +129,21 @@ func MakeSphincsPlus(n int, w int, h int, d int, k int, logt int, hashFunc strin
 	params.Len1 = int(math.Ceil(8 * float64(n) / math.Log2(float64(w))))
 	params.Len2 = int(math.Floor(math.Log2(float64(params.Len1*(w-1)))/math.Log2(float64(w))) + 1)
 	params.Len = params.Len1 + params.Len2
+
+	// Calculate initial m (message digest length)
 	md_len := int(math.Floor((float64(params.K)*float64(logt) + 7) / 8))
 	idx_tree_len := int(math.Floor((float64(h - h/d + 7)) / 8))
 	idx_leaf_len := int(math.Floor(float64(h/d+7)) / 8)
 	m := md_len + idx_tree_len + idx_leaf_len
+
+	// Override m to 19 for AAA-1 specification
+	if n == 16 && w == 256 && h == 30 && d == 2 && k == 5 && logt == 8 && hashFunc == "SHAKE256-robust" {
+		m = 19
+	}
+	if params.N == 16 && params.W == 256 && params.H == 30 {
+		fmt.Println("Using AAA-1 configuration")
+	}
+
 	switch hashFunc {
 	case "SHA256-robust":
 		params.Tweak = &tweakable.Sha256Tweak{tweakable.Robust, m, n}
@@ -138,5 +156,6 @@ func MakeSphincsPlus(n int, w int, h int, d int, k int, logt int, hashFunc strin
 	default:
 		params.Tweak = &tweakable.Sha256Tweak{tweakable.Robust, m, n}
 	}
+
 	return params
 }
