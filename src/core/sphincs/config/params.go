@@ -21,10 +21,12 @@
 // SOFTWARE.
 
 // go/src/core/sphincs/config/params.go
+// go/src/core/sphincs/config/params.go
 package params
 
 import (
 	"errors"
+	"fmt" // Added for debug output
 
 	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
 )
@@ -33,7 +35,9 @@ import (
 func NewSPHINCSParameters() (*SPHINCSParameters, error) {
 	params := parameters.MakeSphincsPlusSHAKE256128fRobust(false)
 	if params == nil {
+		fmt.Println("Parameters initialization failed")
 		return nil, errors.New("failed to initialize SPHINCS+ parameters")
 	}
+	fmt.Printf("Params initialized: N=%d, H=%d\n", params.N, params.H) // Debug print
 	return &SPHINCSParameters{Params: params}, nil
 }

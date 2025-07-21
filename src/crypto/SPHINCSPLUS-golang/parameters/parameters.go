@@ -108,6 +108,7 @@ func MakeSphincsPlusSHAKE256128sSimple(RANDOMIZE bool) *Parameters {
 }
 
 // New function for AAA-1
+// New function for AAA-1
 func MakeSphincsPlusSHAKE256128fRobustAAA1(RANDOMIZE bool) *Parameters {
 	return MakeSphincsPlus(16, 256, 30, 2, 5, 8, "SHAKE256-robust", RANDOMIZE)
 }

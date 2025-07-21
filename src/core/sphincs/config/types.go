@@ -25,7 +25,7 @@ package params
 
 import "github.com/kasperdi/SPHINCSPLUS-golang/parameters"
 
-// SPHINCSParameters wraps the SPHINCS+ parameter configuration.
+// SPHINCSParameters wraps the Parameters struct for additional configuration.
 type SPHINCSParameters struct {
 	Params *parameters.Parameters
 }
