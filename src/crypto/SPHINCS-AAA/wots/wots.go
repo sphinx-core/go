@@ -3,9 +3,9 @@ package wots
 import (
 	"math"
 
-	"github.com/kasperdi/SPHINCSPLUS-golang/address"
-	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
-	"github.com/kasperdi/SPHINCSPLUS-golang/util"
+	"github.com/sphinx-core/go/src/core/crypto/sphincs+/address"
+	"github.com/sphinx-core/go/src/core/crypto/sphincs+/parameters"
+	"github.com/sphinx-core/go/src/core/crypto/sphincs+/util"
 )
 
 // Calculates the value of F iterated s times on X

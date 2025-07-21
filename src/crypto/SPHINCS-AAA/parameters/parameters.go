@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/kasperdi/SPHINCSPLUS-golang/tweakable"
+	"github.com/sphinx-core/go/src/core/crypto/sphincs+/tweakable"
 )
 
 type Parameters struct {

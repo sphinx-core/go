@@ -27,7 +27,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
+	"github.com/sphinx-core/go/src/core/crypto/sphincs+/parameters"
 )
 
 // NewSPHINCSParameters initializes SPHINCS+ parameters for SHAKE256-128f-robust (LV-3 of NIST claimed).

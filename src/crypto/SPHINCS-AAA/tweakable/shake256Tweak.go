@@ -3,7 +3,7 @@ package tweakable
 import (
 	"crypto/subtle"
 
-	"github.com/kasperdi/SPHINCSPLUS-golang/address"
+	"github.com/sphinx-core/go/src/core/crypto/sphincs+/address"
 	"golang.org/x/crypto/sha3"
 )
 
