@@ -1,6 +1,6 @@
 package tweakable
 
-import "github.com/sphinx-core/go/src/core/crypto/sphincs+/address"
+import "github.com/sphinx-core/go/src/crypto/SPHINCS-AAA/address"
 
 const (
 	Simple = "simple"

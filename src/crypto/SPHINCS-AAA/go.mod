@@ -1,4 +1,4 @@
-module github.com/sphinx-core/go/src/core/crypto/sphincs+
+module github.com/sphinx-core/go/src/crypto/SPHINCS-AAA
 
 go 1.23.0
 

@@ -3,9 +3,9 @@ package fors
 import (
 	"math"
 
-	"github.com/sphinx-core/go/src/core/crypto/sphincs+/address"
-	"github.com/sphinx-core/go/src/core/crypto/sphincs+/parameters"
-	"github.com/sphinx-core/go/src/core/crypto/sphincs+/util"
+	"github.com/sphinx-core/go/src/crypto/SPHINCS-AAA/address"
+	"github.com/sphinx-core/go/src/crypto/SPHINCS-AAA/parameters"
+	"github.com/sphinx-core/go/src/crypto/SPHINCS-AAA/util"
 )
 
 type FORSSignature struct {

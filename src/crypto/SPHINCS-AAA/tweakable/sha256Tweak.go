@@ -5,8 +5,8 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 
-	"github.com/sphinx-core/go/src/core/crypto/sphincs+/address"
-	"github.com/sphinx-core/go/src/core/crypto/sphincs+/util"
+	"github.com/sphinx-core/go/src/crypto/SPHINCS-AAA/address"
+	"github.com/sphinx-core/go/src/crypto/SPHINCS-AAA/util"
 )
 
 type Sha256Tweak struct {
