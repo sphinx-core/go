@@ -1,6 +1,7 @@
 package parameters
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/kasperdi/SPHINCSPLUS-golang/tweakable"
@@ -138,6 +139,9 @@ func MakeSphincsPlus(n int, w int, h int, d int, k int, logt int, hashFunc strin
 	// Override m to 19 for AAA-1 specification
 	if n == 16 && w == 256 && h == 30 && d == 2 && k == 5 && logt == 8 && hashFunc == "SHAKE256-robust" {
 		m = 19
+	}
+	if params.N == 16 && params.W == 256 && params.H == 30 {
+		fmt.Println("Using AAA-1 configuration")
 	}
 
 	switch hashFunc {
