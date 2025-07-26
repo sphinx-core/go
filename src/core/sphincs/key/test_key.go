@@ -46,7 +46,6 @@ func main() {
 	fmt.Println("Keys generated successfully!")
 
 	// Serialize the key pair.
-	// Serialize the key pair.
 	skBytes, pkBytes, err := km.SerializeKeyPair(sk, pk)
 	if err != nil {
 		log.Fatalf("Error serializing key pair: %v", err)
@@ -91,6 +90,7 @@ func main() {
 	if signature == nil {
 		log.Fatalf("Error signing message")
 	}
+	fmt.Printf("Signature size: %d bytes\n", len(signature.R)+len(signature.SIG_FORS.GetSK(0))*len(signature.SIG_FORS.Forspkauth)+len(signature.SIG_HT.GetXMSSSignature(0).WotsSignature)*len(signature.SIG_HT.XMSSSignatures))
 
 	// Step 3: Verify the signature using the public key (pk), parameters, message, and signature.
 	isValid := sphincs.Spx_verify(spxParams, message, signature, deserializedPK)

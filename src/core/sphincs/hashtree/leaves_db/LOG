@@ -1,8 +1,8 @@
-=============== Jul 22, 2025 (WIB) ===============
-01:43:39.610023 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
-01:43:39.642872 db@open opening
-01:43:39.643431 version@stat F·[] S·0B[] Sc·[]
-01:43:39.668499 db@janitor F·2 G·0
-01:43:39.668574 db@open done T·25.652312ms
-01:43:49.318317 db@close closing
-01:43:49.318524 db@close done T·204.864µs
+=============== Jul 27, 2025 (WIB) ===============
+02:57:32.531878 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+02:57:32.559183 db@open opening
+02:57:32.559744 version@stat F·[] S·0B[] Sc·[]
+02:57:32.575184 db@janitor F·2 G·0
+02:57:32.575240 db@open done T·16.02449ms
+02:57:44.528751 db@close closing
+02:57:44.529064 db@close done T·297.888µs

@@ -27,12 +27,17 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/sphinx-core/go/src/crypto/SPHINCS-AAA/parameters"
+	"github.com/kasperdi/SPHINCSPLUS-golang/parameters"
 )
+
+// SPHINCSParameters wraps the Parameters struct for additional configuration.
+type SPHINCSParameters struct {
+	Params *parameters.Parameters // Now refers to sphinx-core parameters
+}
 
 // NewSPHINCSParameters initializes SPHINCS+ parameters for SHAKE256-128f-robust (LV-3 of NIST claimed).
 func NewSPHINCSParameters() (*SPHINCSParameters, error) {
-	params := parameters.MakeSphincsPlusSHAKE256128fRobustAAA1(false)
+	params := parameters.MakeSphincsPlusSHAKE256192fRobust(false)
 	if params == nil {
 		fmt.Println("Parameters initialization failed")
 		return nil, errors.New("failed to initialize SPHINCS+ parameters")
