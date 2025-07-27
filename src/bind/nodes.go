@@ -37,6 +37,7 @@ import (
 	"github.com/sphinx-core/go/src/p2p"
 	"github.com/sphinx-core/go/src/rpc"
 	"github.com/sphinx-core/go/src/transport"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 // SetupNodes initializes and starts all servers for the given node configurations.
@@ -78,16 +79,22 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 			ReadyCh:   tcpReadyCh,
 		}
 
+		db, err := leveldb.OpenFile(fmt.Sprintf("data/%s.db", config.Name), nil)
+		if err != nil {
+			logger.Errorf("Failed to open LevelDB for %s: %v", config.Name, err)
+			return nil, fmt.Errorf("failed to open LevelDB for %s: %w", config.Name, err)
+		}
+
 		// Initialize P2P server
 		p2pServers[i] = p2p.NewServer(network.NodePortConfig{
 			Name:      config.Name,
 			Role:      config.Role,
 			TCPAddr:   config.Address,
-			UDPPort:   config.Address, // Use same address for UDP (adjust if needed)
+			UDPPort:   config.Address, // Adjust if needed
 			HTTPPort:  config.HTTPPort,
 			WSPort:    config.WSPort,
 			SeedNodes: config.SeedNodes,
-		}, blockchains[i])
+		}, blockchains[i], db)
 		localNode := p2pServers[i].LocalNode()
 		localNode.UpdateRole(config.Role)
 		logger.Infof("Node %s initialized with role %s", config.Name, config.Role)

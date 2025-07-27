@@ -60,6 +60,17 @@ func (s *Server) PeerManager() *PeerManager {
 	return s.peerManager
 }
 
+func (s *Server) SetSphincsMgr(mgr *sign.SphincsManager) {
+	s.sphincsMgr = mgr
+}
+
+func (s *Server) CloseDB() error {
+	if s.db != nil {
+		return s.db.Close()
+	}
+	return nil
+}
+
 type Peer = network.Peer
 
 type PeerManager struct {

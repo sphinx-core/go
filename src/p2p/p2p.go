@@ -28,7 +28,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -41,7 +40,7 @@ import (
 )
 
 // NewServer creates a new P2P server.
-func NewServer(config network.NodePortConfig, blockchain *core.Blockchain) *Server {
+func NewServer(config network.NodePortConfig, blockchain *core.Blockchain, db *leveldb.DB) *Server {
 	bucketSize := 20
 	parts := strings.Split(config.TCPAddr, ":")
 	if len(parts) != 2 {
@@ -51,13 +50,6 @@ func NewServer(config network.NodePortConfig, blockchain *core.Blockchain) *Serv
 	nodeManager := network.NewNodeManager(bucketSize)
 	nodeManager.AddNode(localNode)
 	nodeManager.LocalNodeID = localNode.KademliaID
-
-	// Initialize LevelDB
-	dbPath := filepath.Join("data", localNode.ID)
-	db, err := leveldb.OpenFile(dbPath, nil)
-	if err != nil {
-		log.Fatalf("Failed to open LevelDB at %s: %v", dbPath, err)
-	}
 
 	server := &Server{
 		localNode:   localNode,
@@ -77,7 +69,6 @@ func (s *Server) Start() error {
 	if err := s.StartUDPDiscovery(s.localNode.UDPPort); err != nil {
 		return err
 	}
-	_ = s.db // TODO: Implement LevelDB storage
 	go s.handleMessages()
 	go s.peerManager.MaintainPeers()
 	log.Printf("P2P server started, local node: ID=%s, Address=%s, Role=%s", s.localNode.ID, s.localNode.Address, s.localNode.Role)

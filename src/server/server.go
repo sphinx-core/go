@@ -20,10 +20,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/server/server.go
 package server
 
 import (
 	"log"
+	"path/filepath"
 	"strings"
 
 	"github.com/sphinx-core/go/src/core"
@@ -33,6 +35,7 @@ import (
 	"github.com/sphinx-core/go/src/p2p"
 	"github.com/sphinx-core/go/src/rpc"
 	"github.com/sphinx-core/go/src/transport"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string) *Server {
@@ -48,17 +51,25 @@ func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string) *Serve
 
 	// Create NodePortConfig for p2p.NewServer
 	config := network.NodePortConfig{
+		Name:      "Node-" + parts[1], // Use port for unique name
 		TCPAddr:   p2pAddr,
 		UDPPort:   p2pAddr, // Use same address for UDP (adjust if needed)
 		SeedNodes: seeds,
 		Role:      network.RoleNone, // Default role, adjust as needed
 	}
 
+	// Initialize LevelDB
+	dbPath := filepath.Join("data", config.Name, "leveldb")
+	db, err := leveldb.OpenFile(dbPath, nil)
+	if err != nil {
+		log.Fatalf("Failed to open LevelDB at %s: %v", dbPath, err)
+	}
+
 	return &Server{
 		tcpServer:  transport.NewTCPServer(tcpAddr, messageCh, rpcServer, nil),
 		wsServer:   transport.NewWebSocketServer(wsAddr, messageCh, rpcServer),
 		httpServer: http.NewServer(httpAddr, messageCh, blockchain),
-		p2pServer:  p2p.NewServer(config, blockchain),
+		p2pServer:  p2p.NewServer(config, blockchain, db),
 	}
 }
 
