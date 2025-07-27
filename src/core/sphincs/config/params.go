@@ -37,7 +37,7 @@ type SPHINCSParameters struct {
 
 // NewSPHINCSParameters initializes SPHINCS+ parameters for SHAKE256-128f-robust (LV-3 of NIST claimed).
 func NewSPHINCSParameters() (*SPHINCSParameters, error) {
-	params := parameters.MakeSphincsPlusSHAKE256192fRobust(false)
+	params := parameters.MakeSphincsPlusSHAKE256128sRobust(false)
 	if params == nil {
 		fmt.Println("Parameters initialization failed")
 		return nil, errors.New("failed to initialize SPHINCS+ parameters")

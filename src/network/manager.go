@@ -24,24 +24,96 @@
 package network
 
 import (
+	"crypto/rand"
 	"log"
+	"math/big"
 	"time"
 )
 
-// NewNodeManager creates a new NodeManager.
-func NewNodeManager() *NodeManager {
+// NewNodeManager creates a new NodeManager with Kademlia buckets.
+func NewNodeManager(bucketSize int) *NodeManager {
+	if bucketSize <= 0 {
+		bucketSize = 16 // Default to Ethereum's k=16
+	}
 	return &NodeManager{
-		nodes: make(map[string]*Node),
-		peers: make(map[string]*Peer),
+		nodes:       make(map[string]*Node),
+		peers:       make(map[string]*Peer),
+		seenMsgs:    make(map[string]bool),
+		kBuckets:    [256][]*KBucket{},
+		K:           bucketSize,
+		PingTimeout: 5 * time.Second,
+		ResponseCh:  make(chan []*Peer, 100),
 	}
 }
 
-// AddNode adds a new node to the manager.
+// AddNode adds a new node to the manager and updates k-buckets.
 func (nm *NodeManager) AddNode(node *Node) {
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
 	nm.nodes[node.ID] = node
-	log.Printf("Added node: ID=%s, Address=%s, Role=%s", node.ID, node.Address, node.Role)
+
+	// Add to appropriate k-bucket if not local node
+	if !node.IsLocal {
+		distance := nm.CalculateDistance(nm.LocalNodeID, node.KademliaID)
+		bucketIndex := nm.logDistance(distance)
+		if bucketIndex >= 0 && bucketIndex < 256 {
+			if nm.kBuckets[bucketIndex] == nil {
+				nm.kBuckets[bucketIndex] = make([]*KBucket, 0)
+			}
+			for _, b := range nm.kBuckets[bucketIndex] {
+				if len(b.Peers) < nm.K {
+					b.Peers = append(b.Peers, NewPeer(node))
+					b.LastUpdated = time.Now()
+					return
+				}
+				// Bucket is full, try to evict an inactive peer
+				if evicted := nm.evictInactivePeer(b, node); evicted {
+					return
+				}
+			}
+			// No space in existing buckets, create a new one
+			nm.kBuckets[bucketIndex] = append(nm.kBuckets[bucketIndex], &KBucket{
+				Peers:       []*Peer{NewPeer(node)},
+				LastUpdated: time.Now(),
+			})
+		}
+	}
+	log.Printf("Added node: ID=%s, Address=%s, Role=%s, KademliaID=%x", node.ID, node.Address, node.Role, node.KademliaID[:8])
+}
+
+// evictInactivePeer attempts to evict an inactive peer from a bucket.
+func (nm *NodeManager) evictInactivePeer(bucket *KBucket, newNode *Node) bool {
+	// Find the least recently seen peer
+	var oldestPeer *Peer
+	var oldestIndex int
+	minTime := time.Now()
+	for i, peer := range bucket.Peers {
+		if peer.LastPong.Before(minTime) {
+			minTime = peer.LastPong
+			oldestPeer = peer
+			oldestIndex = i
+		}
+	}
+	if oldestPeer == nil {
+		return false
+	}
+	// Ping the oldest peer to check liveness
+	if nm.pingPeer(oldestPeer) {
+		return false // Peer is still active
+	}
+	// Evict the oldest peer and add the new node
+	bucket.Peers = append(bucket.Peers[:oldestIndex], bucket.Peers[oldestIndex+1:]...)
+	bucket.Peers = append(bucket.Peers, NewPeer(newNode))
+	bucket.LastUpdated = time.Now()
+	log.Printf("Evicted inactive peer %s, added new node %s", oldestPeer.Node.ID, newNode.ID)
+	return true
+}
+
+// pingPeer sends a ping and waits for a pong response.
+func (nm *NodeManager) pingPeer(peer *Peer) bool {
+	peer.SendPing()
+	time.Sleep(nm.PingTimeout)
+	return !peer.LastPong.IsZero() && time.Since(peer.LastPong) < nm.PingTimeout
 }
 
 // RemoveNode removes a node and its peer entry.
@@ -51,6 +123,22 @@ func (nm *NodeManager) RemoveNode(nodeID string) {
 	if node, exists := nm.nodes[nodeID]; exists {
 		delete(nm.nodes, nodeID)
 		delete(nm.peers, nodeID)
+		distance := nm.CalculateDistance(nm.LocalNodeID, node.KademliaID)
+		bucketIndex := nm.logDistance(distance)
+		if bucketIndex >= 0 && bucketIndex < 256 {
+			for i, bucket := range nm.kBuckets[bucketIndex] {
+				for j, peer := range bucket.Peers {
+					if peer.Node.ID == nodeID {
+						bucket.Peers = append(bucket.Peers[:j], bucket.Peers[j+1:]...)
+						bucket.LastUpdated = time.Now()
+						if len(bucket.Peers) == 0 {
+							nm.kBuckets[bucketIndex] = append(nm.kBuckets[bucketIndex][:i], nm.kBuckets[bucketIndex][i+1:]...)
+						}
+						break
+					}
+				}
+			}
+		}
 		log.Printf("Removed node: ID=%s, Address=%s, Role=%s", nodeID, node.Address, node.Role)
 	}
 }
@@ -62,6 +150,13 @@ func (nm *NodeManager) PruneInactivePeers(timeout time.Duration) {
 	for id, peer := range nm.peers {
 		if time.Since(peer.LastPong) > timeout {
 			nm.RemovePeer(id)
+		}
+	}
+	for i, buckets := range nm.kBuckets {
+		for j, bucket := range buckets {
+			if time.Since(bucket.LastUpdated) > time.Hour {
+				nm.kBuckets[i] = append(nm.kBuckets[i][:j], nm.kBuckets[i][j+1:]...)
+			}
 		}
 	}
 }
@@ -114,6 +209,18 @@ func (nm *NodeManager) GetNode(nodeID string) *Node {
 	return nm.nodes[nodeID]
 }
 
+// GetNodeByKademliaID returns a node by its Kademlia ID.
+func (nm *NodeManager) GetNodeByKademliaID(kademliaID NodeID) *Node {
+	nm.mu.RLock()
+	defer nm.mu.RUnlock()
+	for _, node := range nm.nodes {
+		if node.KademliaID == kademliaID {
+			return node
+		}
+	}
+	return nil
+}
+
 // GetPeers returns all connected peers.
 func (nm *NodeManager) GetPeers() map[string]*Peer {
 	nm.mu.RLock()
@@ -131,7 +238,7 @@ func (nm *NodeManager) BroadcastPeerInfo(sender *Peer, sendFunc func(string, *Pe
 	defer nm.mu.RUnlock()
 	peerInfo := sender.GetPeerInfo()
 	for _, peer := range nm.peers {
-		if peer.Node.ID != sender.Node.ID { // Avoid sending to self
+		if peer.Node.ID != sender.Node.ID {
 			if err := sendFunc(peer.Node.Address, &peerInfo); err != nil {
 				log.Printf("Failed to send PeerInfo to %s (Role=%s): %v", peer.Node.ID, peer.Node.Role, err)
 			}
@@ -152,4 +259,82 @@ func (nm *NodeManager) SelectValidator() *Node {
 	}
 	log.Println("No active validator found")
 	return nil
+}
+
+// CalculateDistance computes the XOR distance between two node IDs.
+func (nm *NodeManager) CalculateDistance(id1, id2 NodeID) NodeID {
+	var result NodeID
+	for i := 0; i < 32; i++ {
+		result[i] = id1[i] ^ id2[i]
+	}
+	return result
+}
+
+// logDistance returns the log2 of the distance (bucket index).
+func (nm *NodeManager) logDistance(distance NodeID) int {
+	for i := 31; i >= 0; i-- {
+		if distance[i] != 0 {
+			for bit := 7; bit >= 0; bit-- {
+				if (distance[i]>>uint(bit))&1 != 0 {
+					return i*8 + bit
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// FindClosestPeers returns the k closest peers to a target ID, randomly selecting if more than k are available.
+func (nm *NodeManager) FindClosestPeers(targetID NodeID, k int) []*Peer {
+	nm.mu.RLock()
+	defer nm.mu.RUnlock()
+	type peerDistance struct {
+		peer     *Peer
+		distance NodeID
+	}
+	var candidates []peerDistance
+	for _, buckets := range nm.kBuckets {
+		for _, bucket := range buckets {
+			for _, peer := range bucket.Peers {
+				distance := nm.CalculateDistance(targetID, peer.Node.KademliaID)
+				candidates = append(candidates, peerDistance{peer, distance})
+			}
+		}
+	}
+	// Sort by distance
+	for i := 0; i < len(candidates)-1; i++ {
+		for j := i + 1; j < len(candidates); j++ {
+			if nm.CompareDistance(candidates[i].distance, candidates[j].distance) > 0 {
+				candidates[i], candidates[j] = candidates[j], candidates[i]
+			}
+		}
+	}
+	// Randomly select up to k peers if more than k candidates
+	result := make([]*Peer, 0, k)
+	if len(candidates) <= k {
+		for i := 0; i < len(candidates); i++ {
+			result = append(result, candidates[i].peer)
+		}
+	} else {
+		// Shuffle the first k candidates
+		for i := 0; i < k; i++ {
+			j, _ := rand.Int(rand.Reader, big.NewInt(int64(len(candidates)-i)))
+			idx := i + int(j.Int64())
+			candidates[i], candidates[idx] = candidates[idx], candidates[i]
+			result = append(result, candidates[i].peer)
+		}
+	}
+	return result
+}
+
+// CompareDistance compares two distances (returns -1, 0, or 1).
+func (nm *NodeManager) CompareDistance(d1, d2 NodeID) int {
+	for i := 31; i >= 0; i-- {
+		if d1[i] < d2[i] {
+			return -1
+		} else if d1[i] > d2[i] {
+			return 1
+		}
+	}
+	return 0
 }

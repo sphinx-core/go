@@ -20,7 +20,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/server/server.go
 package server
 
 import (
@@ -30,6 +29,7 @@ import (
 	"github.com/sphinx-core/go/src/core"
 	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/http"
+	"github.com/sphinx-core/go/src/network"
 	"github.com/sphinx-core/go/src/p2p"
 	"github.com/sphinx-core/go/src/rpc"
 	"github.com/sphinx-core/go/src/transport"
@@ -40,17 +40,25 @@ func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string) *Serve
 	blockchain := core.NewBlockchain()
 	rpcServer := rpc.NewServer(messageCh, blockchain)
 
+	// Validate p2pAddr format
 	parts := strings.Split(p2pAddr, ":")
 	if len(parts) != 2 {
 		log.Fatalf("Invalid p2pAddr format: %s, expected IP:port", p2pAddr)
 	}
-	ip, port := parts[0], parts[1]
+
+	// Create NodePortConfig for p2p.NewServer
+	config := network.NodePortConfig{
+		TCPAddr:   p2pAddr,
+		UDPPort:   p2pAddr, // Use same address for UDP (adjust if needed)
+		SeedNodes: seeds,
+		Role:      network.RoleNone, // Default role, adjust as needed
+	}
 
 	return &Server{
-		tcpServer:  transport.NewTCPServer(tcpAddr, messageCh, rpcServer, nil), // Pass nil for tcpReadyCh
+		tcpServer:  transport.NewTCPServer(tcpAddr, messageCh, rpcServer, nil),
 		wsServer:   transport.NewWebSocketServer(wsAddr, messageCh, rpcServer),
 		httpServer: http.NewServer(httpAddr, messageCh, blockchain),
-		p2pServer:  p2p.NewServer(p2pAddr, ip, port, seeds, blockchain),
+		p2pServer:  p2p.NewServer(config, blockchain),
 	}
 }
 

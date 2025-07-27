@@ -24,6 +24,7 @@
 package p2p
 
 import (
+	"net"
 	"sync"
 	"time"
 
@@ -40,6 +41,7 @@ type Server struct {
 	seedNodes   []string
 	messageCh   chan *security.Message
 	blockchain  *core.Blockchain
+	udpConn     *net.UDPConn
 	mu          sync.Mutex
 }
 
@@ -64,11 +66,43 @@ type Peer = network.Peer
 // PeerManager handles peer lifecycle and communication.
 type PeerManager struct {
 	server      *Server
-	peers       map[string]*network.Peer // Map of peer ID to peer
-	scores      map[string]int           // Peer scores based on behavior
-	bans        map[string]time.Time     // Banned peers with expiry
-	maxPeers    int                      // Maximum number of peers
-	maxInbound  int                      // Maximum inbound connections
-	maxOutbound int                      // Maximum outbound connections
-	mu          sync.RWMutex             // Mutex for thread-safe access
+	peers       map[string]*network.Peer
+	scores      map[string]int
+	bans        map[string]time.Time
+	maxPeers    int
+	maxInbound  int
+	maxOutbound int
+	mu          sync.RWMutex
+}
+
+// DiscoveryMessage represents a UDP discovery message.
+type DiscoveryMessage struct {
+	Type      string      `json:"type"`
+	Data      interface{} `json:"data"`
+	Signature []byte      `json:"signature"`
+	PublicKey []byte      `json:"public_key"`
+}
+
+// PingData for PING messages.
+type PingData struct {
+	FromID    network.NodeID `json:"from_id"`
+	ToID      network.NodeID `json:"to_id"`
+	Timestamp time.Time      `json:"timestamp"`
+}
+
+// PongData for PONG messages.
+type PongData struct {
+	FromID    network.NodeID `json:"from_id"`
+	ToID      network.NodeID `json:"to_id"`
+	Timestamp time.Time      `json:"timestamp"`
+}
+
+// FindNodeData for FINDNODE messages.
+type FindNodeData struct {
+	TargetID network.NodeID `json:"target_id"`
+}
+
+// NeighborsData for NEIGHBORS messages.
+type NeighborsData struct {
+	Nodes []network.PeerInfo `json:"nodes"`
 }

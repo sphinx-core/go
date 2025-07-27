@@ -24,6 +24,7 @@
 package network
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"time"
@@ -32,8 +33,7 @@ import (
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 )
 
-// NewNode creates a new node instance with SPHINCS+ keys.
-func NewNode(address, ip, port string, isLocal bool, role NodeRole) *Node {
+func NewNode(address, ip, port, udpPort string, isLocal bool, role NodeRole) *Node {
 	km, err := key.NewKeyManager()
 	if err != nil {
 		log.Fatalf("Failed to initialize SPHINCS+ key manager: %v", err)
@@ -46,34 +46,39 @@ func NewNode(address, ip, port string, isLocal bool, role NodeRole) *Node {
 	if err != nil {
 		log.Fatalf("Failed to serialize SPHINCS+ key pair: %v", err)
 	}
-	return &Node{
+	node := &Node{
 		ID:         uuid.New().String(),
 		Address:    address,
 		IP:         ip,
 		Port:       port,
+		UDPPort:    udpPort,
 		Status:     NodeStatusUnknown,
-		Role:       role, // Set initial role
+		Role:       role,
 		LastSeen:   time.Now(),
 		IsLocal:    isLocal,
 		PublicKey:  pkBytes,
 		PrivateKey: skBytes,
 	}
+	node.KademliaID = node.GenerateNodeID()
+	return node
 }
 
-// UpdateStatus sets the node's status and updates the timestamp.
+func (n *Node) GenerateNodeID() NodeID {
+	hash := sha256.Sum256(n.PublicKey)
+	return NodeID(hash)
+}
+
 func (n *Node) UpdateStatus(status NodeStatus) {
 	n.Status = status
 	n.LastSeen = time.Now()
 	log.Printf("Node %s (Role=%s) status updated to %s", n.ID, n.Role, status)
 }
 
-// UpdateRole updates the node's role.
 func (n *Node) UpdateRole(role NodeRole) {
 	n.Role = role
 	log.Printf("Node %s updated role to %s", n.ID, role)
 }
 
-// NewPeer constructs a new Peer from a Node.
 func NewPeer(node *Node) *Peer {
 	return &Peer{
 		Node:             node,
@@ -84,7 +89,6 @@ func NewPeer(node *Node) *Peer {
 	}
 }
 
-// ConnectPeer sets the peer as connected if the node is active.
 func (p *Peer) ConnectPeer() error {
 	if p.Node.Status != NodeStatusActive {
 		return fmt.Errorf("cannot connect to node %s: status is %s", p.Node.ID, p.Node.Status)
@@ -95,7 +99,6 @@ func (p *Peer) ConnectPeer() error {
 	return nil
 }
 
-// DisconnectPeer marks a peer as disconnected.
 func (p *Peer) DisconnectPeer() {
 	p.ConnectionStatus = "disconnected"
 	p.ConnectedAt = time.Time{}
@@ -104,25 +107,24 @@ func (p *Peer) DisconnectPeer() {
 	log.Printf("Peer %s (Role=%s) disconnected", p.Node.ID, p.Node.Role)
 }
 
-// SendPing records the time a ping was sent.
 func (p *Peer) SendPing() {
 	p.LastPing = time.Now()
 	log.Printf("Sent PING to peer %s (Role=%s)", p.Node.ID, p.Node.Role)
 }
 
-// ReceivePong records the time a pong was received.
-func (p *Peer) ReceivePong() {
+func (p *Peer) ReceivePong() { // Fixed: Renamed from ReceivePeerPong
 	p.LastPong = time.Now()
 	log.Printf("Received PONG from peer %s (Role=%s)", p.Node.ID, p.Node.Role)
 }
 
-// GetPeerInfo returns a serializable peer summary.
 func (p *Peer) GetPeerInfo() PeerInfo {
 	return PeerInfo{
 		NodeID:          p.Node.ID,
+		KademliaID:      p.Node.KademliaID,
 		Address:         p.Node.Address,
 		IP:              p.Node.IP,
 		Port:            p.Node.Port,
+		UDPPort:         p.Node.UDPPort,
 		Status:          p.Node.Status,
 		Role:            p.Node.Role,
 		Timestamp:       time.Now(),

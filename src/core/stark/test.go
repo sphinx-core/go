@@ -114,9 +114,9 @@ func main() {
 					return
 				}
 				fmt.Printf("    Secret Key (hex, first signature): %s\n", hex.EncodeToString(skBytes))
-				fmt.Printf("    Secret Key size: %.2f KB\n", float64(len(skBytes))/1024.0)
+				fmt.Printf("    Secret Key size: %d bytes\n", len(skBytes))
 				fmt.Printf("    Public Key (hex, first signature): %s\n", hex.EncodeToString(pkBytes))
-				fmt.Printf("    Public Key size: %.2f KB\n", float64(len(pkBytes))/1024.0)
+				fmt.Printf("    Public Key size: %d bytes\n", len(pkBytes))
 				fmt.Printf("    Key generation time (first signature): %.3f sec\n", keyGenDuration)
 			}
 			// Sign message
@@ -129,13 +129,19 @@ func main() {
 			signDuration := time.Since(signStart).Seconds()
 			// Log and verify for first signature
 			if i == 0 {
-				sigHex, sigSize, err := signer.SerializeSignature(sig)
+				sigHex, _, err := signer.SerializeSignature(sig)
 				if err != nil {
 					sigErrChan <- fmt.Errorf("failed to serialize signature %d: %v", i+1, err)
 					return
 				}
 				fmt.Printf("    Signature (hex, first signature): %s\n", sigHex)
-				fmt.Printf("    Signature size: %.2f KB\n", sigSize)
+				sigBytes, err := hex.DecodeString(sigHex)
+				if err != nil {
+					sigErrChan <- fmt.Errorf("failed to decode signature hex: %v", err)
+					return
+				}
+				fmt.Printf("    Signature size: %d bytes\n", len(sigBytes))
+
 				fmt.Printf("    Signature generation time (first signature): %.3f sec\n", signDuration)
 				// Verify first signature
 				fmt.Println("    Verifying first signature...")
@@ -224,7 +230,7 @@ func main() {
 				fmt.Printf("Test Case 1 failed: Failed to serialize STARK proof: %v\n", err)
 				return
 			}
-			fmt.Printf("  STARK proof size (first proof): %.2f KB\n", float64(len(proofBytes))/1024.0)
+			fmt.Printf("  STARK proof size (first proof): %d bytes\n", len(proofBytes))
 		}
 	}
 	fmt.Printf("  STARK proof generation time: %.3f sec\n", proofGenDuration)

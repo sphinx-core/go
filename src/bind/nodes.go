@@ -33,6 +33,7 @@ import (
 	"github.com/sphinx-core/go/src/core"
 	security "github.com/sphinx-core/go/src/handshake"
 	logger "github.com/sphinx-core/go/src/log"
+	"github.com/sphinx-core/go/src/network"
 	"github.com/sphinx-core/go/src/p2p"
 	"github.com/sphinx-core/go/src/rpc"
 	"github.com/sphinx-core/go/src/transport"
@@ -78,7 +79,15 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 		}
 
 		// Initialize P2P server
-		p2pServers[i] = p2p.NewServer(config.Address, ip, port, config.SeedNodes, blockchains[i])
+		p2pServers[i] = p2p.NewServer(network.NodePortConfig{
+			Name:      config.Name,
+			Role:      config.Role,
+			TCPAddr:   config.Address,
+			UDPPort:   config.Address, // Use same address for UDP (adjust if needed)
+			HTTPPort:  config.HTTPPort,
+			WSPort:    config.WSPort,
+			SeedNodes: config.SeedNodes,
+		}, blockchains[i])
 		localNode := p2pServers[i].LocalNode()
 		localNode.UpdateRole(config.Role)
 		logger.Infof("Node %s initialized with role %s", config.Name, config.Role)

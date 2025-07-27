@@ -32,7 +32,7 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"strings"
+	"math/big"
 	"time"
 
 	security "github.com/sphinx-core/go/src/handshake"
@@ -41,15 +41,15 @@ import (
 )
 
 // NewPeerManager creates a new peer manager.
-func NewPeerManager(server *Server) *PeerManager {
+func NewPeerManager(server *Server, bucketSize int) *PeerManager {
 	return &PeerManager{
 		server:      server,
 		peers:       make(map[string]*network.Peer),
 		scores:      make(map[string]int),
 		bans:        make(map[string]time.Time),
-		maxPeers:    50, // Configurable limit
-		maxInbound:  30, // Configurable limit
-		maxOutbound: 20, // Configurable limit
+		maxPeers:    50,
+		maxInbound:  30,
+		maxOutbound: 20,
 	}
 }
 
@@ -57,38 +57,25 @@ func NewPeerManager(server *Server) *PeerManager {
 func (pm *PeerManager) ConnectPeer(node *network.Node) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-
-	log.Printf("Starting ConnectPeer for node %s (Address=%s)", node.ID, node.Address)
-	// Check if banned
 	if banExpiry, banned := pm.bans[node.ID]; banned && time.Now().Before(banExpiry) {
 		log.Printf("Peer %s is banned until %v", node.ID, banExpiry)
 		return fmt.Errorf("peer %s is banned until %v", node.ID, banExpiry)
 	}
-
-	// Check peer limits
 	if len(pm.peers) >= pm.maxPeers {
 		log.Printf("Maximum peer limit reached: %d", pm.maxPeers)
 		return errors.New("maximum peer limit reached")
 	}
-
-	// Connect via transport
 	log.Printf("Calling transport.ConnectNode for %s", node.Address)
 	if err := transport.ConnectNode(node, pm.server.messageCh); err != nil {
 		log.Printf("Failed to connect to %s: %v", node.ID, err)
 		return fmt.Errorf("failed to connect to %s: %v", node.ID, err)
 	}
-	log.Printf("transport.ConnectNode succeeded for %s", node.Address)
-
-	// Perform version handshake
 	log.Printf("Performing handshake with %s", node.ID)
 	if err := pm.performHandshake(node); err != nil {
 		log.Printf("Handshake failed with %s: %v", node.ID, err)
 		transport.DisconnectNode(node)
 		return fmt.Errorf("handshake failed with %s: %v", node.ID, err)
 	}
-	log.Printf("Handshake succeeded with %s", node.ID)
-
-	// Add peer
 	peer := &network.Peer{
 		Node:             node,
 		ConnectionStatus: "connected",
@@ -101,26 +88,26 @@ func (pm *PeerManager) ConnectPeer(node *network.Node) error {
 		return fmt.Errorf("failed to add peer %s: %v", node.ID, err)
 	}
 	pm.peers[node.ID] = peer
-	pm.scores[node.ID] = 50 // Initial score
+	pm.scores[node.ID] = 50
 	log.Printf("Connected to peer %s (Role=%s)", node.ID, node.Role)
-
-	// Send initial messages
 	peer.SendPing()
 	pm.server.Broadcast(&security.Message{Type: "peer_info", Data: network.PeerInfo{
-		NodeID:  pm.server.localNode.ID,
-		Address: pm.server.localNode.Address,
-		IP:      pm.server.localNode.IP,
-		Port:    pm.server.localNode.Port,
-		Role:    pm.server.localNode.Role,
-		Status:  network.NodeStatusActive,
+		NodeID:          pm.server.localNode.ID,
+		KademliaID:      pm.server.localNode.KademliaID,
+		Address:         pm.server.localNode.Address,
+		IP:              pm.server.localNode.IP,
+		Port:            pm.server.localNode.Port,
+		UDPPort:         pm.server.localNode.UDPPort,
+		Role:            pm.server.localNode.Role,
+		Status:          network.NodeStatusActive,
+		Timestamp:       time.Now(),
+		ProtocolVersion: "1.0",
+		PublicKey:       pm.server.localNode.PublicKey,
 	}})
-	log.Printf("Sent initial messages to %s", node.ID)
-
 	return nil
 }
 
 // performHandshake negotiates protocol version and capabilities.
-
 func (pm *PeerManager) performHandshake(node *network.Node) error {
 	log.Printf("Sending version message to %s", node.Address)
 	nonce := make([]byte, 8)
@@ -149,16 +136,13 @@ func (pm *PeerManager) performHandshake(node *network.Node) error {
 func (pm *PeerManager) DisconnectPeer(peerID string) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-
 	peer, exists := pm.peers[peerID]
 	if !exists {
 		return fmt.Errorf("peer %s not found", peerID)
 	}
-
 	if err := transport.DisconnectNode(peer.Node); err != nil {
 		log.Printf("Failed to disconnect peer %s: %v", peerID, err)
 	}
-
 	delete(pm.peers, peerID)
 	delete(pm.scores, peerID)
 	pm.server.nodeManager.RemovePeer(peerID)
@@ -170,11 +154,9 @@ func (pm *PeerManager) DisconnectPeer(peerID string) error {
 func (pm *PeerManager) BanPeer(peerID string, duration time.Duration) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-
 	if _, exists := pm.peers[peerID]; !exists {
 		return fmt.Errorf("peer %s not found", peerID)
 	}
-
 	pm.bans[peerID] = time.Now().Add(duration)
 	return pm.DisconnectPeer(peerID)
 }
@@ -183,7 +165,6 @@ func (pm *PeerManager) BanPeer(peerID string, duration time.Duration) error {
 func (pm *PeerManager) UpdatePeerScore(peerID string, delta int) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-
 	if _, exists := pm.peers[peerID]; !exists {
 		return
 	}
@@ -201,15 +182,11 @@ func (pm *PeerManager) UpdatePeerScore(peerID string, delta int) {
 func (pm *PeerManager) PropagateMessage(msg *security.Message, originID string) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-
-	// Deduplicate messages
 	msgID := generateMessageID(msg)
 	if pm.server.nodeManager.HasSeenMessage(msgID) {
 		return
 	}
 	pm.server.nodeManager.MarkMessageSeen(msgID)
-
-	// Select top-scoring peers for propagation
 	type peerScore struct {
 		peer  *network.Peer
 		score int
@@ -221,25 +198,23 @@ func (pm *PeerManager) PropagateMessage(msg *security.Message, originID string) 
 		}
 		candidates = append(candidates, peerScore{peer, pm.scores[id]})
 	}
-
-	// Sort by score (descending)
-	for i := 0; i < len(candidates)-1; i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			if candidates[i].score < candidates[j].score {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
-		}
-	}
-
-	// Propagate to top N peers
+	// Randomly select up to sqrt(n) peers
 	n := int(math.Sqrt(float64(len(candidates))))
 	if n < 3 {
 		n = 3
 	} else if n > 10 {
 		n = 10
 	}
-	for i := 0; i < n && i < len(candidates); i++ {
-		peer := candidates[i].peer
+	if len(candidates) > n {
+		for i := 0; i < n; i++ {
+			j, _ := rand.Int(rand.Reader, big.NewInt(int64(len(candidates)-i)))
+			idx := i + int(j.Int64())
+			candidates[i], candidates[idx] = candidates[idx], candidates[i]
+		}
+		candidates = candidates[:n]
+	}
+	for _, candidate := range candidates {
+		peer := candidate.peer
 		if err := transport.SendMessage(peer.Node.Address, msg); err != nil {
 			log.Printf("Failed to propagate %s to %s: %v", msg.Type, peer.Node.ID, err)
 			pm.UpdatePeerScore(peer.Node.ID, -10)
@@ -253,12 +228,10 @@ func (pm *PeerManager) PropagateMessage(msg *security.Message, originID string) 
 func (pm *PeerManager) SyncBlockchain(peerID string) error {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-
 	peer, exists := pm.peers[peerID]
 	if !exists {
 		return fmt.Errorf("peer %s not found", peerID)
 	}
-
 	headersMsg := &security.Message{
 		Type: "getheaders",
 		Data: map[string]interface{}{
@@ -268,7 +241,6 @@ func (pm *PeerManager) SyncBlockchain(peerID string) error {
 	if err := transport.SendMessage(peer.Node.Address, headersMsg); err != nil {
 		return fmt.Errorf("failed to request headers from %s: %v", peerID, err)
 	}
-
 	log.Printf("Requested headers from peer %s", peerID)
 	return nil
 }
@@ -277,25 +249,17 @@ func (pm *PeerManager) SyncBlockchain(peerID string) error {
 func (pm *PeerManager) MaintainPeers() {
 	for {
 		pm.mu.Lock()
-		// Evict low-scoring peers
 		for id, score := range pm.scores {
 			if score < 20 && len(pm.peers) > pm.maxPeers/2 {
 				pm.DisconnectPeer(id)
 			}
 		}
-
-		// Connect to new peers if needed
 		if len(pm.peers) < pm.maxPeers/2 {
-			for _, addr := range pm.server.seedNodes {
-				if _, exists := pm.peers[addr]; exists || addr == pm.server.localNode.Address {
-					continue
+			peers := pm.server.nodeManager.FindClosestPeers(pm.server.localNode.KademliaID, pm.maxPeers-len(pm.peers))
+			for _, peer := range peers {
+				if _, exists := pm.peers[peer.Node.ID]; !exists && peer.Node.Address != pm.server.localNode.Address {
+					go pm.ConnectPeer(peer.Node)
 				}
-				parts := strings.Split(addr, ":")
-				if len(parts) != 2 {
-					continue
-				}
-				node := network.NewNode(addr, parts[0], parts[1], false, network.RoleNone)
-				go pm.ConnectPeer(node)
 			}
 		}
 		pm.mu.Unlock()

@@ -41,26 +41,42 @@ const (
 type NodeRole string
 
 const (
-	RoleSender    NodeRole = "sender"    // Node sending a transaction (e.g., Alice)
-	RoleReceiver  NodeRole = "receiver"  // Node receiving a transaction (e.g., Bob)
-	RoleValidator NodeRole = "validator" // Node validating a transaction (e.g., Charlie)
-	RoleNone      NodeRole = "none"      // Default role for nodes not involved in a specific transaction
+	RoleSender    NodeRole = "sender"
+	RoleReceiver  NodeRole = "receiver"
+	RoleValidator NodeRole = "validator"
+	RoleNone      NodeRole = "none"
 )
+
+// NodeID is a 256-bit identifier for Kademlia DHT.
+type NodeID [32]byte
+
+// KBucket represents a Kademlia bucket for peers at a specific distance range.
+type KBucket struct {
+	Peers       []*Peer
+	LastUpdated time.Time
+}
 
 // NodeManager manages nodes and their peers.
 type NodeManager struct {
-	nodes    map[string]*Node // All known nodes, keyed by Node.ID
-	peers    map[string]*Peer // Connected peers, keyed by Node.ID
-	seenMsgs map[string]bool  // Seen message IDs for deduplication
-	mu       sync.RWMutex     // Thread safety for node and peer access
+	nodes       map[string]*Node // All known nodes, keyed by Node.ID
+	peers       map[string]*Peer // Connected peers, keyed by Node.ID
+	seenMsgs    map[string]bool  // Seen message IDs for deduplication
+	kBuckets    [256][]*KBucket  // Kademlia k-buckets (256 buckets, one per bit distance)
+	LocalNodeID NodeID           // Local node's Kademlia ID
+	K           int              // Bucket size (e.g., 16, Ethereum's default)
+	ResponseCh  chan []*Peer     // Channel for NEIGHBORS responses
+	PingTimeout time.Duration    // Timeout for ping responses
+	mu          sync.RWMutex     // Thread safety for node and peer access
 }
 
 // Node represents a participant in the blockchain or P2P network.
 type Node struct {
 	ID         string     // Unique identifier (UUID)
+	KademliaID NodeID     // Kademlia node ID (hash of public key)
 	Address    string     // Network address (e.g., IP:port)
 	IP         string     // IP address
 	Port       string     // Port number
+	UDPPort    string     // UDP port for discovery
 	Status     NodeStatus // Current status (active/inactive/unknown)
 	Role       NodeRole   // Role in transactions (sender/receiver/validator/none)
 	LastSeen   time.Time  // Last activity timestamp
@@ -76,17 +92,19 @@ type Peer struct {
 	ConnectedAt      time.Time // Connection timestamp
 	LastPing         time.Time // Last ping sent
 	LastPong         time.Time // Last pong received
-	LastSeen         time.Time // Last activity timestamp (added)
+	LastSeen         time.Time // Last activity timestamp
 }
 
 // PeerInfo is a shareable snapshot of peer metadata.
 type PeerInfo struct {
 	NodeID          string     `json:"node_id"`
+	KademliaID      NodeID     `json:"kademlia_id"`
 	Address         string     `json:"address"`
 	IP              string     `json:"ip"`
 	Port            string     `json:"port"`
+	UDPPort         string     `json:"udp_port"`
 	Status          NodeStatus `json:"status"`
-	Role            NodeRole   `json:"role"` // Added role field
+	Role            NodeRole   `json:"role"`
 	Timestamp       time.Time  `json:"timestamp"`
 	ProtocolVersion string     `json:"protocol_version"`
 	PublicKey       []byte     `json:"public_key"`
@@ -97,7 +115,40 @@ type NodePortConfig struct {
 	Name      string   // Node name (e.g., Node-0, Node-1)
 	Role      NodeRole // Node role (sender, receiver, validator)
 	TCPAddr   string   // TCP address (e.g., 127.0.0.1:30303)
+	UDPPort   string   // UDP port for discovery (e.g., 127.0.0.1:30304)
 	HTTPPort  string   // HTTP port (e.g., 127.0.0.1:8545)
 	WSPort    string   // WebSocket port (e.g., 127.0.0.1:8546)
-	SeedNodes []string // Seed node addresses (e.g., [127.0.0.1:30304, 127.0.0.1:30305])
+	SeedNodes []string // Seed node addresses (UDP addresses)
+}
+
+// DiscoveryMessage represents a UDP discovery message.
+type DiscoveryMessage struct {
+	Type      string      `json:"type"`
+	Data      interface{} `json:"data"`
+	Signature []byte      `json:"signature"`
+	PublicKey []byte      `json:"public_key"`
+}
+
+// PingData for PING messages.
+type PingData struct {
+	FromID    NodeID    `json:"from_id"`
+	ToID      NodeID    `json:"to_id"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// PongData for PONG messages.
+type PongData struct {
+	FromID    NodeID    `json:"from_id"`
+	ToID      NodeID    `json:"to_id"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// FindNodeData for FINDNODE messages.
+type FindNodeData struct {
+	TargetID NodeID `json:"target_id"`
+}
+
+// NeighborsData for NEIGHBORS messages.
+type NeighborsData struct {
+	Nodes []PeerInfo `json:"nodes"`
 }
