@@ -35,7 +35,7 @@ import (
 
 // startHTTPServer starts an HTTP server for the given node.
 func startHTTPServer(name, port string, messageCh chan *security.Message, blockchain *core.Blockchain, readyCh chan struct{}, wg *sync.WaitGroup) {
-	httpServer := http.NewServer(port, messageCh, blockchain)
+	httpServer := http.NewServer(port, messageCh, blockchain, readyCh)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

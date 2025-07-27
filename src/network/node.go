@@ -29,37 +29,41 @@ import (
 	"log"
 	"time"
 
-	"github.com/google/uuid"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 )
 
+// NewNode creates a new node with the specified parameters.
 func NewNode(address, ip, port, udpPort string, isLocal bool, role NodeRole) *Node {
 	km, err := key.NewKeyManager()
 	if err != nil {
-		log.Fatalf("Failed to initialize SPHINCS+ key manager: %v", err)
+		log.Printf("Failed to create key manager: %v", err)
+		return nil
 	}
 	sk, pk, err := km.GenerateKey()
 	if err != nil {
-		log.Fatalf("Failed to generate SPHINCS+ key pair: %v", err)
+		log.Printf("Failed to generate key pair: %v", err)
+		return nil
 	}
 	skBytes, pkBytes, err := km.SerializeKeyPair(sk, pk)
 	if err != nil {
-		log.Fatalf("Failed to serialize SPHINCS+ key pair: %v", err)
+		log.Printf("Failed to serialize key pair: %v", err)
+		return nil
 	}
+	log.Printf("Generated keys for node %s: PrivateKey length=%d, PublicKey length=%d", address, len(skBytes), len(pkBytes))
+
 	node := &Node{
-		ID:         uuid.New().String(),
+		ID:         fmt.Sprintf("Node-%s", address),
 		Address:    address,
 		IP:         ip,
 		Port:       port,
 		UDPPort:    udpPort,
-		Status:     NodeStatusUnknown,
-		Role:       role,
-		LastSeen:   time.Now(),
-		IsLocal:    isLocal,
-		PublicKey:  pkBytes,
+		KademliaID: GenerateKademliaID(address),
 		PrivateKey: skBytes,
+		PublicKey:  pkBytes,
+		IsLocal:    isLocal,
+		Role:       role,
+		Status:     NodeStatusActive,
 	}
-	node.KademliaID = node.GenerateNodeID()
 	return node
 }
 
@@ -112,7 +116,7 @@ func (p *Peer) SendPing() {
 	log.Printf("Sent PING to peer %s (Role=%s)", p.Node.ID, p.Node.Role)
 }
 
-func (p *Peer) ReceivePong() { // Fixed: Renamed from ReceivePeerPong
+func (p *Peer) ReceivePong() {
 	p.LastPong = time.Now()
 	log.Printf("Received PONG from peer %s (Role=%s)", p.Node.ID, p.Node.Role)
 }
@@ -131,4 +135,9 @@ func (p *Peer) GetPeerInfo() PeerInfo {
 		ProtocolVersion: "1.0",
 		PublicKey:       p.Node.PublicKey,
 	}
+}
+
+func GenerateKademliaID(address string) NodeID {
+	hash := sha256.Sum256([]byte(address))
+	return NodeID(hash)
 }

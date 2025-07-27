@@ -25,7 +25,6 @@ package bind
 
 import (
 	"sync"
-	"time"
 
 	security "github.com/sphinx-core/go/src/handshake"
 	logger "github.com/sphinx-core/go/src/log"
@@ -40,24 +39,10 @@ func startWebSocketServer(name, port string, messageCh chan *security.Message, r
 	go func() {
 		defer wg.Done()
 		logger.Infof("Starting WebSocket server for %s on %s", name, port)
-		startCh := make(chan error, 1)
-		go func() {
-			if err := wsServer.Start(); err != nil {
-				startCh <- err
-			} else {
-				startCh <- nil
-			}
-		}()
-		select {
-		case err := <-startCh:
-			if err != nil {
-				logger.Errorf("WebSocket server failed for %s: %v", name, err)
-				return
-			}
-		case <-time.After(2 * time.Second):
-			logger.Infof("WebSocket server for %s successfully started", name)
-			logger.Infof("Sending ready signal for WebSocket server %s", name)
-			readyCh <- struct{}{}
+		if err := wsServer.Start(readyCh); err != nil {
+			logger.Errorf("WebSocket server failed for %s: %v", name, err)
+			return
 		}
+		logger.Infof("WebSocket server for %s successfully started", name)
 	}()
 }

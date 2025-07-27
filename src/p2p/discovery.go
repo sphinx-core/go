@@ -27,9 +27,10 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net"
-	"strings"
 	"time"
 
 	sigproof "github.com/sphinx-core/go/src/core/proof"
@@ -39,36 +40,60 @@ import (
 
 // DiscoverPeers initiates Kademlia-based peer discovery.
 func (s *Server) DiscoverPeers() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, seedAddr := range s.seedNodes {
-		if seedAddr == s.localNode.UDPPort {
-			continue
-		}
-		parts := strings.Split(seedAddr, ":")
-		if len(parts) != 2 {
-			log.Printf("Invalid seed address: %s", seedAddr)
-			continue
-		}
-		ip := parts[0]
-		if net.ParseIP(ip) == nil {
-			log.Printf("Invalid IP address: %s", ip)
-			continue
-		}
-		addr, err := net.ResolveUDPAddr("udp", seedAddr)
+	log.Printf("DiscoverPeers: Starting peer discovery for node %s with %d seed nodes", s.localNode.Address, len(s.seedNodes))
+	if len(s.seedNodes) == 0 {
+		log.Printf("DiscoverPeers: No seed nodes provided for node %s", s.localNode.Address)
+		return errors.New("no seed nodes provided")
+	}
+
+	for _, seed := range s.seedNodes {
+		log.Printf("DiscoverPeers: Processing seed node %s", seed)
+		addr, err := net.ResolveUDPAddr("udp", seed)
 		if err != nil {
-			log.Printf("Failed to resolve UDP address %s: %v", seedAddr, err)
+			log.Printf("DiscoverPeers: Failed to resolve seed address %s: %v", seed, err)
 			continue
 		}
-		nonce := make([]byte, 32)
+		node := network.NewNode(seed, addr.IP.String(), fmt.Sprintf("%d", addr.Port), seed, false, network.RoleNone)
+		node.KademliaID = network.GenerateKademliaID(seed)
+		log.Printf("DiscoverPeers: Sending PING to seed node %s (KademliaID: %x)", seed, node.KademliaID[:8])
+
+		// Send PING to seed node using sendUDPPing
+		nonce := make([]byte, 8)
 		_, err = rand.Read(nonce)
 		if err != nil {
-			log.Printf("Failed to generate nonce: %v", err)
+			log.Printf("DiscoverPeers: Failed to generate nonce for %s: %v", seed, err)
 			continue
 		}
-		s.sendUDPPing(addr, network.NodeID{}, nonce)
+		s.sendUDPPing(addr, node.KademliaID, nonce)
+
+		// Wait for PONG or NEIGHBORS response
+		timeout := time.After(5 * time.Second)
+		select {
+		case peers := <-s.nodeManager.ResponseCh:
+			log.Printf("DiscoverPeers: Received %d peers from %s", len(peers), seed)
+			for _, peer := range peers {
+				log.Printf("DiscoverPeers: Attempting to connect to peer %s (KademliaID: %x)", peer.Node.Address, peer.Node.KademliaID[:8])
+				if peer.Node.Address != s.localNode.Address {
+					if err := s.peerManager.ConnectPeer(peer.Node); err != nil {
+						log.Printf("DiscoverPeers: Failed to connect to peer %s: %v", peer.Node.Address, err)
+						continue
+					}
+					log.Printf("DiscoverPeers: Successfully connected to peer %s", peer.Node.Address)
+					// Perform FINDNODE to discover more peers
+					go s.iterativeFindNode(peer.Node.KademliaID)
+				}
+			}
+		case <-timeout:
+			log.Printf("DiscoverPeers: Timeout waiting for response from seed %s", seed)
+			continue
+		}
 	}
-	go s.iterativeFindNode(s.localNode.KademliaID)
+
+	if len(s.peerManager.peers) == 0 {
+		log.Printf("DiscoverPeers: No peers found after processing all seed nodes")
+		return errors.New("no peers found")
+	}
+	log.Printf("DiscoverPeers: Found %d peers", len(s.peerManager.peers))
 	return nil
 }
 
@@ -112,9 +137,9 @@ func (s *Server) iterativeFindNode(targetID network.NodeID) {
 						errorCh <- err
 						return
 					}
-					privateKey, _, err := km.DeserializeKeyPair(s.localNode.PrivateKey, nil)
+					privateKey, _, err := km.DeserializeKeyPair(s.localNode.PrivateKey, s.localNode.PublicKey)
 					if err != nil {
-						errorCh <- err
+						errorCh <- fmt.Errorf("failed to deserialize key pair: %v", err)
 						return
 					}
 					data := network.FindNodeData{
@@ -122,7 +147,11 @@ func (s *Server) iterativeFindNode(targetID network.NodeID) {
 						Timestamp: time.Now(),
 						Nonce:     nonce,
 					}
-					dataBytes, _ := json.Marshal(data)
+					dataBytes, err := json.Marshal(data)
+					if err != nil {
+						errorCh <- err
+						return
+					}
 					timestamp := make([]byte, 8)
 					binary.BigEndian.PutUint64(timestamp, uint64(data.Timestamp.Unix()))
 					signature, merkleRoot, _, nonce, err := s.sphincsMgr.SignMessage(dataBytes, privateKey)
@@ -143,7 +172,7 @@ func (s *Server) iterativeFindNode(targetID network.NodeID) {
 					}
 					msg := network.DiscoveryMessage{
 						Type:       "FINDNODE",
-						Data:       data,
+						Data:       dataBytes,
 						Signature:  signatureBytes,
 						PublicKey:  s.localNode.PublicKey,
 						MerkleRoot: merkleRoot.Hash.Bytes(),
@@ -172,6 +201,14 @@ func (s *Server) iterativeFindNode(targetID network.NodeID) {
 							newClosestPeers = []*network.Peer{p}
 						} else if s.nodeManager.CompareDistance(distance, newClosestDistance) == 0 {
 							newClosestPeers = append(newClosestPeers, p)
+						}
+						// Attempt to connect to newly discovered peers
+						if p.Node.Address != s.localNode.Address {
+							if err := s.peerManager.ConnectPeer(p.Node); err != nil {
+								log.Printf("iterativeFindNode: Failed to connect to peer %s: %v", p.Node.Address, err)
+								continue
+							}
+							log.Printf("iterativeFindNode: Successfully connected to peer %s", p.Node.Address)
 						}
 					}
 				case err := <-errorCh:

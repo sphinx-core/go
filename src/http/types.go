@@ -24,6 +24,7 @@
 package http
 
 import (
+	"net/http"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -38,6 +39,8 @@ type Server struct {
 	router          *gin.Engine
 	messageCh       chan *security.Message
 	blockchain      *core.Blockchain
-	lastTransaction *types.Transaction
+	httpServer      *http.Server
 	lastTxMutex     sync.RWMutex
+	lastTransaction *types.Transaction
+	readyCh         chan struct{}
 }

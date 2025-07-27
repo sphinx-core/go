@@ -1,6 +1,6 @@
 // MIT License
 //
-// # Copyright (c) 2024 sphinx-core
+// Copyright (c) 2024 sphinx-core
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -20,44 +20,18 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/transport/types.go
-package transport
+package cli
 
-import (
-	"net"
-	"net/http"
-	"sync"
-
-	"github.com/gorilla/websocket"
-	security "github.com/sphinx-core/go/src/handshake"
-	"github.com/sphinx-core/go/src/rpc"
-)
-
-type IPConfig struct {
-	IP   string
-	Port string
-}
-
-// TCPServer represents a TCP server for handling P2P connections
-// TCPServer manages TCP connections.
-type TCPServer struct {
-	address     string
-	listener    net.Listener
-	messageCh   chan *security.Message
-	rpcServer   *rpc.Server
-	handshake   *security.Handshake
-	tcpReadyCh  chan struct{}
-	connections map[string]net.Conn // Added to store connections
-	mu          sync.Mutex          // Added to protect connections map
-}
-
-// WebSocketServer manages WebSocket connections.
-type WebSocketServer struct {
-	address   string
-	mux       *http.ServeMux
-	server    *http.Server // Add server field to store http.Server
-	upgrader  websocket.Upgrader
-	messageCh chan *security.Message
-	rpcServer *rpc.Server
-	handshake *security.Handshake
+// Config holds CLI configuration.
+type Config struct {
+	configFile string
+	numNodes   int
+	roles      string
+	tcpAddr    string
+	udpPort    string
+	httpPort   string
+	wsPort     string
+	seedNodes  string
+	dataDir    string
+	nodeIndex  int
 }

@@ -24,10 +24,12 @@
 package http
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -36,20 +38,23 @@ import (
 	security "github.com/sphinx-core/go/src/handshake"
 )
 
-// NewServer creates a new HTTP server.
-func NewServer(address string, messageCh chan *security.Message, blockchain *core.Blockchain) *Server {
+func NewServer(address string, messageCh chan *security.Message, blockchain *core.Blockchain, readyCh chan struct{}) *Server {
 	r := gin.Default()
 	s := &Server{
 		address:    address,
 		router:     r,
 		messageCh:  messageCh,
 		blockchain: blockchain,
+		httpServer: &http.Server{
+			Addr:    address,
+			Handler: r,
+		},
+		readyCh: readyCh,
 	}
 	s.setupRoutes()
 	return s
 }
 
-// setupRoutes defines HTTP endpoints.
 func (s *Server) setupRoutes() {
 	s.router.GET("/", func(c *gin.Context) {
 		s.lastTxMutex.RLock()
@@ -114,7 +119,6 @@ func (s *Server) setupRoutes() {
 	})
 }
 
-// handleTransaction submits a transaction.
 func (s *Server) handleTransaction(c *gin.Context) {
 	var tx types.Transaction
 	if err := c.ShouldBindJSON(&tx); err != nil {
@@ -140,7 +144,6 @@ func (s *Server) handleTransaction(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "Transaction submitted"})
 }
 
-// handleGetBlock retrieves a block by ID.
 func (s *Server) handleGetBlock(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
@@ -158,19 +161,39 @@ func (s *Server) handleGetBlock(c *gin.Context) {
 	c.JSON(http.StatusNotFound, gin.H{"error": "block not found"})
 }
 
-// handleGetBestBlockHash returns the active chain’s tip hash.
 func (s *Server) handleGetBestBlockHash(c *gin.Context) {
 	hash := s.blockchain.GetBestBlockHash()
 	c.JSON(http.StatusOK, gin.H{"hash": fmt.Sprintf("%x", hash)})
 }
 
-// handleGetBlockCount returns the active chain height.
 func (s *Server) handleGetBlockCount(c *gin.Context) {
 	count := s.blockchain.GetBlockCount()
 	c.JSON(http.StatusOK, gin.H{"count": count})
 }
 
-// Start runs the HTTP server.
 func (s *Server) Start() error {
-	return s.router.Run(s.address)
+	log.Printf("Starting HTTP server on %s", s.address)
+	go func() {
+		if s.readyCh != nil {
+			s.readyCh <- struct{}{}
+			log.Printf("Sent HTTP ready signal for %s", s.address)
+		}
+		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error on %s: %v", s.address, err)
+		}
+	}()
+	return nil
+}
+
+func (s *Server) Stop() error {
+	if s.httpServer == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.httpServer.Shutdown(ctx); err != nil {
+		return fmt.Errorf("failed to shutdown HTTP server on %s: %v", s.address, err)
+	}
+	log.Printf("HTTP server on %s stopped", s.address)
+	return nil
 }

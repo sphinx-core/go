@@ -32,6 +32,8 @@ import (
 	"time"
 
 	"github.com/sphinx-core/go/src/core"
+	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
+	sign "github.com/sphinx-core/go/src/core/sphincs/sign/backend"
 	types "github.com/sphinx-core/go/src/core/transaction"
 	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/network"
@@ -51,6 +53,16 @@ func NewServer(config network.NodePortConfig, blockchain *core.Blockchain, db *l
 	nodeManager.AddNode(localNode)
 	nodeManager.LocalNodeID = localNode.KademliaID
 
+	// Initialize KeyManager and SPHINCSParameters for SphincsManager
+	km, err := key.NewKeyManager()
+	if err != nil {
+		log.Fatalf("Failed to initialize KeyManager: %v", err)
+	}
+	parameters := km.GetSPHINCSParameters()
+
+	// Initialize SphincsManager with db, KeyManager, and SPHINCSParameters
+	sphincsMgr := sign.NewSphincsManager(db, km, parameters)
+
 	server := &Server{
 		localNode:   localNode,
 		nodeManager: nodeManager,
@@ -58,6 +70,7 @@ func NewServer(config network.NodePortConfig, blockchain *core.Blockchain, db *l
 		messageCh:   make(chan *security.Message, 100),
 		blockchain:  blockchain,
 		db:          db,
+		sphincsMgr:  sphincsMgr,
 	}
 	server.peerManager = NewPeerManager(server, bucketSize)
 	return server

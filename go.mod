@@ -8,7 +8,6 @@ require (
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/cloudflare/circl v1.6.1
 	github.com/gin-gonic/gin v1.10.1
-	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/holiman/uint256 v1.3.2
 	github.com/kasperdi/SPHINCSPLUS-golang v0.0.0-20231223193046-84468b93f7e9

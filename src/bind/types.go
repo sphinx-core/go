@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 // go/src/bind/types.go
+// go/src/bind/types.go
 package bind
 
 import (
@@ -47,6 +48,7 @@ type NodeSetupConfig struct {
 	Role      network.NodeRole
 	HTTPPort  string
 	WSPort    string
+	UDPPort   string // Added UDPPort field
 	SeedNodes []string
 }
 

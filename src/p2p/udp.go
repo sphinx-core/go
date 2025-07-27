@@ -121,7 +121,11 @@ func (s *Server) handleDiscoveryMessage(msg *network.DiscoveryMessage, addr *net
 	merkleRootNode := &hashtree.HashTreeNode{Hash: toUint256(msg.MerkleRoot)}
 
 	// Verify signature
-	dataBytes, _ := json.Marshal(msg.Data)
+	dataBytes, err := json.Marshal(msg.Data)
+	if err != nil {
+		log.Printf("Failed to marshal message data: %v", err)
+		return
+	}
 	isValidSig := s.sphincsMgr.VerifySignature(dataBytes, msg.Timestamp, msg.Nonce, signature, publicKey, merkleRootNode)
 	if !isValidSig {
 		log.Printf("Invalid signature for %s message from %s", msg.Type, addr.String())
@@ -155,42 +159,69 @@ func (s *Server) handleDiscoveryMessage(msg *network.DiscoveryMessage, addr *net
 	case "PING":
 		var pingData network.PingData
 		if err := json.Unmarshal(dataBytes, &pingData); err != nil {
-			log.Printf("Invalid PING data: %v", err)
+			log.Printf("Invalid PING data from %s: %v", addr.String(), err)
 			return
 		}
-		s.sendUDPPong(addr, pingData.FromID, pingData.Nonce)
+		log.Printf("Received PING from %s (KademliaID: %x)", addr.String(), pingData.FromID[:8])
+		// Create or update node
 		node := s.nodeManager.GetNodeByKademliaID(pingData.FromID)
 		if node == nil {
-			node = network.NewNode(addr.String(), addr.IP.String(), "", addr.String(), false, network.RoleNone)
+			node = network.NewNode("", addr.IP.String(), "", addr.String(), false, network.RoleNone)
 			node.KademliaID = pingData.FromID
 			node.PublicKey = msg.PublicKey
 			s.nodeManager.AddNode(node)
 		}
+		// Set TCP address based on seed nodes
+		for _, seed := range s.seedNodes {
+			if seed == addr.String() {
+				tcpAddr := s.localNode.Address // Use local node's TCP address for seed
+				node.Address = tcpAddr
+				break
+			}
+		}
 		node.UpdateStatus(network.NodeStatusActive)
+		s.sendUDPPong(addr, pingData.FromID, pingData.Nonce)
 	case "PONG":
 		var pongData network.PongData
 		if err := json.Unmarshal(dataBytes, &pongData); err != nil {
-			log.Printf("Invalid PONG data: %v", err)
+			log.Printf("Invalid PONG data from %s: %v", addr.String(), err)
 			return
 		}
-		if peer := s.nodeManager.GetNodeByKademliaID(pongData.FromID); peer != nil {
-			if p, exists := s.nodeManager.GetPeers()[peer.ID]; exists {
-				p.ReceivePong()
+		log.Printf("Received PONG from %s (KademliaID: %x)", addr.String(), pongData.FromID[:8])
+		node := s.nodeManager.GetNodeByKademliaID(pongData.FromID)
+		if node == nil {
+			node = network.NewNode("", addr.IP.String(), "", addr.String(), false, network.RoleNone)
+			node.KademliaID = pongData.FromID
+			node.PublicKey = msg.PublicKey
+			s.nodeManager.AddNode(node)
+		}
+		// Set TCP address based on seed nodes
+		for _, seed := range s.seedNodes {
+			if seed == addr.String() {
+				tcpAddr := s.localNode.Address // Use local node's TCP address for seed
+				node.Address = tcpAddr
+				break
 			}
 		}
+		node.UpdateStatus(network.NodeStatusActive)
+		peer := network.NewPeer(node)
+		peer.ReceivePong()
+		s.nodeManager.ResponseCh <- []*network.Peer{peer}
 	case "FINDNODE":
 		var findNodeData network.FindNodeData
 		if err := json.Unmarshal(dataBytes, &findNodeData); err != nil {
-			log.Printf("Invalid FINDNODE data: %v", err)
+			log.Printf("Invalid FINDNODE data from %s: %v", addr.String(), err)
 			return
 		}
+		log.Printf("Received FINDNODE from %s for target %x", addr.String(), findNodeData.TargetID[:8])
 		s.sendUDPNeighbors(addr, findNodeData.TargetID, findNodeData.Nonce)
 	case "NEIGHBORS":
 		var neighborsData network.NeighborsData
 		if err := json.Unmarshal(dataBytes, &neighborsData); err != nil {
-			log.Printf("Invalid NEIGHBORS data: %v", err)
+			log.Printf("Invalid NEIGHBORS data from %s: %v", addr.String(), err)
 			return
 		}
+		log.Printf("Received NEIGHBORS from %s with %d peers", addr.String(), len(neighborsData.Nodes))
 		peers := make([]*network.Peer, 0, len(neighborsData.Nodes))
 		for _, nodeInfo := range neighborsData.Nodes {
 			node := network.NewNode(nodeInfo.Address, nodeInfo.IP, nodeInfo.Port, nodeInfo.UDPPort, false, nodeInfo.Role)
@@ -222,7 +253,11 @@ func (s *Server) sendUDPPing(addr *net.UDPAddr, toID network.NodeID, nonce []byt
 		Timestamp: time.Now(),
 		Nonce:     nonce,
 	}
-	dataBytes, _ := json.Marshal(data)
+	dataBytes, err := json.Marshal(data)
+	if err != nil {
+		log.Printf("Failed to marshal PING data: %v", err)
+		return
+	}
 	timestamp := make([]byte, 8)
 	binary.BigEndian.PutUint64(timestamp, uint64(data.Timestamp.Unix()))
 	signature, merkleRootNode, _, nonce, err := s.sphincsMgr.SignMessage(dataBytes, privateKey)
@@ -243,7 +278,7 @@ func (s *Server) sendUDPPing(addr *net.UDPAddr, toID network.NodeID, nonce []byt
 	}
 	msg := network.DiscoveryMessage{
 		Type:       "PING",
-		Data:       data,
+		Data:       dataBytes, // Use serialized data
 		Signature:  signatureBytes,
 		PublicKey:  s.localNode.PublicKey,
 		MerkleRoot: merkleRootNode.Hash.Bytes(),
@@ -272,7 +307,11 @@ func (s *Server) sendUDPPong(addr *net.UDPAddr, toID network.NodeID, nonce []byt
 		Timestamp: time.Now(),
 		Nonce:     nonce,
 	}
-	dataBytes, _ := json.Marshal(data)
+	dataBytes, err := json.Marshal(data)
+	if err != nil {
+		log.Printf("Failed to marshal PONG data: %v", err)
+		return
+	}
 	timestamp := make([]byte, 8)
 	binary.BigEndian.PutUint64(timestamp, uint64(data.Timestamp.Unix()))
 	signature, merkleRootNode, _, nonce, err := s.sphincsMgr.SignMessage(dataBytes, privateKey)
@@ -293,7 +332,7 @@ func (s *Server) sendUDPPong(addr *net.UDPAddr, toID network.NodeID, nonce []byt
 	}
 	msg := network.DiscoveryMessage{
 		Type:       "PONG",
-		Data:       data,
+		Data:       dataBytes, // Use serialized data
 		Signature:  signatureBytes,
 		PublicKey:  s.localNode.PublicKey,
 		MerkleRoot: merkleRootNode.Hash.Bytes(),
@@ -326,7 +365,11 @@ func (s *Server) sendUDPNeighbors(addr *net.UDPAddr, targetID network.NodeID, no
 		Timestamp: time.Now(),
 		Nonce:     nonce,
 	}
-	dataBytes, _ := json.Marshal(data)
+	dataBytes, err := json.Marshal(data)
+	if err != nil {
+		log.Printf("Failed to marshal NEIGHBORS data: %v", err)
+		return
+	}
 	timestamp := make([]byte, 8)
 	binary.BigEndian.PutUint64(timestamp, uint64(data.Timestamp.Unix()))
 	signature, merkleRootNode, _, nonce, err := s.sphincsMgr.SignMessage(dataBytes, privateKey)
@@ -347,7 +390,7 @@ func (s *Server) sendUDPNeighbors(addr *net.UDPAddr, targetID network.NodeID, no
 	}
 	msg := network.DiscoveryMessage{
 		Type:       "NEIGHBORS",
-		Data:       data,
+		Data:       dataBytes, // Use serialized data
 		Signature:  signatureBytes,
 		PublicKey:  s.localNode.PublicKey,
 		MerkleRoot: merkleRootNode.Hash.Bytes(),
@@ -371,7 +414,7 @@ func (s *Server) sendUDPMessage(addr *net.UDPAddr, msg network.DiscoveryMessage)
 	}
 }
 
-// Add a method to store discovery message leaves
+// StoreDiscoveryMessage stores discovery message leaves in the database.
 func (s *Server) StoreDiscoveryMessage(msg *network.DiscoveryMessage) error {
 	dataBytes, err := json.Marshal(msg.Data)
 	if err != nil {

@@ -24,6 +24,7 @@
 package transport
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -36,202 +37,190 @@ import (
 )
 
 // NewWebSocketServer initializes and returns a new WebSocketServer struct.
-// It sets up the HTTP ServeMux, WebSocket upgrader with a permissive CheckOrigin,
-// and stores the provided message channel and rpcServer for use in message handling.
 func NewWebSocketServer(address string, messageCh chan *security.Message, rpcServer *rpc.Server) *WebSocketServer {
-	mux := http.NewServeMux() // Create new HTTP request multiplexer
+	mux := http.NewServeMux()
 	return &WebSocketServer{
-		address: address, // server listen address
-		mux:     mux,     // HTTP request multiplexer
-		upgrader: websocket.Upgrader{ // WebSocket upgrader config
-			CheckOrigin: func(r *http.Request) bool { return true }, // allow all origins
+		address: address,
+		mux:     mux,
+		upgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool { return true },
 		},
-		messageCh: messageCh,               // channel for incoming secure messages
-		rpcServer: rpcServer,               // RPC server for handling JSON-RPC requests
-		handshake: security.NewHandshake(), // initialize handshake handler
+		messageCh: messageCh,
+		rpcServer: rpcServer,
+		handshake: security.NewHandshake(),
 	}
 }
 
-// Start begins listening for incoming HTTP requests and upgrades WebSocket connections.
-// Registers "/ws" endpoint handler and starts HTTP server on the configured address.
-func (s *WebSocketServer) Start() error {
-	s.mux.HandleFunc("/ws", s.handleWebSocket) // register WebSocket handler at /ws path
-	server := &http.Server{
-		Addr:    s.address, // listen address
-		Handler: s.mux,     // HTTP handler (mux)
+// Start begins listening for WebSocket connections and signals readiness.
+func (s *WebSocketServer) Start(readyCh chan struct{}) error {
+	s.mux.HandleFunc("/ws", s.handleWebSocket)
+	s.server = &http.Server{
+		Addr:    s.address,
+		Handler: s.mux,
 	}
-	log.Printf("WebSocket server listening on %s/ws", s.address) // log server start
-	return server.ListenAndServe()                               // start HTTP server (blocking call)
+	log.Printf("WebSocket server listening on %s/ws", s.address)
+	go func() {
+		if readyCh != nil {
+			readyCh <- struct{}{}
+			log.Printf("Sent WebSocket ready signal for %s", s.address)
+		}
+		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("WebSocket server error on %s: %v", s.address, err)
+		}
+	}()
+	return nil
+}
+
+// Stop gracefully shuts down the WebSocket server.
+func (s *WebSocketServer) Stop() error {
+	if s.server == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.server.Shutdown(ctx); err != nil {
+		return fmt.Errorf("failed to shutdown WebSocket server on %s: %v", s.address, err)
+	}
+	log.Printf("WebSocket server on %s stopped", s.address)
+	return nil
 }
 
 // handleWebSocket upgrades HTTP connections to WebSocket, performs handshake,
-// and then continuously reads, decodes, and processes messages from the connection.
+// and processes messages.
 func (s *WebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := s.upgrader.Upgrade(w, r, nil) // upgrade HTTP to WebSocket connection
+	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		s.handshake.Metrics.Errors.WithLabelValues("websocket").Inc() // increment error metric
-		log.Printf("WebSocket upgrade error: %v", err)                // log error
+		s.handshake.Metrics.Errors.WithLabelValues("websocket").Inc()
+		log.Printf("WebSocket upgrade error: %v", err)
 		return
 	}
-	defer conn.Close() // ensure connection is closed when function returns
+	defer conn.Close()
 
-	// Wrap WebSocket connection to satisfy net.Conn interface for handshake
 	wsConn := &websocketConn{conn: conn}
-	enc, err := s.handshake.PerformHandshake(wsConn, "websocket", false) // perform secure handshake
+	enc, err := s.handshake.PerformHandshake(wsConn, "websocket", false)
 	if err != nil {
-		log.Printf("WebSocket handshake failed: %v", err) // log handshake failure
+		log.Printf("WebSocket handshake failed: %v", err)
 		return
 	}
 
 	for {
-		_, raw, err := conn.ReadMessage() // read next message from WebSocket
+		_, raw, err := conn.ReadMessage()
 		if err != nil {
-			log.Printf("WebSocket read error: %v", err) // log read error and exit loop
+			log.Printf("WebSocket read error: %v", err)
 			break
 		}
-		msg, err := security.DecodeSecureMessage(raw, enc) // decode encrypted message using established key
+		msg, err := security.DecodeSecureMessage(raw, enc)
 		if err != nil {
-			log.Printf("WebSocket decode error: %v", err) // log decode error, continue reading next message
+			log.Printf("WebSocket decode error: %v", err)
 			continue
 		}
-		s.messageCh <- msg // send decoded message into the message channel
+		s.messageCh <- msg
 
-		if msg.Type == "jsonrpc" { // if message is JSON-RPC request
-			resp, err := s.rpcServer.HandleRequest([]byte(msg.Data.(string))) // handle RPC request
+		if msg.Type == "jsonrpc" {
+			resp, err := s.rpcServer.HandleRequest([]byte(msg.Data.(string)))
 			if err != nil {
-				log.Printf("RPC handle error: %v", err) // log RPC handler error and continue
+				log.Printf("RPC handle error: %v", err)
 				continue
 			}
-			encryptedResp, err := security.SecureMessage(&security.Message{Type: "jsonrpc", Data: string(resp)}, enc) // encrypt RPC response
+			encryptedResp, err := security.SecureMessage(&security.Message{Type: "jsonrpc", Data: string(resp)}, enc)
 			if err != nil {
-				log.Printf("WebSocket encode error: %v", err) // log encryption error and continue
+				log.Printf("WebSocket encode error: %v", err)
 				continue
 			}
-			if err := conn.WriteMessage(websocket.TextMessage, encryptedResp); err != nil { // send encrypted response
-				log.Printf("WebSocket write error: %v", err) // log write error and break loop
+			if err := conn.WriteMessage(websocket.TextMessage, encryptedResp); err != nil {
+				log.Printf("WebSocket write error: %v", err)
 				break
 			}
 		}
 	}
 }
 
-// websocketConn wraps a *websocket.Conn to implement the net.Conn interface,
-// enabling use of WebSocket connections in code expecting net.Conn.
+// websocketConn wraps a *websocket.Conn to implement the net.Conn interface.
 type websocketConn struct {
-	conn *websocket.Conn // underlying WebSocket connection
-	buf  []byte          // buffer to hold leftover data from previous reads
+	conn *websocket.Conn
+	buf  []byte
 }
 
-// Read reads data into b, fulfilling net.Conn Read method.
-// It uses an internal buffer if data remains from a previous read.
 func (wc *websocketConn) Read(b []byte) (n int, err error) {
-	if len(wc.buf) > 0 { // if leftover data in buffer
-		n = copy(b, wc.buf) // copy buffered data into b
-		wc.buf = wc.buf[n:] // remove copied bytes from buffer
-		return n, nil       // return number of bytes read
+	if len(wc.buf) > 0 {
+		n = copy(b, wc.buf)
+		wc.buf = wc.buf[n:]
+		return n, nil
 	}
-	_, data, err := wc.conn.ReadMessage() // read next WebSocket message
+	_, data, err := wc.conn.ReadMessage()
 	if err != nil {
-		return 0, err // return read error
+		return 0, err
 	}
-	n = copy(b, data)  // copy data into b
-	if n < len(data) { // if not all data fit in b
-		wc.buf = data[n:] // save remaining data to buffer
+	n = copy(b, data)
+	if n < len(data) {
+		wc.buf = data[n:]
 	}
-	return n, nil // return number of bytes read
+	return n, nil
 }
 
-// Write writes data b as a WebSocket text message, fulfilling net.Conn Write method.
 func (wc *websocketConn) Write(b []byte) (n int, err error) {
-	return len(b), wc.conn.WriteMessage(websocket.TextMessage, b) // send b as text message, return length and error
+	return len(b), wc.conn.WriteMessage(websocket.TextMessage, b)
 }
 
-// Close closes the underlying WebSocket connection.
 func (wc *websocketConn) Close() error {
-	return wc.conn.Close() // close connection
+	return wc.conn.Close()
 }
 
-// LocalAddr returns nil as local address is not exposed via WebSocketConn.
-func (wc *websocketConn) LocalAddr() net.Addr { return nil }
-
-// RemoteAddr returns nil as remote address is not exposed via WebSocketConn.
-func (wc *websocketConn) RemoteAddr() net.Addr { return nil }
-
-// SetDeadline is a no-op returning nil to satisfy net.Conn interface.
-func (wc *websocketConn) SetDeadline(t time.Time) error { return nil }
-
-// SetReadDeadline is a no-op returning nil to satisfy net.Conn interface.
-func (wc *websocketConn) SetReadDeadline(t time.Time) error { return nil }
-
-// SetWriteDeadline is a no-op returning nil to satisfy net.Conn interface.
+func (wc *websocketConn) LocalAddr() net.Addr                { return nil }
+func (wc *websocketConn) RemoteAddr() net.Addr               { return nil }
+func (wc *websocketConn) SetDeadline(t time.Time) error      { return nil }
+func (wc *websocketConn) SetReadDeadline(t time.Time) error  { return nil }
 func (wc *websocketConn) SetWriteDeadline(t time.Time) error { return nil }
 
-// ConnectWebSocket tries to establish a WebSocket connection to the specified address,
-// performing handshake and sending a test message. It retries up to 3 times on failure.
+// ConnectWebSocket tries to establish a WebSocket connection to the specified address.
 func ConnectWebSocket(address string, messageCh chan *security.Message) error {
-	dialer := websocket.Dialer{} // create WebSocket dialer
-
-	// map of local addresses to corresponding WebSocket addresses (port mapping)
+	dialer := websocket.Dialer{}
 	wsPortMap := map[string]string{
 		"127.0.0.1:30303": "127.0.0.1:8546",
 		"127.0.0.1:30304": "127.0.0.1:8548",
 		"127.0.0.1:30305": "127.0.0.1:8550",
 	}
-
-	wsAddress, ok := wsPortMap[address] // look up mapped WebSocket address
+	wsAddress, ok := wsPortMap[address]
 	if !ok {
-		wsAddress = address // if no mapping found, use original address
+		wsAddress = address
 	}
-
-	// attempt connection up to 3 times
 	for attempt := 1; attempt <= 3; attempt++ {
-		conn, _, err := dialer.Dial("ws://"+wsAddress+"/ws", nil) // dial WebSocket server at /ws path
+		conn, _, err := dialer.Dial("ws://"+wsAddress+"/ws", nil)
 		if err == nil {
-			defer conn.Close() // ensure connection close on function exit
-
-			// Wrap connection for handshake
+			defer conn.Close()
 			wsConn := &websocketConn{conn: conn}
-			handshake := security.NewHandshake()                              // create new handshake instance
-			enc, err := handshake.PerformHandshake(wsConn, "websocket", true) // perform handshake with server
+			handshake := security.NewHandshake()
+			enc, err := handshake.PerformHandshake(wsConn, "websocket", true)
 			if err != nil {
-				log.Printf("WebSocket handshake failed for %s on attempt %d: %v", wsAddress, attempt, err) // log error
-				continue                                                                                   // try next attempt
+				log.Printf("WebSocket handshake failed for %s on attempt %d: %v", wsAddress, attempt, err)
+				continue
 			}
-
-			// Prepare example message of type "block" with empty struct as data
 			msg := &security.Message{Type: "block", Data: struct{}{}}
-			data, err := security.SecureMessage(msg, enc) // encrypt message using established key
+			data, err := security.SecureMessage(msg, enc)
 			if err != nil {
-				log.Printf("WebSocket encode error for %s on attempt %d: %v", wsAddress, attempt, err) // log encode error
-				continue                                                                               // try next attempt
+				log.Printf("WebSocket encode error for %s on attempt %d: %v", wsAddress, attempt, err)
+				continue
 			}
-
-			// Write encrypted message to WebSocket
 			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-				log.Printf("WebSocket write error for %s on attempt %d: %v", wsAddress, attempt, err) // log write error
-				continue                                                                              // try next attempt
+				log.Printf("WebSocket write error for %s on attempt %d: %v", wsAddress, attempt, err)
+				continue
 			}
-
-			// Read response message from WebSocket
 			_, respData, err := conn.ReadMessage()
 			if err != nil {
-				log.Printf("WebSocket read response error for %s on attempt %d: %v", wsAddress, attempt, err) // log read error
-				continue                                                                                      // try next attempt
+				log.Printf("WebSocket read response error for %s on attempt %d: %v", wsAddress, attempt, err)
+				continue
 			}
-			respMsg, err := security.DecodeSecureMessage(respData, enc) // decode encrypted response
+			respMsg, err := security.DecodeSecureMessage(respData, enc)
 			if err != nil {
-				log.Printf("WebSocket decode response error for %s on attempt %d: %v", wsAddress, attempt, err) // log decode error
-				continue                                                                                        // try next attempt
+				log.Printf("WebSocket decode response error for %s on attempt %d: %v", wsAddress, attempt, err)
+				continue
 			}
-			messageCh <- respMsg // send decoded response message to channel
-
-			log.Printf("WebSocket connected to %s", wsAddress) // log successful connection
-			return nil                                         // success
+			messageCh <- respMsg
+			log.Printf("WebSocket connected to %s", wsAddress)
+			return nil
 		}
-		// log failed attempt with error
 		log.Printf("WebSocket connection to %s attempt %d failed: %v", wsAddress, attempt, err)
-		time.Sleep(time.Second * time.Duration(attempt)) // exponential backoff delay before retrying
+		time.Sleep(time.Second * time.Duration(attempt))
 	}
-	// failed all attempts
 	return fmt.Errorf("failed to connect to %s after 3 attempts", wsAddress)
 }

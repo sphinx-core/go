@@ -24,9 +24,10 @@
 package server
 
 import (
+	"fmt"
 	"log"
-	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/sphinx-core/go/src/core"
 	security "github.com/sphinx-core/go/src/handshake"
@@ -38,7 +39,29 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
-func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string) *Server {
+// serverRegistry holds running servers for shutdown.
+var serverRegistry = struct {
+	sync.Mutex
+	servers map[string]*Server
+}{
+	servers: make(map[string]*Server),
+}
+
+// StoreServer stores a server instance by name.
+func StoreServer(name string, srv *Server) {
+	serverRegistry.Lock()
+	defer serverRegistry.Unlock()
+	serverRegistry.servers[name] = srv
+}
+
+// GetServer retrieves a server instance by name.
+func GetServer(name string) *Server {
+	serverRegistry.Lock()
+	defer serverRegistry.Unlock()
+	return serverRegistry.servers[name]
+}
+
+func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string, db *leveldb.DB, readyCh chan struct{}, role network.NodeRole) *Server {
 	messageCh := make(chan *security.Message, 100)
 	blockchain := core.NewBlockchain()
 	rpcServer := rpc.NewServer(messageCh, blockchain)
@@ -53,41 +76,77 @@ func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string) *Serve
 	config := network.NodePortConfig{
 		Name:      "Node-" + parts[1], // Use port for unique name
 		TCPAddr:   p2pAddr,
-		UDPPort:   p2pAddr, // Use same address for UDP (adjust if needed)
+		UDPPort:   p2pAddr,
 		SeedNodes: seeds,
-		Role:      network.RoleNone, // Default role, adjust as needed
-	}
-
-	// Initialize LevelDB
-	dbPath := filepath.Join("data", config.Name, "leveldb")
-	db, err := leveldb.OpenFile(dbPath, nil)
-	if err != nil {
-		log.Fatalf("Failed to open LevelDB at %s: %v", dbPath, err)
+		Role:      role, // Use provided role
 	}
 
 	return &Server{
-		tcpServer:  transport.NewTCPServer(tcpAddr, messageCh, rpcServer, nil),
+		tcpServer:  transport.NewTCPServer(tcpAddr, messageCh, rpcServer, readyCh),
 		wsServer:   transport.NewWebSocketServer(wsAddr, messageCh, rpcServer),
-		httpServer: http.NewServer(httpAddr, messageCh, blockchain),
+		httpServer: http.NewServer(httpAddr, messageCh, blockchain, readyCh),
 		p2pServer:  p2p.NewServer(config, blockchain, db),
+		readyCh:    readyCh,
 	}
 }
 
 func (s *Server) Start() error {
 	go func() {
 		if err := s.tcpServer.Start(); err != nil {
-			log.Fatalf("TCP server failed: %v", err)
+			log.Printf("TCP server failed: %v", err)
 		}
 	}()
 	go func() {
 		if err := s.httpServer.Start(); err != nil {
-			log.Fatalf("HTTP server failed: %v", err)
+			log.Printf("HTTP server failed: %v", err)
 		}
 	}()
 	go func() {
 		if err := s.p2pServer.Start(); err != nil {
-			log.Fatalf("P2P server failed: %v", err)
+			log.Printf("P2P server failed: %v", err)
 		}
 	}()
-	return s.wsServer.Start()
+	return s.wsServer.Start(s.readyCh)
+}
+
+func (s *Server) Close() error {
+	var errs []error
+	if err := s.p2pServer.CloseDB(); err != nil {
+		errs = append(errs, err)
+	}
+	if s.tcpServer != nil {
+		if err := s.tcpServer.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if s.httpServer != nil {
+		if err := s.httpServer.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if s.wsServer != nil {
+		if err := s.wsServer.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("errors during server shutdown: %v", errs)
+	}
+	return nil
+}
+
+func (s *Server) TCPServer() *transport.TCPServer {
+	return s.tcpServer
+}
+
+func (s *Server) WSServer() *transport.WebSocketServer {
+	return s.wsServer
+}
+
+func (s *Server) HTTPServer() *http.Server {
+	return s.httpServer
+}
+
+func (s *Server) P2PServer() *p2p.Server {
+	return s.p2pServer
 }

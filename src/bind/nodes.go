@@ -90,7 +90,7 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 			Name:      config.Name,
 			Role:      config.Role,
 			TCPAddr:   config.Address,
-			UDPPort:   config.Address, // Adjust if needed
+			UDPPort:   config.UDPPort, // Use correct UDP port
 			HTTPPort:  config.HTTPPort,
 			WSPort:    config.WSPort,
 			SeedNodes: config.SeedNodes,

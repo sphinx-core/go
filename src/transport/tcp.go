@@ -31,6 +31,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 	"time"
 
 	security "github.com/sphinx-core/go/src/handshake"
@@ -38,19 +39,25 @@ import (
 	"github.com/sphinx-core/go/src/rpc"
 )
 
-// NewTCPServer creates and returns a new TCPServer instance
-// with the given address, channel for messages, and rpc server.
+// Global server instance for connection management (temporary for demo).
+var globalServer = &TCPServer{
+	connections: make(map[string]net.Conn),
+	mu:          sync.Mutex{},
+}
+
+// NewTCPServer creates a new TCP server.
 func NewTCPServer(address string, messageCh chan *security.Message, rpcServer *rpc.Server, tcpReadyCh chan struct{}) *TCPServer {
 	return &TCPServer{
-		address:    address,
-		messageCh:  messageCh,
-		rpcServer:  rpcServer,
-		handshake:  security.NewHandshake(),
-		tcpReadyCh: tcpReadyCh,
+		address:     address,
+		messageCh:   messageCh,
+		rpcServer:   rpcServer,
+		handshake:   security.NewHandshake(),
+		tcpReadyCh:  tcpReadyCh,
+		connections: make(map[string]net.Conn), // Initialize connections map
 	}
 }
 
-// Start starts the TCP server listening on s.address.
+// Start starts the TCP server.
 func (s *TCPServer) Start() error {
 	listener, err := net.Listen("tcp", s.address)
 	if err != nil {
@@ -59,30 +66,38 @@ func (s *TCPServer) Start() error {
 	}
 	s.listener = listener
 	log.Printf("TCP server successfully bound to %s", s.address)
-	log.Printf("Sending TCP ready signal for %s", s.address)
 	if s.tcpReadyCh != nil {
+		log.Printf("Sending TCP ready signal for %s", s.address)
 		s.tcpReadyCh <- struct{}{}
-		log.Printf("Sent TCP ready signal for %s", s.address)
-	} else {
-		log.Printf("No tcpReadyCh provided for %s", s.address)
 	}
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			s.handshake.Metrics.Errors.WithLabelValues("tcp").Inc()
-			log.Printf("TCP accept error on %s: %v", s.address, err)
-			continue
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				s.handshake.Metrics.Errors.WithLabelValues("tcp").Inc()
+				log.Printf("TCP accept error on %s: %v", s.address, err)
+				continue
+			}
+			log.Printf("Accepted new connection on %s from %s", s.address, conn.RemoteAddr().String())
+			s.mu.Lock()
+			s.connections[conn.RemoteAddr().String()] = conn // Store connection
+			s.mu.Unlock()
+			go s.handleConnection(conn)
 		}
-		log.Printf("Accepted new connection on %s from %s", s.address, conn.RemoteAddr().String())
-		go s.handleConnection(conn)
-	}
+	}()
+	return nil
 }
 
-// handleConnection processes an individual TCP connection.
+// handleConnection processes messages from a TCP connection.
 func (s *TCPServer) handleConnection(conn net.Conn) {
-	defer conn.Close()
+	defer func() {
+		s.mu.Lock()
+		delete(s.connections, conn.RemoteAddr().String()) // Remove connection on close
+		s.mu.Unlock()
+		conn.Close()
+	}()
 
-	enc, err := s.handshake.PerformHandshake(conn, "tcp", false)
+	enc, err := s.handshake.PerformHandshake(conn, "p2p", false) // Use "p2p" for protocol
 	if err != nil {
 		log.Printf("TCP handshake failed on %s: %v", s.address, err)
 		return
@@ -145,8 +160,20 @@ func (s *TCPServer) handleConnection(conn net.Conn) {
 	}
 }
 
-// ConnectTCP tries to establish a TCP connection to address, sending/receiving messages on messageCh.
-func ConnectTCP(address string, messageCh chan *security.Message) error {
+// Stop closes the TCP server.
+func (s *TCPServer) Stop() error {
+	if s.listener != nil {
+		err := s.listener.Close()
+		if err != nil {
+			return fmt.Errorf("failed to close TCP listener on %s: %v", s.address, err)
+		}
+		log.Printf("TCP server on %s stopped", s.address)
+	}
+	return nil
+}
+
+// ConnectTCP establishes a TCP connection with handshake.
+func ConnectTCP(address string, messageCh chan *security.Message) (net.Conn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -154,7 +181,7 @@ func ConnectTCP(address string, messageCh chan *security.Message) error {
 		select {
 		case <-ctx.Done():
 			log.Printf("Overall timeout connecting to %s after %d attempts: %v", address, attempt, ctx.Err())
-			return fmt.Errorf("timeout connecting to %s after %d attempts: %v", address, attempt, ctx.Err())
+			return nil, fmt.Errorf("timeout connecting to %s after %d attempts: %v", address, attempt, ctx.Err())
 		default:
 			conn, err := net.DialTimeout("tcp", address, 2*time.Second)
 			if err != nil {
@@ -163,107 +190,124 @@ func ConnectTCP(address string, messageCh chan *security.Message) error {
 				time.Sleep(sleepDuration)
 				continue
 			}
-			defer conn.Close()
 
 			handshake := security.NewHandshake()
-			enc, err := handshake.PerformHandshake(conn, "tcp", true)
+			enc, err := handshake.PerformHandshake(conn, "p2p", true) // Use "p2p" for protocol
 			if err != nil {
 				log.Printf("TCP handshake failed for %s on attempt %d: %v", address, attempt, err)
+				conn.Close()
 				continue
 			}
 			if enc == nil {
 				log.Printf("TCP handshake returned nil encryption key for %s on attempt %d", address, attempt)
+				conn.Close()
 				continue
 			}
+			log.Printf("Handshake successful for %s", address)
 
-			msg := &security.Message{Type: "ping", Data: "hello"}
-			data, err := security.SecureMessage(msg, enc)
-			if err != nil {
-				log.Printf("TCP encode error for %s on attempt %d: %v", address, attempt, err)
-				continue
-			}
-			lengthBuf := make([]byte, 4)
-			binary.BigEndian.PutUint32(lengthBuf, uint32(len(data)))
-			if _, err := conn.Write(lengthBuf); err != nil {
-				log.Printf("TCP write length error for %s on attempt %d: %v", address, attempt, err)
-				continue
-			}
-			log.Printf("Sending message to %s, data length: %d", address, len(data))
-			if _, err := conn.Write(data); err != nil {
-				log.Printf("TCP write data error for %s on attempt %d: %v", address, attempt, err)
-				continue
-			}
-
-			reader := bufio.NewReader(conn)
-			lengthBuf = make([]byte, 4)
-			if _, err := io.ReadFull(reader, lengthBuf); err != nil {
-				log.Printf("TCP read length error on %s on attempt %d: %v", address, attempt, err)
-				continue
-			}
-			length := binary.BigEndian.Uint32(lengthBuf)
-			if length > 1024*1024 {
-				log.Printf("TCP response too large on %s: %d bytes", address, length)
-				continue
-			}
-			respData := make([]byte, length)
-			if _, err := io.ReadFull(reader, respData); err != nil {
-				log.Printf("TCP read data error on %s on attempt %d: %v", address, attempt, err)
-				continue
-			}
-			log.Printf("Received response from %s, data length: %d", address, len(respData))
-			respMsg, err := security.DecodeSecureMessage(respData, enc)
-			if err != nil {
-				log.Printf("TCP decode response error on %s on attempt %d: %v", address, attempt, err)
-				continue
-			}
-			log.Printf("Attempting to send response to messageCh for %s, message type: %s", address, respMsg.Type)
-			select {
-			case messageCh <- respMsg:
-				log.Printf("Sent response to messageCh for %s", address)
-			case <-ctx.Done():
-				log.Printf("Timeout sending to messageCh for %s: %v", address, ctx.Err())
-				return fmt.Errorf("timeout sending to messageCh for %s: %v", address, ctx.Err())
-			}
+			// Start reading responses in a goroutine
+			go func(conn net.Conn, address string) {
+				defer conn.Close()
+				reader := bufio.NewReader(conn)
+				for {
+					lengthBuf := make([]byte, 4)
+					if _, err := io.ReadFull(reader, lengthBuf); err != nil {
+						log.Printf("TCP read length error on %s: %v", address, err)
+						return
+					}
+					length := binary.BigEndian.Uint32(lengthBuf)
+					if length > 1024*1024 {
+						log.Printf("TCP response too large on %s: %d bytes", address, length)
+						return
+					}
+					respData := make([]byte, length)
+					if _, err := io.ReadFull(reader, respData); err != nil {
+						log.Printf("TCP read data error on %s: %v", address, err)
+						return
+					}
+					respMsg, err := security.DecodeSecureMessage(respData, enc)
+					if err != nil {
+						log.Printf("TCP decode response error on %s: %v", address, err)
+						continue
+					}
+					select {
+					case messageCh <- respMsg:
+						log.Printf("Sent response to messageCh for %s, message type: %s", address, respMsg.Type)
+					case <-ctx.Done():
+						log.Printf("Timeout sending to messageCh for %s: %v", address, ctx.Err())
+						return
+					}
+				}
+			}(conn, address)
 
 			log.Printf("TCP connected to %s", address)
-			return nil
+			return conn, nil
 		}
 	}
 	log.Printf("Failed to connect to %s after 10 attempts", address)
-	return fmt.Errorf("failed to connect to %s after 10 attempts", address)
+	return nil, fmt.Errorf("failed to connect to %s after 10 attempts", address)
 }
 
-// SendMessage sends a single secure message to the given TCP address.
+// GetConnection retrieves an active TCP connection.
+func GetConnection(address string) (net.Conn, error) {
+	globalServer.mu.Lock()
+	defer globalServer.mu.Unlock()
+	conn, exists := globalServer.connections[address]
+	if !exists {
+		return nil, fmt.Errorf("no active connection to %s", address)
+	}
+	return conn, nil
+}
+
+// SendMessage sends a message to a node.
 func SendMessage(address string, msg *security.Message) error {
-	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
+	conn, err := GetConnection(address)
 	if err != nil {
-		return err
-	}
-	defer conn.Close()
+		// Fallback to establishing a new connection
+		conn, err = net.DialTimeout("tcp", address, 2*time.Second)
+		if err != nil {
+			return fmt.Errorf("failed to dial %s: %v", address, err)
+		}
+		defer conn.Close()
 
-	handshake := security.NewHandshake()
-	enc, err := handshake.PerformHandshake(conn, "tcp", true)
-	if err != nil {
-		return err
-	}
-	if enc == nil {
-		return fmt.Errorf("handshake returned nil encryption key for %s", address)
-	}
+		handshake := security.NewHandshake()
+		enc, err := handshake.PerformHandshake(conn, "p2p", true) // Use "p2p" for protocol
+		if err != nil {
+			return fmt.Errorf("handshake failed for %s: %v", address, err)
+		}
+		if enc == nil {
+			return fmt.Errorf("handshake returned nil encryption key for %s", address)
+		}
 
-	data, err := security.SecureMessage(msg, enc)
-	if err != nil {
-		return err
+		data, err := security.SecureMessage(msg, enc)
+		if err != nil {
+			return fmt.Errorf("failed to encode message for %s: %v", address, err)
+		}
+		lengthBuf := make([]byte, 4)
+		binary.BigEndian.PutUint32(lengthBuf, uint32(len(data)))
+		if _, err := conn.Write(lengthBuf); err != nil {
+			return fmt.Errorf("failed to write length to %s: %v", address, err)
+		}
+		log.Printf("Sending message to %s, length: %d", address, len(data))
+		if _, err := conn.Write(data); err != nil {
+			return fmt.Errorf("failed to write data to %s: %v", address, err)
+		}
+	} else {
+		// Use existing connection (assumes handshake already done)
+		data, err := security.SecureMessage(msg, &security.EncryptionKey{}) // Adjust based on actual encryption key storage
+		if err != nil {
+			return fmt.Errorf("failed to encode message for %s: %v", address, err)
+		}
+		lengthBuf := make([]byte, 4)
+		binary.BigEndian.PutUint32(lengthBuf, uint32(len(data)))
+		if _, err := conn.Write(lengthBuf); err != nil {
+			return fmt.Errorf("failed to write length to %s: %v", address, err)
+		}
+		log.Printf("Sending message to %s, length: %d", address, len(data))
+		if _, err := conn.Write(data); err != nil {
+			return fmt.Errorf("failed to write data to %s: %v", address, err)
+		}
 	}
-	lengthBuf := make([]byte, 4)
-	binary.BigEndian.PutUint32(lengthBuf, uint32(len(data)))
-	if _, err := conn.Write(lengthBuf); err != nil {
-		return fmt.Errorf("failed to write length to %s: %v", address, err)
-	}
-	log.Printf("Sending message to %s, length: %d", address, len(data))
-	if _, err := conn.Write(data); err != nil {
-		return fmt.Errorf("failed to write data to %s: %v", address, err)
-	}
-
 	log.Printf("Sent message to %s: Type=%s", address, msg.Type)
 	return nil
 }
@@ -274,19 +318,21 @@ func DisconnectNode(node *network.Node) error {
 	if err != nil {
 		return fmt.Errorf("invalid node address: %v", err)
 	}
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("failed to dial %s: %v", addr, err)
+	globalServer.mu.Lock()
+	defer globalServer.mu.Unlock()
+	conn, exists := globalServer.connections[addr]
+	if !exists {
+		return fmt.Errorf("no connection to %s", addr)
 	}
-	err = conn.Close()
-	if err != nil {
-		return fmt.Errorf("failed to close connection to %s: %v", addr, err)
+	if err := conn.Close(); err != nil {
+		log.Printf("Failed to close connection to %s: %v", addr, err)
 	}
+	delete(globalServer.connections, addr)
 	log.Printf("Disconnected from node %s at %s", node.ID, addr)
 	return nil
 }
 
-// min is a helper to cap exponential backoff
+// min returns the minimum of two integers.
 func min(a, b int) int {
 	if a < b {
 		return a

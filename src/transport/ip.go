@@ -68,9 +68,11 @@ func ConnectNode(node *network.Node, messageCh chan *security.Message) error {
 	}
 
 	for attempt := 1; attempt <= 3; attempt++ { // Retry up to 3 times
-		if err := ConnectTCP(addr, messageCh); err == nil {
-			node.UpdateStatus(network.NodeStatusActive)                   // Mark node as active on success
-			log.Printf("Connected to node %s via TCP: %s", node.ID, addr) // Log TCP connection success
+		conn, err := ConnectTCP(addr, messageCh)
+		if err == nil {
+			defer conn.Close()
+			node.UpdateStatus(network.NodeStatusActive)
+			log.Printf("Connected to node %s via TCP: %s", node.ID, addr)
 			return nil
 		}
 		log.Printf("TCP connection to node %s (%s) attempt %d failed: %v", node.ID, addr, attempt, err) // Log TCP failure
