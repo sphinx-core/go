@@ -24,21 +24,25 @@
 package p2p
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/sphinx-core/go/src/core"
 	types "github.com/sphinx-core/go/src/core/transaction"
 	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/network"
 	"github.com/sphinx-core/go/src/transport"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 // NewServer creates a new P2P server.
 func NewServer(config network.NodePortConfig, blockchain *core.Blockchain) *Server {
-	bucketSize := 20 // Example: larger k for better performance
+	bucketSize := 20
 	parts := strings.Split(config.TCPAddr, ":")
 	if len(parts) != 2 {
 		log.Fatalf("Invalid TCPAddr format: %s", config.TCPAddr)
@@ -47,12 +51,21 @@ func NewServer(config network.NodePortConfig, blockchain *core.Blockchain) *Serv
 	nodeManager := network.NewNodeManager(bucketSize)
 	nodeManager.AddNode(localNode)
 	nodeManager.LocalNodeID = localNode.KademliaID
+
+	// Initialize LevelDB
+	dbPath := filepath.Join("data", localNode.ID)
+	db, err := leveldb.OpenFile(dbPath, nil)
+	if err != nil {
+		log.Fatalf("Failed to open LevelDB at %s: %v", dbPath, err)
+	}
+
 	server := &Server{
 		localNode:   localNode,
 		nodeManager: nodeManager,
 		seedNodes:   config.SeedNodes,
 		messageCh:   make(chan *security.Message, 100),
 		blockchain:  blockchain,
+		db:          db,
 	}
 	server.peerManager = NewPeerManager(server, bucketSize)
 	return server
@@ -64,6 +77,7 @@ func (s *Server) Start() error {
 	if err := s.StartUDPDiscovery(s.localNode.UDPPort); err != nil {
 		return err
 	}
+	_ = s.db // TODO: Implement LevelDB storage
 	go s.handleMessages()
 	go s.peerManager.MaintainPeers()
 	log.Printf("P2P server started, local node: ID=%s, Address=%s, Role=%s", s.localNode.ID, s.localNode.Address, s.localNode.Role)
@@ -74,6 +88,31 @@ func (s *Server) Start() error {
 		}
 	}()
 	return nil
+}
+
+// StorePeer stores peer information in LevelDB.
+func (s *Server) StorePeer(peer *network.Peer) error {
+	peerInfo := peer.GetPeerInfo()
+	data, err := json.Marshal(peerInfo)
+	if err != nil {
+		return fmt.Errorf("failed to marshal peer info: %v", err)
+	}
+	key := []byte("peer-" + peer.Node.ID)
+	return s.db.Put(key, data, nil)
+}
+
+// FetchPeer retrieves peer information from LevelDB.
+func (s *Server) FetchPeer(nodeID string) (*network.PeerInfo, error) {
+	key := []byte("peer-" + nodeID)
+	data, err := s.db.Get(key, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch peer %s: %v", nodeID, err)
+	}
+	var peerInfo network.PeerInfo
+	if err := json.Unmarshal(data, &peerInfo); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal peer info: %v", err)
+	}
+	return &peerInfo, nil
 }
 
 // handleMessages processes incoming messages.
@@ -129,19 +168,32 @@ func (s *Server) handleMessages() {
 				log.Printf("Invalid block data")
 			}
 		case "ping":
-			if peerID, ok := msg.Data.(string); ok {
-				if peer, ok := s.nodeManager.GetPeers()[peerID]; ok {
-					peer.ReceivePong()
-					transport.SendMessage(peer.Node.Address, &security.Message{Type: "pong", Data: s.localNode.ID})
-					s.peerManager.UpdatePeerScore(peerID, 2)
+			if pingData, ok := msg.Data.(network.PingData); ok {
+				if peer := s.nodeManager.GetNodeByKademliaID(pingData.FromID); peer != nil {
+					if p, ok := s.nodeManager.GetPeers()[peer.ID]; ok {
+						p.ReceivePong()
+						transport.SendMessage(peer.Address, &security.Message{Type: "pong", Data: network.PongData{
+							FromID:    s.localNode.KademliaID,
+							ToID:      pingData.FromID,
+							Timestamp: time.Now(),
+							Nonce:     pingData.Nonce,
+						}})
+						s.peerManager.UpdatePeerScore(peer.ID, 2)
+					}
 				}
+			} else {
+				log.Printf("Invalid ping data")
 			}
 		case "pong":
-			if peerID, ok := msg.Data.(string); ok {
-				if peer, ok := s.nodeManager.GetPeers()[peerID]; ok {
-					peer.ReceivePong()
-					s.peerManager.UpdatePeerScore(peerID, 2)
+			if pongData, ok := msg.Data.(network.PongData); ok {
+				if peer := s.nodeManager.GetNodeByKademliaID(pongData.FromID); peer != nil {
+					if p, ok := s.nodeManager.GetPeers()[peer.ID]; ok {
+						p.ReceivePong()
+						s.peerManager.UpdatePeerScore(peer.ID, 2)
+					}
 				}
+			} else {
+				log.Printf("Invalid pong data")
 			}
 		case "peer_info":
 			if peerInfo, ok := msg.Data.(network.PeerInfo); ok {
@@ -213,9 +265,10 @@ func (s *Server) assignTransactionRoles(tx *types.Transaction) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, node := range s.nodeManager.GetPeers() {
-		if node.Node.Address == tx.Sender {
+		switch node.Node.Address {
+		case tx.Sender:
 			node.Node.UpdateRole(network.RoleSender)
-		} else if node.Node.Address == tx.Receiver {
+		case tx.Receiver:
 			node.Node.UpdateRole(network.RoleReceiver)
 			if _, exists := s.nodeManager.GetPeers()[node.Node.ID]; !exists {
 				if err := s.nodeManager.AddPeer(node.Node); err != nil {

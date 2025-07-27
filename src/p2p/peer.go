@@ -65,12 +65,10 @@ func (pm *PeerManager) ConnectPeer(node *network.Node) error {
 		log.Printf("Maximum peer limit reached: %d", pm.maxPeers)
 		return errors.New("maximum peer limit reached")
 	}
-	log.Printf("Calling transport.ConnectNode for %s", node.Address)
 	if err := transport.ConnectNode(node, pm.server.messageCh); err != nil {
 		log.Printf("Failed to connect to %s: %v", node.ID, err)
 		return fmt.Errorf("failed to connect to %s: %v", node.ID, err)
 	}
-	log.Printf("Performing handshake with %s", node.ID)
 	if err := pm.performHandshake(node); err != nil {
 		log.Printf("Handshake failed with %s: %v", node.ID, err)
 		transport.DisconnectNode(node)
@@ -89,6 +87,9 @@ func (pm *PeerManager) ConnectPeer(node *network.Node) error {
 	}
 	pm.peers[node.ID] = peer
 	pm.scores[node.ID] = 50
+	if err := pm.server.StorePeer(peer); err != nil {
+		log.Printf("Failed to store peer %s in DB: %v", node.ID, err)
+	}
 	log.Printf("Connected to peer %s (Role=%s)", node.ID, node.Role)
 	peer.SendPing()
 	pm.server.Broadcast(&security.Message{Type: "peer_info", Data: network.PeerInfo{

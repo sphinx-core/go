@@ -24,12 +24,15 @@
 package p2p
 
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"log"
 	"net"
 	"strings"
 	"time"
 
+	sigproof "github.com/sphinx-core/go/src/core/proof"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 	"github.com/sphinx-core/go/src/network"
 )
@@ -57,7 +60,13 @@ func (s *Server) DiscoverPeers() error {
 			log.Printf("Failed to resolve UDP address %s: %v", seedAddr, err)
 			continue
 		}
-		s.sendUDPPing(addr, network.NodeID{})
+		nonce := make([]byte, 32)
+		_, err = rand.Read(nonce)
+		if err != nil {
+			log.Printf("Failed to generate nonce: %v", err)
+			continue
+		}
+		s.sendUDPPing(addr, network.NodeID{}, nonce)
 	}
 	go s.iterativeFindNode(s.localNode.KademliaID)
 	return nil
@@ -92,26 +101,57 @@ func (s *Server) iterativeFindNode(targetID network.NodeID) {
 					continue
 				}
 				go func(peer *network.Peer, addr *net.UDPAddr) {
+					nonce := make([]byte, 32)
+					_, err := rand.Read(nonce)
+					if err != nil {
+						errorCh <- err
+						return
+					}
 					km, err := key.NewKeyManager()
 					if err != nil {
 						errorCh <- err
 						return
 					}
-					data := network.FindNodeData{TargetID: targetID}
+					privateKey, _, err := km.DeserializeKeyPair(s.localNode.PrivateKey, nil)
+					if err != nil {
+						errorCh <- err
+						return
+					}
+					data := network.FindNodeData{
+						TargetID:  targetID,
+						Timestamp: time.Now(),
+						Nonce:     nonce,
+					}
 					dataBytes, _ := json.Marshal(data)
-					signature, err := km.Sign(s.localNode.PrivateKey, dataBytes)
+					timestamp := make([]byte, 8)
+					binary.BigEndian.PutUint64(timestamp, uint64(data.Timestamp.Unix()))
+					signature, merkleRoot, _, nonce, err := s.sphincsMgr.SignMessage(dataBytes, privateKey)
+					if err != nil {
+						errorCh <- err
+						return
+					}
+					signatureBytes, err := s.sphincsMgr.SerializeSignature(signature)
+					if err != nil {
+						errorCh <- err
+						return
+					}
+					proofData := append(timestamp, append(nonce, dataBytes...)...)
+					proof, err := sigproof.GenerateSigProof([][]byte{proofData}, [][]byte{merkleRoot.Hash.Bytes()}, s.localNode.PublicKey)
 					if err != nil {
 						errorCh <- err
 						return
 					}
 					msg := network.DiscoveryMessage{
-						Type:      "FINDNODE",
-						Data:      data,
-						Signature: signature,
-						PublicKey: s.localNode.PublicKey,
+						Type:       "FINDNODE",
+						Data:       data,
+						Signature:  signatureBytes,
+						PublicKey:  s.localNode.PublicKey,
+						MerkleRoot: merkleRoot.Hash.Bytes(),
+						Proof:      proof,
+						Nonce:      nonce,
+						Timestamp:  timestamp,
 					}
 					s.sendUDPMessage(addr, msg)
-					// Wait for NEIGHBORS response (handled in udp.go)
 					select {
 					case peers := <-s.nodeManager.ResponseCh:
 						responseCh <- peers
