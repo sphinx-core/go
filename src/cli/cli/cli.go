@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 // go/src/cli/cli/cli.go
+// go/src/cli/cli/cli.go
 package cli
 
 import (

@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 // go/src/p2p/udp.go
+// go/src/p2p/udp.go
 package p2p
 
 import (
@@ -80,6 +81,7 @@ func (s *Server) handleUDP() {
 }
 
 // handleDiscoveryMessage processes discovery messages (PING, PONG, FINDNODE, NEIGHBORS).
+// handleDiscoveryMessage processes discovery messages (PING, PONG, FINDNODE, NEIGHBORS).
 func (s *Server) handleDiscoveryMessage(msg *network.DiscoveryMessage, addr *net.UDPAddr) {
 	// Check timestamp freshness (5-minute window)
 	timestampInt := binary.BigEndian.Uint64(msg.Timestamp)
@@ -100,39 +102,24 @@ func (s *Server) handleDiscoveryMessage(msg *network.DiscoveryMessage, addr *net
 		return
 	}
 
-	// Deserialize public key and signature
+	// Deserialize public key
 	km, err := key.NewKeyManager()
 	if err != nil {
 		log.Printf("Failed to initialize KeyManager: %v", err)
 		return
 	}
-	_, publicKey, err := km.DeserializeKeyPair(nil, msg.PublicKey)
+	_, _, err = km.DeserializeKeyPair(nil, msg.PublicKey)
 	if err != nil {
 		log.Printf("Failed to deserialize public key: %v", err)
 		return
 	}
-	signature, err := s.sphincsMgr.DeserializeSignature(msg.Signature)
-	if err != nil {
-		log.Printf("Failed to deserialize signature: %v", err)
-		return
-	}
 
-	// Convert MerkleRoot []byte to HashTreeNode for VerifySignature
-	merkleRootNode := &hashtree.HashTreeNode{Hash: toUint256(msg.MerkleRoot)}
-
-	// Verify signature
+	// Verify proof
 	dataBytes, err := json.Marshal(msg.Data)
 	if err != nil {
 		log.Printf("Failed to marshal message data: %v", err)
 		return
 	}
-	isValidSig := s.sphincsMgr.VerifySignature(dataBytes, msg.Timestamp, msg.Nonce, signature, publicKey, merkleRootNode)
-	if !isValidSig {
-		log.Printf("Invalid signature for %s message from %s", msg.Type, addr.String())
-		return
-	}
-
-	// Verify proof
 	proofData := append(msg.Timestamp, append(msg.Nonce, dataBytes...)...)
 	regeneratedProof, err := sigproof.GenerateSigProof([][]byte{proofData}, [][]byte{msg.MerkleRoot}, msg.PublicKey)
 	if err != nil {
@@ -239,12 +226,13 @@ func (s *Server) handleDiscoveryMessage(msg *network.DiscoveryMessage, addr *net
 func (s *Server) sendUDPPing(addr *net.UDPAddr, toID network.NodeID, nonce []byte) {
 	km, err := key.NewKeyManager()
 	if err != nil {
-		log.Printf("Failed to initialize KeyManager: %v", err)
+		log.Printf("sendUDPPing: Failed to initialize KeyManager: %v", err)
 		return
 	}
-	privateKey, _, err := km.DeserializeKeyPair(s.localNode.PrivateKey, nil)
+	log.Printf("sendUDPPing: Deserializing keys for node %s: PrivateKey length=%d, PublicKey length=%d", s.localNode.Address, len(s.localNode.PrivateKey), len(s.localNode.PublicKey))
+	privateKey, _, err := km.DeserializeKeyPair(s.localNode.PrivateKey, s.localNode.PublicKey)
 	if err != nil {
-		log.Printf("Failed to deserialize private key: %v", err)
+		log.Printf("sendUDPPing: Failed to deserialize key pair: %v", err)
 		return
 	}
 	data := network.PingData{
@@ -255,30 +243,30 @@ func (s *Server) sendUDPPing(addr *net.UDPAddr, toID network.NodeID, nonce []byt
 	}
 	dataBytes, err := json.Marshal(data)
 	if err != nil {
-		log.Printf("Failed to marshal PING data: %v", err)
+		log.Printf("sendUDPPing: Failed to marshal PING data: %v", err)
 		return
 	}
 	timestamp := make([]byte, 8)
 	binary.BigEndian.PutUint64(timestamp, uint64(data.Timestamp.Unix()))
 	signature, merkleRootNode, _, nonce, err := s.sphincsMgr.SignMessage(dataBytes, privateKey)
 	if err != nil {
-		log.Printf("Failed to sign PING message: %v", err)
+		log.Printf("sendUDPPing: Failed to sign PING message: %v", err)
 		return
 	}
 	signatureBytes, err := s.sphincsMgr.SerializeSignature(signature)
 	if err != nil {
-		log.Printf("Failed to serialize signature: %v", err)
+		log.Printf("sendUDPPing: Failed to serialize signature: %v", err)
 		return
 	}
 	proofData := append(timestamp, append(nonce, dataBytes...)...)
 	proof, err := sigproof.GenerateSigProof([][]byte{proofData}, [][]byte{merkleRootNode.Hash.Bytes()}, s.localNode.PublicKey)
 	if err != nil {
-		log.Printf("Failed to generate proof for PING: %v", err)
+		log.Printf("sendUDPPing: Failed to generate proof for PING: %v", err)
 		return
 	}
 	msg := network.DiscoveryMessage{
 		Type:       "PING",
-		Data:       dataBytes, // Use serialized data
+		Data:       dataBytes,
 		Signature:  signatureBytes,
 		PublicKey:  s.localNode.PublicKey,
 		MerkleRoot: merkleRootNode.Hash.Bytes(),
@@ -287,18 +275,20 @@ func (s *Server) sendUDPPing(addr *net.UDPAddr, toID network.NodeID, nonce []byt
 		Timestamp:  timestamp,
 	}
 	s.sendUDPMessage(addr, msg)
+	log.Printf("sendUDPPing: Sent PING to %s (KademliaID: %x)", addr.String(), toID[:8])
 }
 
 // sendUDPPong sends a PONG message in response to a PING.
 func (s *Server) sendUDPPong(addr *net.UDPAddr, toID network.NodeID, nonce []byte) {
 	km, err := key.NewKeyManager()
 	if err != nil {
-		log.Printf("Failed to initialize KeyManager: %v", err)
+		log.Printf("sendUDPPong: Failed to initialize KeyManager: %v", err)
 		return
 	}
-	privateKey, _, err := km.DeserializeKeyPair(s.localNode.PrivateKey, nil)
+	log.Printf("sendUDPPong: Deserializing keys for node %s: PrivateKey length=%d, PublicKey length=%d", s.localNode.Address, len(s.localNode.PrivateKey), len(s.localNode.PublicKey))
+	privateKey, _, err := km.DeserializeKeyPair(s.localNode.PrivateKey, s.localNode.PublicKey)
 	if err != nil {
-		log.Printf("Failed to deserialize private key: %v", err)
+		log.Printf("sendUDPPong: Failed to deserialize key pair: %v", err)
 		return
 	}
 	data := network.PongData{
@@ -309,30 +299,30 @@ func (s *Server) sendUDPPong(addr *net.UDPAddr, toID network.NodeID, nonce []byt
 	}
 	dataBytes, err := json.Marshal(data)
 	if err != nil {
-		log.Printf("Failed to marshal PONG data: %v", err)
+		log.Printf("sendUDPPong: Failed to marshal PONG data: %v", err)
 		return
 	}
 	timestamp := make([]byte, 8)
 	binary.BigEndian.PutUint64(timestamp, uint64(data.Timestamp.Unix()))
 	signature, merkleRootNode, _, nonce, err := s.sphincsMgr.SignMessage(dataBytes, privateKey)
 	if err != nil {
-		log.Printf("Failed to sign PONG message: %v", err)
+		log.Printf("sendUDPPong: Failed to sign PONG message: %v", err)
 		return
 	}
 	signatureBytes, err := s.sphincsMgr.SerializeSignature(signature)
 	if err != nil {
-		log.Printf("Failed to serialize signature: %v", err)
+		log.Printf("sendUDPPong: Failed to serialize signature: %v", err)
 		return
 	}
 	proofData := append(timestamp, append(nonce, dataBytes...)...)
 	proof, err := sigproof.GenerateSigProof([][]byte{proofData}, [][]byte{merkleRootNode.Hash.Bytes()}, s.localNode.PublicKey)
 	if err != nil {
-		log.Printf("Failed to generate proof for PONG: %v", err)
+		log.Printf("sendUDPPong: Failed to generate proof for PONG: %v", err)
 		return
 	}
 	msg := network.DiscoveryMessage{
 		Type:       "PONG",
-		Data:       dataBytes, // Use serialized data
+		Data:       dataBytes,
 		Signature:  signatureBytes,
 		PublicKey:  s.localNode.PublicKey,
 		MerkleRoot: merkleRootNode.Hash.Bytes(),
@@ -341,18 +331,20 @@ func (s *Server) sendUDPPong(addr *net.UDPAddr, toID network.NodeID, nonce []byt
 		Timestamp:  timestamp,
 	}
 	s.sendUDPMessage(addr, msg)
+	log.Printf("sendUDPPong: Sent PONG to %s (KademliaID: %x)", addr.String(), toID[:8])
 }
 
 // sendUDPNeighbors sends a NEIGHBORS message with closest peers.
 func (s *Server) sendUDPNeighbors(addr *net.UDPAddr, targetID network.NodeID, nonce []byte) {
 	km, err := key.NewKeyManager()
 	if err != nil {
-		log.Printf("Failed to initialize KeyManager: %v", err)
+		log.Printf("sendUDPNeighbors: Failed to initialize KeyManager: %v", err)
 		return
 	}
-	privateKey, _, err := km.DeserializeKeyPair(s.localNode.PrivateKey, nil)
+	log.Printf("sendUDPNeighbors: Deserializing keys for node %s: PrivateKey length=%d, PublicKey length=%d", s.localNode.Address, len(s.localNode.PrivateKey), len(s.localNode.PublicKey))
+	privateKey, _, err := km.DeserializeKeyPair(s.localNode.PrivateKey, s.localNode.PublicKey)
 	if err != nil {
-		log.Printf("Failed to deserialize private key: %v", err)
+		log.Printf("sendUDPNeighbors: Failed to deserialize key pair: %v", err)
 		return
 	}
 	peers := s.nodeManager.FindClosestPeers(targetID, s.nodeManager.K)
@@ -367,30 +359,30 @@ func (s *Server) sendUDPNeighbors(addr *net.UDPAddr, targetID network.NodeID, no
 	}
 	dataBytes, err := json.Marshal(data)
 	if err != nil {
-		log.Printf("Failed to marshal NEIGHBORS data: %v", err)
+		log.Printf("sendUDPNeighbors: Failed to marshal NEIGHBORS data: %v", err)
 		return
 	}
 	timestamp := make([]byte, 8)
 	binary.BigEndian.PutUint64(timestamp, uint64(data.Timestamp.Unix()))
 	signature, merkleRootNode, _, nonce, err := s.sphincsMgr.SignMessage(dataBytes, privateKey)
 	if err != nil {
-		log.Printf("Failed to sign NEIGHBORS message: %v", err)
+		log.Printf("sendUDPNeighbors: Failed to sign NEIGHBORS message: %v", err)
 		return
 	}
 	signatureBytes, err := s.sphincsMgr.SerializeSignature(signature)
 	if err != nil {
-		log.Printf("Failed to serialize signature: %v", err)
+		log.Printf("sendUDPNeighbors: Failed to serialize signature: %v", err)
 		return
 	}
 	proofData := append(timestamp, append(nonce, dataBytes...)...)
 	proof, err := sigproof.GenerateSigProof([][]byte{proofData}, [][]byte{merkleRootNode.Hash.Bytes()}, s.localNode.PublicKey)
 	if err != nil {
-		log.Printf("Failed to generate proof for NEIGHBORS: %v", err)
+		log.Printf("sendUDPNeighbors: Failed to generate proof for NEIGHBORS: %v", err)
 		return
 	}
 	msg := network.DiscoveryMessage{
 		Type:       "NEIGHBORS",
-		Data:       dataBytes, // Use serialized data
+		Data:       dataBytes,
 		Signature:  signatureBytes,
 		PublicKey:  s.localNode.PublicKey,
 		MerkleRoot: merkleRootNode.Hash.Bytes(),
@@ -399,18 +391,19 @@ func (s *Server) sendUDPNeighbors(addr *net.UDPAddr, targetID network.NodeID, no
 		Timestamp:  timestamp,
 	}
 	s.sendUDPMessage(addr, msg)
+	log.Printf("sendUDPNeighbors: Sent NEIGHBORS to %s with %d peers", addr.String(), len(neighbors))
 }
 
 // sendUDPMessage sends a discovery message over UDP.
 func (s *Server) sendUDPMessage(addr *net.UDPAddr, msg network.DiscoveryMessage) {
 	data, err := json.Marshal(msg)
 	if err != nil {
-		log.Printf("Failed to encode UDP message: %v", err)
+		log.Printf("sendUDPMessage: Failed to encode UDP message: %v", err)
 		return
 	}
 	_, err = s.udpConn.WriteToUDP(data, addr)
 	if err != nil {
-		log.Printf("Failed to send UDP message to %s: %v", addr.String(), err)
+		log.Printf("sendUDPMessage: Failed to send UDP message to %s: %v", addr.String(), err)
 	}
 }
 

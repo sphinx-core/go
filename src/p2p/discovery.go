@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 // go/src/p2p/discovery.go
+// go/src/p2p/discovery.go
 package p2p
 
 import (
@@ -139,6 +140,7 @@ func (s *Server) iterativeFindNode(targetID network.NodeID) {
 					}
 					privateKey, _, err := km.DeserializeKeyPair(s.localNode.PrivateKey, s.localNode.PublicKey)
 					if err != nil {
+						log.Printf("iterativeFindNode: Failed to deserialize key pair: %v", err)
 						errorCh <- fmt.Errorf("failed to deserialize key pair: %v", err)
 						return
 					}
