@@ -53,6 +53,8 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 	publicKeys := make(map[string]string)
 	readyCh := make(chan struct{}, len(configs)*3) // 3 services per node (HTTP, WS, P2P)
 	tcpReadyCh := make(chan struct{}, len(configs))
+	p2pErrorCh := make(chan error, len(configs))
+	udpReadyCh := make(chan struct{}, len(configs)) // New channel for UDP readiness
 
 	// Initialize resources and TCP server configs
 	tcpConfigs := make([]NodeConfig, len(configs))
@@ -89,7 +91,6 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 			return nil, fmt.Errorf("failed to open LevelDB for %s: %w", config.Name, err)
 		}
 
-		// Initialize P2P server
 		p2pServers[i] = p2p.NewServer(network.NodePortConfig{
 			Name:      config.Name,
 			Role:      config.Role,
@@ -116,7 +117,6 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 		}
 		publicKeys[pubHex] = config.Name
 
-		// Initialize TCP, WebSocket, and HTTP servers
 		tcpServers[i] = transport.NewTCPServer(config.Address, messageChans[i], rpcServers[i], tcpReadyCh)
 		wsServers[i] = transport.NewWebSocketServer(config.WSPort, messageChans[i], rpcServers[i])
 		httpServers[i] = http.NewServer(config.HTTPPort, messageChans[i], blockchains[i], readyCh)
@@ -142,19 +142,64 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 	close(tcpReadyCh)
 	logger.Infof("All TCP servers are ready")
 
-	// Start HTTP, WebSocket, and P2P servers
+	// Start P2P servers and wait for UDP listeners to be ready
+	p2pReadyCh := make(chan struct{}, len(configs))
+	for i, config := range configs {
+		startP2PServer(config.Name, p2pServers[i], p2pReadyCh, p2pErrorCh, udpReadyCh, wg)
+	}
+
+	// Wait for all P2P servers to be ready or fail
+	logger.Infof("Waiting for %d P2P servers to be ready", len(configs))
+	for i := 0; i < len(configs); i++ {
+		select {
+		case <-p2pReadyCh:
+			logger.Infof("P2P server %d of %d ready", i+1, len(configs))
+		case err := <-p2pErrorCh:
+			logger.Errorf("P2P server %d failed: %v", i+1, err)
+			return nil, fmt.Errorf("P2P server %d failed: %v", i+1, err)
+		case <-time.After(10 * time.Second):
+			logger.Errorf("Timeout waiting for P2P server %d to be ready", i+1)
+			return nil, fmt.Errorf("timeout waiting for P2P server %d to be ready", i+1)
+		}
+	}
+	close(p2pReadyCh)
+
+	// Wait for UDP listeners to be ready
+	logger.Infof("Waiting for %d UDP listeners to be ready", len(configs))
+	for i := 0; i < len(configs); i++ {
+		select {
+		case <-udpReadyCh:
+			logger.Infof("UDP listener %d of %d ready", i+1, len(configs))
+		case <-time.After(5 * time.Second):
+			logger.Errorf("Timeout waiting for UDP listener %d to be ready", i+1)
+			return nil, fmt.Errorf("timeout waiting for UDP listener %d to be ready", i+1)
+		}
+	}
+	close(udpReadyCh)
+
+	// Start peer discovery for all P2P servers
+	for i, config := range configs {
+		go func(name string, server *p2p.Server) {
+			if err := server.DiscoverPeers(); err != nil {
+				logger.Errorf("Peer discovery failed for %s: %v", name, err)
+			} else {
+				logger.Infof("Peer discovery completed for %s", name)
+			}
+		}(config.Name, p2pServers[i])
+	}
+
+	// Start HTTP and WebSocket servers
 	for i, config := range configs {
 		startHTTPServer(config.Name, config.HTTPPort, messageChans[i], blockchains[i], readyCh, wg)
 		startWebSocketServer(config.Name, config.WSPort, messageChans[i], rpcServers[i], readyCh, wg)
-		startP2PServer(config.Name, p2pServers[i], readyCh, wg)
 	}
 
-	// Wait for all servers (HTTP, WS, P2P) to be ready
-	logger.Infof("Waiting for %d servers to be ready", len(configs)*3)
-	for i := 0; i < len(configs)*3; i++ {
+	// Wait for HTTP and WebSocket servers to be ready
+	logger.Infof("Waiting for %d servers to be ready", len(configs)*2) // HTTP and WS only
+	for i := 0; i < len(configs)*2; i++ {
 		select {
 		case <-readyCh:
-			logger.Infof("Server %d of %d ready", i+1, len(configs)*3)
+			logger.Infof("Server %d of %d ready", i+1, len(configs)*2)
 		case <-time.After(10 * time.Second):
 			logger.Errorf("Timeout waiting for server %d to be ready after 10s", i+1)
 			return nil, fmt.Errorf("timeout waiting for server %d to be ready after 10s", i+1)
@@ -162,7 +207,6 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 	}
 	logger.Infof("All servers are ready")
 
-	// Return node resources
 	resources := make([]NodeResources, len(configs))
 	for i := range configs {
 		resources[i] = NodeResources{

@@ -43,7 +43,7 @@ import (
 
 // NewServer creates a new P2P server.
 func NewServer(config network.NodePortConfig, blockchain *core.Blockchain, db *leveldb.DB) *Server {
-	bucketSize := 16
+	bucketSize := 16 // standard default size for kademlia k=16
 	parts := strings.Split(config.TCPAddr, ":")
 	if len(parts) != 2 {
 		log.Fatalf("Invalid TCPAddr format: %s", config.TCPAddr)
@@ -103,6 +103,41 @@ func (s *Server) StorePeer(peer *network.Peer) error {
 	}
 	key := []byte("peer-" + peer.Node.ID)
 	return s.db.Put(key, data, nil)
+}
+
+// Close shuts down the P2P server and releases resources.
+// Close closes the P2P server and its resources.
+func (s *Server) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.stopCh != nil {
+		close(s.stopCh) // Signal handleUDP to stop
+	}
+
+	if s.udpConn != nil {
+		log.Printf("Closing UDP connection for %s", s.localNode.Address)
+		if err := s.udpConn.Close(); err != nil {
+			log.Printf("Failed to close UDP connection for %s: %v", s.localNode.Address, err)
+			return err
+		}
+		log.Printf("UDP connection closed for %s", s.localNode.Address)
+		s.udpConn = nil
+	}
+	return nil
+}
+
+// CloseDB closes the LevelDB database.
+func (s *Server) CloseDB() error {
+	if s.db != nil {
+		if err := s.db.Close(); err != nil {
+			log.Printf("Failed to close LevelDB for %s: %v", s.localNode.Address, err)
+			return fmt.Errorf("failed to close LevelDB: %v", err)
+		}
+		log.Printf("LevelDB closed for %s", s.localNode.Address)
+		s.db = nil
+	}
+	return nil
 }
 
 // FetchPeer retrieves peer information from LevelDB.

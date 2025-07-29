@@ -43,113 +43,137 @@ import (
 
 // DiscoverPeers initiates Kademlia-based peer discovery.
 func (s *Server) DiscoverPeers() error {
-	log.Printf("DiscoverPeers: Starting peer discovery for node %s with %d seed nodes", s.localNode.Address, len(s.seedNodes))
+	log.Printf("DiscoverPeers: Starting peer discovery for node %s with %d seed nodes: %v", s.localNode.Address, len(s.seedNodes), s.seedNodes)
 	if len(s.seedNodes) == 0 {
-		log.Printf("DiscoverPeers: No seed nodes provided for node %s", s.localNode.Address)
-		return errors.New("no seed nodes provided")
+		log.Printf("DiscoverPeers: No seed nodes provided for node %s, skipping peer discovery", s.localNode.Address)
+		return nil
 	}
 
-	// Track peers received to avoid waiting for duplicates
 	receivedPeers := make(map[string]bool)
-	timeout := time.After(30 * time.Second) // Global timeout for entire discovery process
-	seedTimeout := 20 * time.Second         // Per-seed timeout
+	timeout := time.After(90 * time.Second)
+	seedTimeout := 45 * time.Second
+	maxRetries := 3
 
 	for _, seed := range s.seedNodes {
-		log.Printf("DiscoverPeers: Processing seed node %s", seed)
-		addr, err := net.ResolveUDPAddr("udp", seed)
-		if err != nil {
-			log.Printf("DiscoverPeers: Failed to resolve seed address %s: %v", seed, err)
-			continue
-		}
-		// Get TCP address from seed configuration
-		configs, err := network.GetNodePortConfigs(2, []network.NodeRole{network.RoleNone, network.RoleNone}, nil)
-		if err != nil {
-			log.Printf("DiscoverPeers: Failed to get node port configs: %v", err)
-			continue
-		}
-		tcpAddr, tcpPort := "", ""
-		for _, cfg := range configs {
-			if cfg.UDPPort == seed {
-				tcpAddr = cfg.TCPAddr
-				if len(strings.Split(tcpAddr, ":")) == 2 {
-					tcpPort = strings.Split(tcpAddr, ":")[1]
-				}
-				break
-			}
-		}
-		if tcpAddr == "" {
-			parts := strings.Split(seed, ":")
-			if len(parts) != 2 {
-				log.Printf("DiscoverPeers: Invalid seed address format %s", seed)
-				continue
-			}
-			udpPort, err := strconv.Atoi(parts[1])
+		for retry := 1; retry <= maxRetries; retry++ {
+			log.Printf("DiscoverPeers: Processing seed node %s (attempt %d/%d) for %s", seed, retry, maxRetries, s.localNode.Address)
+			addr, err := net.ResolveUDPAddr("udp", seed)
 			if err != nil {
-				log.Printf("DiscoverPeers: Invalid UDP port in %s: %v", seed, err)
+				log.Printf("DiscoverPeers: Failed to resolve seed address %s for %s: %v", seed, s.localNode.Address, err)
 				continue
 			}
-			tcpPort = fmt.Sprintf("%d", udpPort-1)
-			tcpAddr = fmt.Sprintf("%s:%s", parts[0], tcpPort)
-			log.Printf("DiscoverPeers: Using fallback TCP address %s for seed %s", tcpAddr, seed)
-		}
-		node := network.NewNode(tcpAddr, addr.IP.String(), tcpPort, seed, false, network.RoleNone)
-		node.KademliaID = network.GenerateKademliaID(tcpAddr)
-		log.Printf("DiscoverPeers: Sending PING to seed node %s (KademliaID: %x)", seed, node.KademliaID[:8])
 
-		nonce := make([]byte, 8)
-		_, err = rand.Read(nonce)
-		if err != nil {
-			log.Printf("DiscoverPeers: Failed to generate nonce for %s: %v", seed, err)
-			continue
-		}
-		s.sendUDPPing(addr, node.KademliaID, nonce)
+			configs, err := network.GetNodePortConfigs(3, []network.NodeRole{network.RoleNone, network.RoleNone, network.RoleNone}, nil)
+			if err != nil {
+				log.Printf("DiscoverPeers: Failed to get node port configs for %s: %v", s.localNode.Address, err)
+				continue
+			}
+			tcpAddr, tcpPort := "", ""
+			for _, cfg := range configs {
+				if cfg.UDPPort == seed {
+					tcpAddr = cfg.TCPAddr
+					if len(strings.Split(tcpAddr, ":")) == 2 {
+						tcpPort = strings.Split(tcpAddr, ":")[1]
+					}
+					break
+				}
+			}
+			if tcpAddr == "" {
+				parts := strings.Split(seed, ":")
+				if len(parts) != 2 {
+					log.Printf("DiscoverPeers: Invalid seed address format %s for %s", seed, s.localNode.Address)
+					continue
+				}
+				udpPort, err := strconv.Atoi(parts[1])
+				if err != nil {
+					log.Printf("DiscoverPeers: Invalid UDP port in %s for %s: %v", seed, s.localNode.Address, err)
+					continue
+				}
+				tcpPort = fmt.Sprintf("%d", udpPort-1)
+				tcpAddr = fmt.Sprintf("%s:%s", parts[0], tcpPort)
+				log.Printf("DiscoverPeers: Using fallback TCP address %s for seed %s for %s", tcpAddr, seed, s.localNode.Address)
+			}
 
-		// Wait for PONG or NEIGHBORS response for this seed
-		seedTimer := time.NewTimer(seedTimeout)
-		for {
+			node := network.NewNode(tcpAddr, addr.IP.String(), tcpPort, seed, false, network.RoleNone)
+			if node == nil {
+				log.Printf("DiscoverPeers: Failed to create node for seed %s for %s", seed, s.localNode.Address)
+				continue
+			}
+			node.KademliaID = network.GenerateKademliaID(tcpAddr)
+			log.Printf("DiscoverPeers: Sending PING to seed node %s (KademliaID: %x) for %s", seed, node.KademliaID[:8], s.localNode.Address)
+
+			nonce := make([]byte, 8)
+			_, err = rand.Read(nonce)
+			if err != nil {
+				log.Printf("DiscoverPeers: Failed to generate nonce for %s for %s: %v", seed, s.localNode.Address, err)
+				continue
+			}
+			s.sendUDPPing(addr, node.KademliaID, nonce)
+
+			seedTimer := time.NewTimer(seedTimeout)
 			select {
 			case peers := <-s.nodeManager.ResponseCh:
-				log.Printf("DiscoverPeers: Received %d peers from %s", len(peers), seed)
+				log.Printf("DiscoverPeers: Received %d peers from %s for %s", len(peers), seed, s.localNode.Address)
+				seedTimer.Stop()
 				for _, peer := range peers {
 					if receivedPeers[peer.Node.ID] {
-						log.Printf("DiscoverPeers: Skipping already processed peer %s", peer.Node.Address)
+						log.Printf("DiscoverPeers: Skipping already processed peer %s for %s", peer.Node.Address, s.localNode.Address)
 						continue
 					}
 					receivedPeers[peer.Node.ID] = true
-					log.Printf("DiscoverPeers: Processing peer %s (KademliaID: %x)", peer.Node.Address, peer.Node.KademliaID[:8])
+					log.Printf("DiscoverPeers: Processing peer %s (KademliaID: %x) for %s", peer.Node.Address, peer.Node.KademliaID[:8], s.localNode.Address)
 					if peer.Node.Address != s.localNode.Address && peer.Node.Address != "" {
 						if err := s.peerManager.ConnectPeer(peer.Node); err != nil {
-							log.Printf("DiscoverPeers: Failed to connect to peer %s: %v", peer.Node.Address, err)
+							log.Printf("DiscoverPeers: Failed to connect to peer %s for %s: %v", peer.Node.Address, s.localNode.Address, err)
 							continue
 						}
-						log.Printf("DiscoverPeers: Successfully connected to peer %s", peer.Node.Address)
+						log.Printf("DiscoverPeers: Successfully connected to peer %s for %s", peer.Node.Address, s.localNode.Address)
 						go s.iterativeFindNode(peer.Node.KademliaID)
 					} else {
-						log.Printf("DiscoverPeers: Skipping peer %s (empty address or self)", peer.Node.Address)
+						log.Printf("DiscoverPeers: Skipping peer %s (empty address or self) for %s", peer.Node.Address, s.localNode.Address)
 					}
 				}
-				seedTimer.Stop() // Stop the seed timer if peers are received
 				goto ProcessNextSeed
 			case <-seedTimer.C:
-				log.Printf("DiscoverPeers: Timeout waiting for response from seed %s", seed)
-				goto ProcessNextSeed
+				log.Printf("DiscoverPeers: Timeout waiting for response from seed %s (attempt %d/%d) for %s", seed, retry, maxRetries, s.localNode.Address)
+				if retry == maxRetries {
+					log.Printf("DiscoverPeers: All retries exhausted for seed %s for %s", seed, s.localNode.Address)
+				}
 			case <-timeout:
 				log.Printf("DiscoverPeers: Global timeout reached for node %s", s.localNode.Address)
-				if len(receivedPeers) > 0 {
-					log.Printf("DiscoverPeers: Found %d peers despite timeout", len(receivedPeers))
+				s.nodeManager.Lock()
+				if len(s.nodeManager.GetPeers()) > 0 {
+					log.Printf("DiscoverPeers: Found %d peers in nodeManager.GetPeers() for %s despite timeout", len(s.nodeManager.GetPeers()), s.localNode.Address)
+					for _, peer := range s.nodeManager.GetPeers() {
+						receivedPeers[peer.Node.ID] = true
+					}
+					s.nodeManager.Unlock()
 					return nil
 				}
+				s.nodeManager.Unlock()
 				return errors.New("global timeout reached with no peers found")
 			}
+			seedTimer.Stop()
+			time.Sleep(5 * time.Second)
 		}
 	ProcessNextSeed:
 	}
 
 	if len(receivedPeers) == 0 {
-		log.Printf("DiscoverPeers: No peers found after processing all seed nodes")
+		s.nodeManager.Lock()
+		if len(s.nodeManager.GetPeers()) > 0 {
+			log.Printf("DiscoverPeers: Found %d peers in nodeManager.GetPeers() for %s", len(s.nodeManager.GetPeers()), s.localNode.Address)
+			for _, peer := range s.nodeManager.GetPeers() {
+				receivedPeers[peer.Node.ID] = true
+			}
+			s.nodeManager.Unlock()
+			return nil
+		}
+		s.nodeManager.Unlock()
+		log.Printf("DiscoverPeers: No peers found after processing all seed nodes for %s", s.localNode.Address)
 		return errors.New("no peers found")
 	}
-	log.Printf("DiscoverPeers: Found %d peers", len(receivedPeers))
+	log.Printf("DiscoverPeers: Found %d peers for %s", len(receivedPeers), s.localNode.Address)
 	return nil
 }
 
@@ -228,7 +252,7 @@ func (s *Server) iterativeFindNode(targetID network.NodeID) {
 						errorCh <- err
 						return
 					}
-					proofData := append(timestamp, append(nonce, dataBytes...)...) // Use the provided nonce
+					proofData := append(timestamp, append(nonce, dataBytes...)...)
 					proof, err := sigproof.GenerateSigProof([][]byte{proofData}, [][]byte{merkleRoot.Hash.Bytes()}, s.localNode.PublicKey)
 					if err != nil {
 						errorCh <- err
@@ -236,9 +260,9 @@ func (s *Server) iterativeFindNode(targetID network.NodeID) {
 					}
 					msg := network.DiscoveryMessage{
 						Type:       "FINDNODE",
-						Data:       dataBytes, // Store as []byte
+						Data:       dataBytes,
 						PublicKey:  s.localNode.PublicKey,
-						MerkleRoot: merkleRoot.Hash.Bytes(),
+						MerkleRoot: merkleRoot.Hash, // Use *uint256.Int directly
 						Proof:      proof,
 						Nonce:      nonce,
 						Timestamp:  timestamp,

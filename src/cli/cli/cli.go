@@ -43,6 +43,7 @@ import (
 )
 
 // Execute runs the CLI to start network nodes with all backend servers.
+// [Previous Execute function unchanged, included for context]
 func Execute() error {
 	cfg := &Config{}
 	flag.StringVar(&cfg.configFile, "config", "", "Path to node configuration JSON file")
@@ -57,12 +58,10 @@ func Execute() error {
 	flag.IntVar(&cfg.nodeIndex, "node-index", 0, "Index of the node to run (0 to numNodes-1)")
 	flag.Parse()
 
-	// If no flags provided (VS Code "play" button), run two nodes
 	if flag.NFlag() == 0 {
 		return runTwoNodes()
 	}
 
-	// Load or generate node configuration
 	var nodeConfig network.NodePortConfig
 	if cfg.configFile != "" {
 		configs, err := network.LoadFromFile(cfg.configFile)
@@ -104,38 +103,38 @@ func Execute() error {
 	return startNode(nodeConfig, cfg.dataDir)
 }
 
-// runTwoNodes starts two nodes with default configurations using the bind package.
+// runTwoNodes starts three nodes with default configurations using the bind package.
 func runTwoNodes() error {
 	configs := []network.NodePortConfig{
 		// Node-0
 		{
 			Name:      "Node-0",
-			TCPAddr:   "127.0.0.1:30307",
-			UDPPort:   "127.0.0.1:30308",
+			TCPAddr:   "127.0.0.1:31307",
+			UDPPort:   "127.0.0.1:31308",
 			HTTPPort:  "127.0.0.1:8547",
 			WSPort:    "127.0.0.1:8602",
 			Role:      network.RoleNone,
-			SeedNodes: []string{"127.0.0.1:30310", "127.0.0.1:30312"},
+			SeedNodes: []string{"127.0.0.1:31310", "127.0.0.1:31312"},
 		},
 		// Node-1
 		{
 			Name:      "Node-1",
-			TCPAddr:   "127.0.0.1:30309",
-			UDPPort:   "127.0.0.1:30310",
+			TCPAddr:   "127.0.0.1:31309",
+			UDPPort:   "127.0.0.1:31310",
 			HTTPPort:  "127.0.0.1:8548",
 			WSPort:    "127.0.0.1:8603",
 			Role:      network.RoleNone,
-			SeedNodes: []string{"127.0.0.1:30308", "127.0.0.1:30312"},
+			SeedNodes: []string{"127.0.0.1:31308", "127.0.0.1:31312"},
 		},
 		// Node-2
 		{
 			Name:      "Node-2",
-			TCPAddr:   "127.0.0.1:30311",
-			UDPPort:   "127.0.0.1:30312",
+			TCPAddr:   "127.0.0.1:31311",
+			UDPPort:   "127.0.0.1:31312",
 			HTTPPort:  "127.0.0.1:8549",
 			WSPort:    "127.0.0.1:8604",
 			Role:      network.RoleNone,
-			SeedNodes: []string{"127.0.0.1:30308", "127.0.0.1:30310"},
+			SeedNodes: []string{"127.0.0.1:31308", "127.0.0.1:31310"},
 		},
 	}
 
@@ -172,39 +171,34 @@ func runTwoNodes() error {
 }
 
 // startNode starts a single node with the given configuration using the bind package.
+// [Previous startNode function unchanged]
 func startNode(nodeConfig network.NodePortConfig, dataDir string) error {
-	// Create data directory
 	dataDir = filepath.Join(dataDir, nodeConfig.Name)
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		return fmt.Errorf("failed to create data directory %s: %v", dataDir, err)
 	}
 
-	// Initialize LevelDB
 	db, err := leveldb.OpenFile(filepath.Join(dataDir, "leveldb"), nil)
 	if err != nil {
 		return fmt.Errorf("failed to open LevelDB at %s: %v", dataDir, err)
 	}
 	defer db.Close()
 
-	// Initialize KeyManager
 	keyManager, err := key.NewKeyManager()
 	if err != nil {
 		return fmt.Errorf("failed to initialize KeyManager: %v", err)
 	}
 
-	// Initialize SPHINCSParameters
 	sphincsParams, err := config.NewSPHINCSParameters()
 	if err != nil {
 		return fmt.Errorf("failed to initialize SPHINCSParameters: %v", err)
 	}
 
-	// Initialize SphincsManager
 	sphincsMgr := sign.NewSphincsManager(db, keyManager, sphincsParams)
 	if sphincsMgr == nil {
 		return fmt.Errorf("failed to initialize SphincsManager")
 	}
 
-	// Convert network.NodePortConfig to bind.NodeSetupConfig
 	setupConfig := bind.NodeSetupConfig{
 		Name:      nodeConfig.Name,
 		Address:   nodeConfig.TCPAddr,
@@ -224,13 +218,11 @@ func startNode(nodeConfig network.NodePortConfig, dataDir string) error {
 		return fmt.Errorf("expected 1 node resource, got %d", len(resources))
 	}
 
-	// Set SphincsManager on P2P server
 	resources[0].P2PServer.SetSphincsMgr(sphincsMgr)
 
 	log.Printf("Node %s started with role %s on TCP %s, UDP %s, HTTP %s, WebSocket %s",
 		nodeConfig.Name, nodeConfig.Role, nodeConfig.TCPAddr, nodeConfig.UDPPort, nodeConfig.HTTPPort, nodeConfig.WSPort)
 
-	// Handle shutdown
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
@@ -243,6 +235,7 @@ func startNode(nodeConfig network.NodePortConfig, dataDir string) error {
 }
 
 // parseRoles converts a comma-separated roles string into a slice of NodeRole.
+// [Previous parseRoles function unchanged]
 func parseRoles(rolesStr string, numNodes int) []network.NodeRole {
 	roles := strings.Split(rolesStr, ",")
 	result := make([]network.NodeRole, numNodes)

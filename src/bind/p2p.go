@@ -33,7 +33,7 @@ import (
 )
 
 // startP2PServer starts a P2P server for the given node.
-func startP2PServer(name string, server *p2p.Server, readyCh chan struct{}, wg *sync.WaitGroup) {
+func startP2PServer(name string, server *p2p.Server, readyCh chan<- struct{}, errorCh chan<- error, udpReadyCh chan<- struct{}, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -55,13 +55,18 @@ func startP2PServer(name string, server *p2p.Server, readyCh chan struct{}, wg *
 		case err := <-startCh:
 			if err != nil {
 				logger.Errorf("P2P server failed for %s: %v", name, err)
+				errorCh <- err
 				return
 			}
 			logger.Infof("P2P server for %s started successfully", name)
+			logger.Infof("Sending UDP ready signal for %s", name)
+			udpReadyCh <- struct{}{} // Signal UDP listener is ready
 			logger.Infof("Sending ready signal for P2P server %s", name)
 			readyCh <- struct{}{}
-		case <-time.After(2 * time.Second):
+		case <-time.After(10 * time.Second):
 			logger.Warnf("P2P server for %s took too long to start, assuming ready", name)
+			logger.Infof("Sending UDP ready signal for %s", name)
+			udpReadyCh <- struct{}{}
 			logger.Infof("Sending ready signal for P2P server %s", name)
 			readyCh <- struct{}{}
 		}

@@ -46,6 +46,8 @@ type Server struct {
 	mu          sync.RWMutex
 	db          *leveldb.DB
 	sphincsMgr  *sign.SphincsManager
+	stopCh      chan struct{} // Channel to signal stop
+	udpReadyCh  chan struct{} // Channel to signal UDP readiness
 }
 
 func (s *Server) LocalNode() *network.Node {
@@ -62,13 +64,6 @@ func (s *Server) PeerManager() *PeerManager {
 
 func (s *Server) SetSphincsMgr(mgr *sign.SphincsManager) {
 	s.sphincsMgr = mgr
-}
-
-func (s *Server) CloseDB() error {
-	if s.db != nil {
-		return s.db.Close()
-	}
-	return nil
 }
 
 type Peer = network.Peer

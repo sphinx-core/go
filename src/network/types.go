@@ -27,6 +27,8 @@ import (
 	"encoding/hex"
 	"sync"
 	"time"
+
+	"github.com/holiman/uint256"
 )
 
 // NodeStatus represents the operational state of a node in the network.
@@ -64,6 +66,7 @@ type KBucket struct {
 
 // NodeManager manages nodes and their peers.
 type NodeManager struct {
+	mu          sync.RWMutex // Unexported mutex
 	nodes       map[string]*Node
 	peers       map[string]*Peer
 	seenMsgs    map[string]bool
@@ -72,7 +75,6 @@ type NodeManager struct {
 	K           int
 	ResponseCh  chan []*Peer
 	PingTimeout time.Duration
-	mu          sync.RWMutex
 }
 
 // Node represents a participant in the blockchain or P2P network.
@@ -129,14 +131,14 @@ type NodePortConfig struct {
 
 // DiscoveryMessage represents a UDP discovery message.
 type DiscoveryMessage struct {
-	Type       string `json:"type"`
-	Data       []byte `json:"data"` // Changed from interface{} to []byte
-	Signature  []byte `json:"signature"`
-	PublicKey  []byte `json:"public_key"`
-	MerkleRoot []byte `json:"merkle_root"`
-	Proof      []byte `json:"proof"`
-	Nonce      []byte `json:"nonce"`
-	Timestamp  []byte `json:"timestamp"`
+	Type       string       `json:"type"`
+	Data       []byte       `json:"data"`      // Changed from interface{} to []byte
+	Signature  []byte       `json:"signature"` // Add Signature field
+	PublicKey  []byte       `json:"public_key"`
+	MerkleRoot *uint256.Int // Changed from []byte to *uint256.Int
+	Proof      []byte       `json:"proof"`
+	Nonce      []byte       `json:"nonce"`
+	Timestamp  []byte       `json:"timestamp"`
 }
 
 // PingData for PING messages.
@@ -167,4 +169,24 @@ type NeighborsData struct {
 	Nodes     []PeerInfo `json:"nodes"`
 	Timestamp time.Time  `json:"timestamp"`
 	Nonce     []byte     `json:"nonce"`
+}
+
+// Lock locks the NodeManager's mutex.
+func (nm *NodeManager) Lock() {
+	nm.mu.Lock()
+}
+
+// Unlock unlocks the NodeManager's mutex.
+func (nm *NodeManager) Unlock() {
+	nm.mu.Unlock()
+}
+
+// RLock read-locks the NodeManager's mutex.
+func (nm *NodeManager) RLock() {
+	nm.mu.RLock()
+}
+
+// RUnlock read-unlocks the NodeManager's mutex.
+func (nm *NodeManager) RUnlock() {
+	nm.mu.RUnlock()
 }

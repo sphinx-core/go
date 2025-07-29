@@ -43,78 +43,70 @@ func LoadFromFile(file string) ([]NodePortConfig, error) {
 	return configs, nil
 }
 
+const (
+	baseTCPPort  = 31307 // Matches Node-0 TCPAddr
+	baseUDPPort  = 31308 // Matches Node-0 UDPPort
+	baseHTTPPort = 8545
+	baseWSPort   = 8600
+	portStep     = 2
+)
+
 // GetNodePortConfigs generates a list of node port configurations for the specified number of nodes.
-func GetNodePortConfigs(numNodes int, roles []NodeRole, flagOverrides map[string]string) ([]NodePortConfig, error) {
-	if numNodes < 1 {
-		return nil, fmt.Errorf("number of nodes must be at least 1")
-	}
-	if len(roles) != numNodes {
-		return nil, fmt.Errorf("number of roles (%d) must match number of nodes (%d)", len(roles), numNodes)
-	}
-	const (
-		baseTCPPort  = 30307 // Changed from 30303
-		baseUDPPort  = 30308 // Changed from 30304
-		baseHTTPPort = 8545
-		baseWSPort   = 8600
-		portStep     = 2 // Changed from 4 to align with expected ports
-	)
-	tcpAddrs := make([]string, numNodes)
-	udpAddrs := make([]string, numNodes)
-	for i := 0; i < numNodes; i++ {
-		tcpPort := baseTCPPort + (i * portStep)
-		udpPort := baseUDPPort + (i * portStep)
-		if addr, ok := flagOverrides[fmt.Sprintf("tcpAddr%d", i)]; ok {
-			tcpAddrs[i] = addr
-		} else {
-			tcpAddrs[i] = fmt.Sprintf("127.0.0.1:%d", tcpPort)
-		}
-		if port, ok := flagOverrides[fmt.Sprintf("udpPort%d", i)]; ok {
-			udpAddrs[i] = port
-		} else {
-			udpAddrs[i] = fmt.Sprintf("127.0.0.1:%d", udpPort)
-		}
-	}
+func GetNodePortConfigs(numNodes int, roles []NodeRole, overrides map[string]string) ([]NodePortConfig, error) {
 	configs := make([]NodePortConfig, numNodes)
 	for i := 0; i < numNodes; i++ {
 		name := fmt.Sprintf("Node-%d", i)
-		role := roles[i]
-		tcpAddr := tcpAddrs[i]
-		udpPort := udpAddrs[i]
-		httpPort := fmt.Sprintf("127.0.0.1:%d", baseHTTPPort+(i*portStep))
-		if port, ok := flagOverrides[fmt.Sprintf("httpPort%d", i)]; ok {
-			httpPort = port
+		tcpPort := baseTCPPort + i*portStep
+		udpPort := baseUDPPort + i*portStep
+		httpPort := baseHTTPPort + i
+		wsPort := baseWSPort + i
+		role := RoleNone
+		if i < len(roles) {
+			role = roles[i]
 		}
-		wsPort := fmt.Sprintf("127.0.0.1:%d", baseWSPort+(i*portStep))
-		if port, ok := flagOverrides[fmt.Sprintf("wsPort%d", i)]; ok {
-			wsPort = port
+
+		// Apply overrides
+		tcpAddrKey := fmt.Sprintf("tcpAddr%d", i)
+		udpPortKey := fmt.Sprintf("udpPort%d", i)
+		httpPortKey := fmt.Sprintf("httpPort%d", i)
+		wsPortKey := fmt.Sprintf("wsPort%d", i)
+
+		tcpAddr := fmt.Sprintf("127.0.0.1:%d", tcpPort)
+		if override, ok := overrides[tcpAddrKey]; ok {
+			tcpAddr = override
 		}
-		seedNodes := make([]string, 0, numNodes-1)
-		if seeds, ok := flagOverrides["seeds"]; ok {
+		udpAddr := fmt.Sprintf("127.0.0.1:%d", udpPort)
+		if override, ok := overrides[udpPortKey]; ok {
+			udpAddr = override
+		}
+		httpAddr := fmt.Sprintf("127.0.0.1:%d", httpPort)
+		if override, ok := overrides[httpPortKey]; ok {
+			httpAddr = override
+		}
+		wsAddr := fmt.Sprintf("127.0.0.1:%d", wsPort)
+		if override, ok := overrides[wsPortKey]; ok {
+			wsAddr = override
+		}
+
+		seedNodes := []string{}
+		if seeds, ok := overrides["seeds"]; ok {
 			seedNodes = strings.Split(seeds, ",")
 		} else {
-			for j := range tcpAddrs {
+			for j := 0; j < numNodes; j++ {
 				if j != i {
-					seedNodes = append(seedNodes, udpAddrs[j])
+					seedNodes = append(seedNodes, fmt.Sprintf("127.0.0.1:%d", baseUDPPort+j*portStep))
 				}
 			}
 		}
+
 		configs[i] = NodePortConfig{
 			Name:      name,
-			Role:      role,
 			TCPAddr:   tcpAddr,
-			UDPPort:   udpPort,
-			HTTPPort:  httpPort,
-			WSPort:    wsPort,
+			UDPPort:   udpAddr,
+			HTTPPort:  httpAddr,
+			WSPort:    wsAddr,
+			Role:      role,
 			SeedNodes: seedNodes,
-		}
-	}
-	portSet := make(map[string]struct{})
-	for _, config := range configs {
-		for _, addr := range []string{config.TCPAddr, config.UDPPort, config.HTTPPort, config.WSPort} {
-			if _, exists := portSet[addr]; exists {
-				return nil, fmt.Errorf("duplicate port %s for node %s", addr, config.Name)
-			}
-			portSet[addr] = struct{}{}
 		}
 	}
 	return configs, nil

@@ -30,11 +30,14 @@ import (
 )
 
 // Shutdown gracefully shuts down all server components in the given NodeResources.
-// Shutdown stops all servers and closes resources.
 func Shutdown(resources []NodeResources) error {
 	var errs []error
 	for _, res := range resources {
 		if res.P2PServer != nil {
+			if err := res.P2PServer.Close(); err != nil {
+				logger.Errorf("Failed to close P2P server for %s: %v", res.P2PServer.LocalNode().ID, err)
+				errs = append(errs, err)
+			}
 			if err := res.P2PServer.CloseDB(); err != nil {
 				logger.Errorf("Failed to close LevelDB for %s: %v", res.P2PServer.LocalNode().ID, err)
 				errs = append(errs, err)
