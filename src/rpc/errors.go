@@ -1,6 +1,6 @@
 // MIT License
 //
-// # Copyright (c) 2024 sphinx-core
+// Copyright (c) 2024 sphinx-core
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -20,38 +20,16 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/rpc/server.go
+// go/src/rpc/erros.go
 package rpc
 
-import (
-	"github.com/sphinx-core/go/src/core"
-	security "github.com/sphinx-core/go/src/handshake"
+import "errors"
+
+// Custom errors for RPC operations.
+var (
+	ErrBufferTooSmall       = errors.New("size of the buffer is too small")
+	ErrInvalidNodeID        = errors.New("invalid node ID")
+	ErrInvalidAddress       = errors.New("invalid remote address")
+	ErrUnsupportedRPCType   = errors.New("unsupported RPC type")
+	ErrInvalidMessageFormat = errors.New("invalid message format")
 )
-
-// NewServer creates a new RPC server instance.
-func NewServer(messageCh chan *security.Message, blockchain *core.Blockchain) *Server {
-	metrics := NewMetrics()
-	server := &Server{
-		messageCh:  messageCh,
-		metrics:    metrics,
-		blockchain: blockchain,
-	}
-	server.handler = NewJSONRPCHandler(server)
-	return server
-}
-
-// HandleRequest processes an incoming RPC request (JSON or binary).
-func (s *Server) HandleRequest(data []byte) ([]byte, error) {
-	// Try decoding as security.Message
-	secMsg, err := security.DecodeMessage(data)
-	if err == nil && secMsg.Type == "rpc" {
-		dataBytes, ok := secMsg.Data.([]byte)
-		if !ok {
-			return s.handler.errorResponse(nil, ErrCodeInvalidRequest, "Invalid RPC data format")
-		}
-		return s.handler.ProcessRequest(dataBytes)
-	}
-
-	// Fallback to direct JSON/binary processing
-	return s.handler.ProcessRequest(data)
-}

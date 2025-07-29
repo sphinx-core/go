@@ -24,10 +24,54 @@
 package rpc
 
 import (
+	"net"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sphinx-core/go/src/core"
 	security "github.com/sphinx-core/go/src/handshake"
 )
+
+// NodeID represents a unique node identifier.
+type NodeID struct {
+	High uint64
+	Low  uint64
+}
+
+// RPCID represents a unique RPC request identifier.
+type RPCID uint64
+
+// RPCType defines the type of RPC message.
+type RPCType int8
+
+// RPC message types.
+const (
+	RPCGetBlockCount RPCType = iota
+	RPCGetBestBlockHash
+	RPCGetBlock
+	RPCGetBlocks
+	RPCSendRawTransaction
+	RPCGetTransaction
+)
+
+// Remote represents a remote node's address and ID.
+type Remote struct {
+	NodeID  NodeID
+	Address net.UDPAddr
+}
+
+// Message represents an RPC message for P2P communication.
+type Message struct {
+	RPCType   RPCType
+	Query     bool
+	TTL       uint16 // TTL in seconds
+	Target    NodeID
+	RPCID     RPCID
+	From      Remote
+	Nodes     []Remote
+	Values    [][]byte
+	Iteration uint8
+	Secret    uint16
+}
 
 // Metrics holds RPC-related Prometheus metrics.
 type Metrics struct {
@@ -36,7 +80,7 @@ type Metrics struct {
 	ErrorCount     *prometheus.CounterVec
 }
 
-// Server processes JSON-RPC requests.
+// Server processes RPC requests.
 type Server struct {
 	messageCh  chan *security.Message
 	metrics    *Metrics
@@ -65,4 +109,13 @@ type RPCError struct {
 	Code    int         `json:"code"`
 	Message string      `json:"message"`
 	Data    interface{} `json:"data,omitempty"`
+}
+
+// RPCHandler defines a function type for handling RPC methods.
+type RPCHandler func(params interface{}) (interface{}, error)
+
+// JSONRPCHandler manages JSON-RPC request processing.
+type JSONRPCHandler struct {
+	server  *Server
+	methods map[string]RPCHandler
 }

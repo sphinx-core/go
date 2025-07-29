@@ -26,47 +26,106 @@ package rpc
 import (
 	"encoding/json"
 	"net"
+	"time"
 
 	security "github.com/sphinx-core/go/src/handshake"
 )
 
-// CallRPC sends a JSON-RPC request to a peer.
-func CallRPC(address, method string, params interface{}) (*JSONRPCResponse, error) {
-	conn, err := net.Dial("tcp", address) // Establish a TCP connection to the given address
-	if err != nil {                       // Check for connection error
-		return nil, err // Return error if connection fails
+// CallRPC sends an RPC request to a peer, supporting both JSON and binary formats.
+func CallRPC(address, method string, params interface{}, nodeID NodeID, ttl uint16) (*Message, error) {
+	conn, err := net.Dial("udp", address)
+	if err != nil {
+		return nil, err
 	}
-	defer conn.Close() // Ensure connection is closed when function returns
+	defer conn.Close()
 
-	paramsJSON, _ := json.Marshal(params) // Serialize params into JSON format, ignoring marshal error
-	req := JSONRPCRequest{                // Create a JSON-RPC request struct
-		JSONRPC: "2.0",              // JSON-RPC version
-		Method:  method,             // RPC method to call
-		Params:  string(paramsJSON), // Parameters as JSON string
-		ID:      1,                  // Request ID (fixed as 1 here)
-	}
-	msg := &security.Message{Type: "jsonrpc", Data: req} // Wrap the JSON-RPC request inside a secure Message
-	data, err := msg.Encode()                            // Encode the Message into bytes for sending
-	if err != nil {                                      // Check encoding error
-		return nil, err // Return error if encoding fails
-	}
-
-	if _, err := conn.Write(data); err != nil { // Write encoded bytes to the TCP connection
-		return nil, err // Return error if writing fails
-	}
-
-	respData := readConn(conn)                              // Read response data from the connection
-	var resp JSONRPCResponse                                // Prepare a variable to hold the unmarshaled response
-	if err := json.Unmarshal(respData, &resp); err != nil { // Unmarshal JSON response into resp struct
-		return nil, err // Return error if unmarshaling fails
+	// Convert method to RPCType
+	var rpcType RPCType
+	switch method {
+	case "getblockcount":
+		rpcType = RPCGetBlockCount
+	case "getbestblockhash":
+		rpcType = RPCGetBestBlockHash
+	case "getblock":
+		rpcType = RPCGetBlock
+	case "getblocks":
+		rpcType = RPCGetBlocks
+	case "sendrawtransaction":
+		rpcType = RPCSendRawTransaction
+	case "gettransaction":
+		rpcType = RPCGetTransaction
+	default:
+		return nil, ErrUnsupportedRPCType
 	}
 
-	return &resp, nil // Return the JSONRPCResponse pointer and no error
+	// Serialize params
+	paramsData, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create Message
+	msg := &Message{
+		RPCType: rpcType,
+		Query:   true,
+		TTL:     ttl,
+		Target:  NodeID{}, // Set to target node ID in production
+		RPCID:   RPCID(time.Now().UnixNano()),
+		From: Remote{
+			NodeID:  nodeID,
+			Address: net.UDPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0}, // Set actual address in production
+		},
+		Values:    [][]byte{paramsData},
+		Iteration: 0,
+		Secret:    uint16(time.Now().UnixNano() % 65536),
+	}
+
+	// Serialize Message
+	data, err := msg.Marshal(make([]byte, msg.MarshalSize()))
+	if err != nil {
+		return nil, err
+	}
+
+	// Wrap in security.Message
+	secMsg := &security.Message{Type: "rpc", Data: data}
+	encodedData, err := secMsg.Encode()
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := conn.Write(encodedData); err != nil {
+		return nil, err
+	}
+
+	// Read response
+	respData := readConn(conn)
+	respMsg, err := security.DecodeMessage(respData)
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure the response is of type "rpc"
+	if respMsg.Type != "rpc" {
+		return nil, ErrInvalidMessageFormat
+	}
+
+	// Extract and deserialize the RPC Message
+	dataBytes, ok := respMsg.Data.([]byte)
+	if !ok {
+		return nil, ErrInvalidMessageFormat
+	}
+
+	var resp Message
+	if err := resp.Unmarshal(dataBytes); err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
 }
 
 // readConn reads data from a connection.
 func readConn(conn net.Conn) []byte {
-	buf := make([]byte, 4096) // Create a buffer to hold read bytes, max size 4096 bytes
-	n, _ := conn.Read(buf)    // Read data from connection into buffer, ignoring read error
-	return buf[:n]            // Return only the bytes actually read
+	buf := make([]byte, 4096)
+	n, _ := conn.Read(buf)
+	return buf[:n]
 }

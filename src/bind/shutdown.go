@@ -30,44 +30,37 @@ import (
 )
 
 // Shutdown gracefully shuts down all server components in the given NodeResources.
+// Shutdown stops all servers and closes resources.
 func Shutdown(resources []NodeResources) error {
 	var errs []error
 	for _, res := range resources {
-		nodeName := res.P2PServer.LocalNode().Address
-
-		// Shutdown HTTP server
-		if res.HTTPServer != nil {
-			logger.Infof("Shutting down HTTP server for %s", nodeName)
-			if err := res.HTTPServer.Stop(); err != nil {
-				logger.Errorf("Failed to shut down HTTP server for %s: %v", nodeName, err)
-				errs = append(errs, fmt.Errorf("HTTP server shutdown failed for %s: %v", nodeName, err))
+		if res.P2PServer != nil {
+			if err := res.P2PServer.CloseDB(); err != nil {
+				logger.Errorf("Failed to close LevelDB for %s: %v", res.P2PServer.LocalNode().ID, err)
+				errs = append(errs, err)
 			}
 		}
-
-		// Shutdown WebSocket server
-		if res.WebSocketServer != nil {
-			logger.Infof("Shutting down WebSocket server for %s", nodeName)
-			if err := res.WebSocketServer.Stop(); err != nil {
-				logger.Errorf("Failed to shut down WebSocket server for %s: %v", nodeName, err)
-				errs = append(errs, fmt.Errorf("WebSocket server shutdown failed for %s: %v", nodeName, err))
-			}
-		}
-
-		// Shutdown TCP server
 		if res.TCPServer != nil {
-			logger.Infof("Shutting down TCP server for %s", nodeName)
 			if err := res.TCPServer.Stop(); err != nil {
-				logger.Errorf("Failed to shut down TCP server for %s: %v", nodeName, err)
-				errs = append(errs, fmt.Errorf("TCP server shutdown failed for %s: %v", nodeName, err))
+				logger.Errorf("Failed to stop TCP server: %v", err)
+				errs = append(errs, err)
 			}
 		}
-
-		// Note: P2PServer and RPCServer may rely on underlying transports for shutdown
-		// Add P2P UDP shutdown if applicable
+		if res.HTTPServer != nil {
+			if err := res.HTTPServer.Stop(); err != nil {
+				logger.Errorf("Failed to stop HTTP server: %v", err)
+				errs = append(errs, err)
+			}
+		}
+		if res.WebSocketServer != nil {
+			if err := res.WebSocketServer.Stop(); err != nil {
+				logger.Errorf("Failed to stop WebSocket server: %v", err)
+				errs = append(errs, err)
+			}
+		}
 	}
-
 	if len(errs) > 0 {
-		return fmt.Errorf("shutdown errors: %v", errs)
+		return fmt.Errorf("errors during shutdown: %v", errs)
 	}
 	return nil
 }

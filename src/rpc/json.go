@@ -34,7 +34,7 @@ import (
 	security "github.com/sphinx-core/go/src/handshake"
 )
 
-// Standard JSON-RPC error codes
+// Standard JSON-RPC error codes.
 const (
 	ErrCodeParseError     = -32700 // Invalid JSON
 	ErrCodeInvalidRequest = -32600 // Not a valid JSON-RPC request
@@ -42,15 +42,6 @@ const (
 	ErrCodeInvalidParams  = -32602 // Invalid parameters
 	ErrCodeInternalError  = -32603 // Internal server error
 )
-
-// RPCHandler defines a function type for handling RPC methods.
-type RPCHandler func(params interface{}) (interface{}, error)
-
-// JSONRPCHandler manages JSON-RPC request processing.
-type JSONRPCHandler struct {
-	server  *Server
-	methods map[string]RPCHandler
-}
 
 // NewJSONRPCHandler creates a new JSON-RPC handler with registered methods.
 func NewJSONRPCHandler(server *Server) *JSONRPCHandler {
@@ -74,7 +65,13 @@ func (h *JSONRPCHandler) registerMethods() {
 
 // ProcessRequest processes a JSON-RPC request or batch of requests.
 func (h *JSONRPCHandler) ProcessRequest(data []byte) ([]byte, error) {
-	// Try to parse as a single request
+	// Try to parse as a Message (binary format)
+	var msg Message
+	if err := msg.Unmarshal(data); err == nil {
+		return h.processBinaryMessage(msg)
+	}
+
+	// Fallback to JSON-RPC
 	var singleReq JSONRPCRequest
 	if err := json.Unmarshal(data, &singleReq); err == nil && singleReq.JSONRPC == "2.0" {
 		return h.processSingleRequest(singleReq)
@@ -86,8 +83,73 @@ func (h *JSONRPCHandler) ProcessRequest(data []byte) ([]byte, error) {
 		return h.processBatchRequest(batchReq)
 	}
 
-	// Invalid JSON or not a request
-	return h.errorResponse(nil, ErrCodeParseError, "Parse error: invalid JSON")
+	return h.errorResponse(nil, ErrCodeParseError, "Parse error: invalid JSON or binary format")
+}
+
+// processBinaryMessage handles a binary Message.
+func (h *JSONRPCHandler) processBinaryMessage(msg Message) ([]byte, error) {
+	start := time.Now()
+	method := msg.RPCType.String()
+	h.server.metrics.RequestCount.WithLabelValues(method).Inc()
+	defer func() {
+		h.server.metrics.RequestLatency.WithLabelValues(method).Observe(time.Since(start).Seconds())
+	}()
+
+	// Validate TTL
+	if msg.TTL == 0 {
+		return h.errorResponse(msg.RPCID, ErrCodeInvalidRequest, "Invalid TTL")
+	}
+
+	// Map RPCType to method name
+	methodName, err := h.mapRPCTypeToMethod(msg.RPCType)
+	if err != nil {
+		h.server.metrics.ErrorCount.WithLabelValues(method).Inc()
+		return h.errorResponse(msg.RPCID, ErrCodeMethodNotFound, err.Error())
+	}
+
+	// Convert Values to params
+	var params interface{}
+	if len(msg.Values) > 0 {
+		if err := json.Unmarshal(msg.Values[0], &params); err != nil {
+			h.server.metrics.ErrorCount.WithLabelValues(method).Inc()
+			return h.errorResponse(msg.RPCID, ErrCodeInvalidParams, "Invalid parameters format")
+		}
+	}
+
+	// Execute method
+	handler, exists := h.methods[methodName]
+	if !exists {
+		h.server.metrics.ErrorCount.WithLabelValues(method).Inc()
+		return h.errorResponse(msg.RPCID, ErrCodeMethodNotFound, fmt.Sprintf("Method %s not found", methodName))
+	}
+
+	result, err := handler(params)
+	if err != nil {
+		h.server.metrics.ErrorCount.WithLabelValues(method).Inc()
+		return h.errorResponse(msg.RPCID, ErrCodeInvalidParams, err.Error())
+	}
+
+	// Prepare response Message
+	respMsg := Message{
+		RPCType:   msg.RPCType,
+		Query:     false,
+		TTL:       msg.TTL,
+		Target:    msg.From.NodeID,
+		RPCID:     msg.RPCID,
+		From:      msg.From, // Use server's node info in production
+		Values:    [][]byte{},
+		Iteration: msg.Iteration,
+		Secret:    msg.Secret,
+	}
+	if result != nil {
+		resultData, err := json.Marshal(result)
+		if err != nil {
+			return nil, err
+		}
+		respMsg.Values = append(respMsg.Values, resultData)
+	}
+
+	return respMsg.Marshal(make([]byte, respMsg.MarshalSize()))
 }
 
 // processSingleRequest handles a single JSON-RPC request.
@@ -98,7 +160,6 @@ func (h *JSONRPCHandler) processSingleRequest(req JSONRPCRequest) ([]byte, error
 		h.server.metrics.RequestLatency.WithLabelValues(req.Method).Observe(time.Since(start).Seconds())
 	}()
 
-	// Validate request
 	if req.JSONRPC != "2.0" {
 		return h.errorResponse(req.ID, ErrCodeInvalidRequest, "Invalid JSON-RPC version")
 	}
@@ -106,21 +167,18 @@ func (h *JSONRPCHandler) processSingleRequest(req JSONRPCRequest) ([]byte, error
 		return h.errorResponse(req.ID, ErrCodeInvalidRequest, "Method is required")
 	}
 
-	// Find and execute method
 	handler, exists := h.methods[req.Method]
 	if !exists {
 		h.server.metrics.ErrorCount.WithLabelValues(req.Method).Inc()
 		return h.errorResponse(req.ID, ErrCodeMethodNotFound, fmt.Sprintf("Method %s not found", req.Method))
 	}
 
-	// Execute method
 	result, err := handler(req.Params)
 	if err != nil {
 		h.server.metrics.ErrorCount.WithLabelValues(req.Method).Inc()
 		return h.errorResponse(req.ID, ErrCodeInvalidParams, err.Error())
 	}
 
-	// Prepare response
 	resp := JSONRPCResponse{
 		JSONRPC: "2.0",
 		Result:  result,
@@ -160,6 +218,46 @@ func (h *JSONRPCHandler) errorResponse(id interface{}, code int, message string)
 		ID: id,
 	}
 	return json.Marshal(resp)
+}
+
+// mapRPCTypeToMethod maps an RPCType to a method name.
+func (h *JSONRPCHandler) mapRPCTypeToMethod(rpcType RPCType) (string, error) {
+	switch rpcType {
+	case RPCGetBlockCount:
+		return "getblockcount", nil
+	case RPCGetBestBlockHash:
+		return "getbestblockhash", nil
+	case RPCGetBlock:
+		return "getblock", nil
+	case RPCGetBlocks:
+		return "getblocks", nil
+	case RPCSendRawTransaction:
+		return "sendrawtransaction", nil
+	case RPCGetTransaction:
+		return "gettransaction", nil
+	default:
+		return "", ErrUnsupportedRPCType
+	}
+}
+
+// String converts an RPCType to its string representation.
+func (t RPCType) String() string {
+	switch t {
+	case RPCGetBlockCount:
+		return "getblockcount"
+	case RPCGetBestBlockHash:
+		return "getbestblockhash"
+	case RPCGetBlock:
+		return "getblock"
+	case RPCGetBlocks:
+		return "getblocks"
+	case RPCSendRawTransaction:
+		return "sendrawtransaction"
+	case RPCGetTransaction:
+		return "gettransaction"
+	default:
+		return "unknown"
+	}
 }
 
 // RPC Method Handlers
@@ -213,7 +311,6 @@ func (h *JSONRPCHandler) sendRawTransaction(params interface{}) (interface{}, er
 	if err := json.Unmarshal(txBytes, &tx); err != nil {
 		return nil, fmt.Errorf("invalid transaction format: %v", err)
 	}
-	// Compute ID if not set
 	if tx.ID == "" {
 		tx.ID = tx.Hash()
 	}
@@ -244,7 +341,6 @@ func (h *JSONRPCHandler) getTransaction(params interface{}) (interface{}, error)
 	return tx, nil
 }
 
-// parseParams validates and extracts parameters.
 func (h *JSONRPCHandler) parseParams(params interface{}, target interface{}) error {
 	if params == nil {
 		return errors.New("missing parameters")

@@ -24,46 +24,33 @@
 package rpc
 
 import (
-	"sync"
-
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var (
-	metrics     *Metrics  // Global pointer to hold Metrics instance
-	initMetrics sync.Once // Ensures metrics initialization runs only once
-)
-
-// NewMetrics initializes and returns a singleton Metrics instance
+// NewMetrics initializes Prometheus metrics for the RPC server.
 func NewMetrics() *Metrics {
-	initMetrics.Do(func() { // Execute the enclosed function only once, thread-safe
-		metrics = &Metrics{ // Instantiate Metrics struct with Prometheus metrics
-			RequestCount: promauto.NewCounterVec( // CounterVec for counting RPC requests per method
-				prometheus.CounterOpts{
-					Name: "rpc_request_total",                      // Metric name for total RPC requests
-					Help: "Total number of RPC requests processed", // Metric description
-				},
-				[]string{"method"}, // Label to distinguish counts by RPC method
-			),
-			RequestLatency: promauto.NewHistogramVec( // HistogramVec for measuring RPC request latencies
-				prometheus.HistogramOpts{
-					Name:    "rpc_request_latency_seconds",        // Metric name for RPC latency
-					Help:    "Latency of RPC requests in seconds", // Description for latency metric
-					Buckets: prometheus.DefBuckets,                // Default buckets for histogram
-				},
-				[]string{"method"}, // Label to distinguish latencies by RPC method
-			),
-			ErrorCount: promauto.NewCounterVec( // CounterVec for counting RPC errors per method
-				prometheus.CounterOpts{
-					Name: "rpc_error_total",            // Metric name for total RPC errors
-					Help: "Total number of RPC errors", // Description of error metric
-				},
-				[]string{"method"}, // Label to distinguish error counts by RPC method
-			),
-		}
-		// Metrics created with promauto are automatically registered with Prometheus.
-		// Therefore, explicit prometheus.MustRegister calls are not required here.
-	})
-	return metrics // Return the initialized Metrics pointer (singleton)
+	return &Metrics{
+		RequestCount: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rpc_request_count",
+				Help: "Number of RPC requests received",
+			},
+			[]string{"method"},
+		),
+		RequestLatency: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "rpc_request_latency_seconds",
+				Help:    "Latency of RPC requests",
+				Buckets: prometheus.DefBuckets,
+			},
+			[]string{"method"},
+		),
+		ErrorCount: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rpc_error_count",
+				Help: "Number of RPC errors",
+			},
+			[]string{"method"},
+		),
+	}
 }

@@ -43,7 +43,7 @@ import (
 
 // NewServer creates a new P2P server.
 func NewServer(config network.NodePortConfig, blockchain *core.Blockchain, db *leveldb.DB) *Server {
-	bucketSize := 20
+	bucketSize := 16
 	parts := strings.Split(config.TCPAddr, ":")
 	if len(parts) != 2 {
 		log.Fatalf("Invalid TCPAddr format: %s", config.TCPAddr)
