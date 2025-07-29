@@ -49,6 +49,11 @@ func (s *Server) DiscoverPeers() error {
 		return errors.New("no seed nodes provided")
 	}
 
+	// Track peers received to avoid waiting for duplicates
+	receivedPeers := make(map[string]bool)
+	timeout := time.After(30 * time.Second) // Global timeout for entire discovery process
+	seedTimeout := 20 * time.Second         // Per-seed timeout
+
 	for _, seed := range s.seedNodes {
 		log.Printf("DiscoverPeers: Processing seed node %s", seed)
 		addr, err := net.ResolveUDPAddr("udp", seed)
@@ -73,7 +78,6 @@ func (s *Server) DiscoverPeers() error {
 			}
 		}
 		if tcpAddr == "" {
-			// Fallback: Assume TCP port is one less than UDP port
 			parts := strings.Split(seed, ":")
 			if len(parts) != 2 {
 				log.Printf("DiscoverPeers: Invalid seed address format %s", seed)
@@ -89,10 +93,9 @@ func (s *Server) DiscoverPeers() error {
 			log.Printf("DiscoverPeers: Using fallback TCP address %s for seed %s", tcpAddr, seed)
 		}
 		node := network.NewNode(tcpAddr, addr.IP.String(), tcpPort, seed, false, network.RoleNone)
-		node.KademliaID = network.GenerateKademliaID(tcpAddr) // Use TCP address for KademliaID
+		node.KademliaID = network.GenerateKademliaID(tcpAddr)
 		log.Printf("DiscoverPeers: Sending PING to seed node %s (KademliaID: %x)", seed, node.KademliaID[:8])
 
-		// Send PING to seed node
 		nonce := make([]byte, 8)
 		_, err = rand.Read(nonce)
 		if err != nil {
@@ -101,36 +104,52 @@ func (s *Server) DiscoverPeers() error {
 		}
 		s.sendUDPPing(addr, node.KademliaID, nonce)
 
-		// Wait for PONG or NEIGHBORS response
-		timeout := time.After(10 * time.Second)
-		select {
-		case peers := <-s.nodeManager.ResponseCh:
-			log.Printf("DiscoverPeers: Received %d peers from %s", len(peers), seed)
-			for _, peer := range peers {
-				log.Printf("DiscoverPeers: Attempting to connect to peer %s (KademliaID: %x)", peer.Node.Address, peer.Node.KademliaID[:8])
-				if peer.Node.Address != s.localNode.Address && peer.Node.Address != "" {
-					if err := s.peerManager.ConnectPeer(peer.Node); err != nil {
-						log.Printf("DiscoverPeers: Failed to connect to peer %s: %v", peer.Node.Address, err)
+		// Wait for PONG or NEIGHBORS response for this seed
+		seedTimer := time.NewTimer(seedTimeout)
+		for {
+			select {
+			case peers := <-s.nodeManager.ResponseCh:
+				log.Printf("DiscoverPeers: Received %d peers from %s", len(peers), seed)
+				for _, peer := range peers {
+					if receivedPeers[peer.Node.ID] {
+						log.Printf("DiscoverPeers: Skipping already processed peer %s", peer.Node.Address)
 						continue
 					}
-					log.Printf("DiscoverPeers: Successfully connected to peer %s", peer.Node.Address)
-					// Perform FINDNODE to discover more peers
-					go s.iterativeFindNode(peer.Node.KademliaID)
-				} else {
-					log.Printf("DiscoverPeers: Skipping peer %s (empty address or self)", peer.Node.Address)
+					receivedPeers[peer.Node.ID] = true
+					log.Printf("DiscoverPeers: Processing peer %s (KademliaID: %x)", peer.Node.Address, peer.Node.KademliaID[:8])
+					if peer.Node.Address != s.localNode.Address && peer.Node.Address != "" {
+						if err := s.peerManager.ConnectPeer(peer.Node); err != nil {
+							log.Printf("DiscoverPeers: Failed to connect to peer %s: %v", peer.Node.Address, err)
+							continue
+						}
+						log.Printf("DiscoverPeers: Successfully connected to peer %s", peer.Node.Address)
+						go s.iterativeFindNode(peer.Node.KademliaID)
+					} else {
+						log.Printf("DiscoverPeers: Skipping peer %s (empty address or self)", peer.Node.Address)
+					}
 				}
+				seedTimer.Stop() // Stop the seed timer if peers are received
+				goto ProcessNextSeed
+			case <-seedTimer.C:
+				log.Printf("DiscoverPeers: Timeout waiting for response from seed %s", seed)
+				goto ProcessNextSeed
+			case <-timeout:
+				log.Printf("DiscoverPeers: Global timeout reached for node %s", s.localNode.Address)
+				if len(receivedPeers) > 0 {
+					log.Printf("DiscoverPeers: Found %d peers despite timeout", len(receivedPeers))
+					return nil
+				}
+				return errors.New("global timeout reached with no peers found")
 			}
-		case <-timeout:
-			log.Printf("DiscoverPeers: Timeout waiting for response from seed %s", seed)
-			continue
 		}
+	ProcessNextSeed:
 	}
 
-	if len(s.peerManager.peers) == 0 {
+	if len(receivedPeers) == 0 {
 		log.Printf("DiscoverPeers: No peers found after processing all seed nodes")
 		return errors.New("no peers found")
 	}
-	log.Printf("DiscoverPeers: Found %d peers", len(s.peerManager.peers))
+	log.Printf("DiscoverPeers: Found %d peers", len(receivedPeers))
 	return nil
 }
 

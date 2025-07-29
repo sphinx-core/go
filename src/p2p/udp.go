@@ -229,18 +229,21 @@ func (s *Server) handleDiscoveryMessage(msg *network.DiscoveryMessage, addr *net
 		node.UpdateStatus(network.NodeStatusActive)
 		peer := network.NewPeer(node)
 		peer.ReceivePong()
-		// Add peer to nodeManager.peers and peerManager.peers
 		if err := s.nodeManager.AddPeer(node); err != nil {
 			log.Printf("Failed to add peer %s to nodeManager.peers: %v", node.ID, err)
 		} else {
 			log.Printf("Added peer %s to nodeManager.peers", node.ID)
 		}
-		if err := s.peerManager.ConnectPeer(node); err != nil {
-			log.Printf("Failed to connect to peer %s: %v", node.ID, err)
-		} else {
-			log.Printf("Successfully connected to peer %s via ConnectPeer", node.ID)
+		if node.Address != s.localNode.Address {
+			if err := s.peerManager.ConnectPeer(node); err != nil {
+				log.Printf("Failed to connect to peer %s via TCP: %v", node.ID, err)
+			} else {
+				log.Printf("Successfully connected to peer %s via ConnectPeer", node.ID)
+			}
 		}
+		log.Printf("Sending peer %s to ResponseCh (ChannelLen=%d)", node.ID, len(s.nodeManager.ResponseCh))
 		s.nodeManager.ResponseCh <- []*network.Peer{peer}
+		log.Printf("Sent peer %s to ResponseCh (ChannelLen=%d)", node.ID, len(s.nodeManager.ResponseCh))
 	case "FINDNODE":
 		var findNodeData network.FindNodeData
 		if err := json.Unmarshal(msg.Data, &findNodeData); err != nil {

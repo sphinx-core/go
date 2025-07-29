@@ -105,9 +105,9 @@ func Execute() error {
 }
 
 // runTwoNodes starts two nodes with default configurations using the bind package.
-// runTwoNodes starts two nodes with default configurations using the bind package.
 func runTwoNodes() error {
 	configs := []network.NodePortConfig{
+		// Node-0
 		{
 			Name:      "Node-0",
 			TCPAddr:   "127.0.0.1:30307",
@@ -115,8 +115,9 @@ func runTwoNodes() error {
 			HTTPPort:  "127.0.0.1:8547",
 			WSPort:    "127.0.0.1:8602",
 			Role:      network.RoleNone,
-			SeedNodes: []string{"127.0.0.1:30310"},
+			SeedNodes: []string{"127.0.0.1:30310", "127.0.0.1:30312"},
 		},
+		// Node-1
 		{
 			Name:      "Node-1",
 			TCPAddr:   "127.0.0.1:30309",
@@ -124,7 +125,17 @@ func runTwoNodes() error {
 			HTTPPort:  "127.0.0.1:8548",
 			WSPort:    "127.0.0.1:8603",
 			Role:      network.RoleNone,
-			SeedNodes: []string{"127.0.0.1:30308"},
+			SeedNodes: []string{"127.0.0.1:30308", "127.0.0.1:30312"},
+		},
+		// Node-2
+		{
+			Name:      "Node-2",
+			TCPAddr:   "127.0.0.1:30311",
+			UDPPort:   "127.0.0.1:30312",
+			HTTPPort:  "127.0.0.1:8549",
+			WSPort:    "127.0.0.1:8604",
+			Role:      network.RoleNone,
+			SeedNodes: []string{"127.0.0.1:30308", "127.0.0.1:30310"},
 		},
 	}
 

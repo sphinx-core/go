@@ -56,6 +56,8 @@ func NewPeerManager(server *Server, bucketSize int) *PeerManager {
 }
 
 // ConnectPeer establishes a connection to a peer and performs handshake.
+// go/src/p2p/peer.go
+// ConnectPeer establishes a connection to a peer and performs handshake.
 func (pm *PeerManager) ConnectPeer(node *network.Node) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -73,6 +75,7 @@ func (pm *PeerManager) ConnectPeer(node *network.Node) error {
 		log.Printf("Failed to connect to %s: %v", node.ID, err)
 		return fmt.Errorf("failed to connect to %s: %v", node.ID, err)
 	}
+	log.Printf("TCP connection established to %s", node.Address)
 
 	// Add peer to nodeManager.peers before handshake
 	peer := &network.Peer{
@@ -83,7 +86,7 @@ func (pm *PeerManager) ConnectPeer(node *network.Node) error {
 	}
 	if err := pm.server.nodeManager.AddPeer(node); err != nil {
 		log.Printf("Failed to add peer %s: %v", node.ID, err)
-		transport.DisconnectNode(node)
+		transport.DisconnectNode(node) // This will close the connection
 		return fmt.Errorf("failed to add peer %s: %v", node.ID, err)
 	}
 	pm.peers[node.ID] = peer
@@ -92,7 +95,7 @@ func (pm *PeerManager) ConnectPeer(node *network.Node) error {
 	// Perform handshake after adding peer
 	if err := pm.performHandshake(node); err != nil {
 		log.Printf("Handshake failed with %s: %v", node.ID, err)
-		transport.DisconnectNode(node)
+		transport.DisconnectNode(node) // This will close the connection
 		pm.server.nodeManager.RemovePeer(node.ID)
 		delete(pm.peers, node.ID)
 		delete(pm.scores, node.ID)
@@ -170,7 +173,7 @@ func (pm *PeerManager) performHandshake(node *network.Node) error {
 	for {
 		select {
 		case msg := <-pm.server.messageCh:
-			log.Printf("Received message in handshake for %s: Type=%s, Data=%v", node.Address, msg.Type, msg.Data)
+			log.Printf("Received message in handshake for %s: Type=%s, Data=%v, ChannelLen=%d", node.Address, msg.Type, msg.Data, len(pm.server.messageCh))
 			if msg.Type == "verack" {
 				if peerID, ok := msg.Data.(string); ok && peerID == node.ID {
 					log.Printf("Received valid verack from %s for node_id: %s", node.Address, peerID)

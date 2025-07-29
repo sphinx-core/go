@@ -43,7 +43,7 @@ func NewNodeManager(bucketSize int) *NodeManager {
 		kBuckets:    [256][]*KBucket{},
 		K:           bucketSize,
 		PingTimeout: 5 * time.Second,
-		ResponseCh:  make(chan []*Peer, 100),
+		ResponseCh:  make(chan []*Peer, 20000),
 	}
 }
 
