@@ -32,6 +32,7 @@ import (
 
 	"github.com/sphinx-core/go/src/core"
 	security "github.com/sphinx-core/go/src/handshake"
+	"github.com/sphinx-core/go/src/http"
 	logger "github.com/sphinx-core/go/src/log"
 	"github.com/sphinx-core/go/src/network"
 	"github.com/sphinx-core/go/src/p2p"
@@ -46,6 +47,9 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 	blockchains := make([]*core.Blockchain, len(configs))
 	rpcServers := make([]*rpc.Server, len(configs))
 	p2pServers := make([]*p2p.Server, len(configs))
+	tcpServers := make([]*transport.TCPServer, len(configs))
+	wsServers := make([]*transport.WebSocketServer, len(configs))
+	httpServers := make([]*http.Server, len(configs))
 	publicKeys := make(map[string]string)
 	readyCh := make(chan struct{}, len(configs)*3) // 3 services per node (HTTP, WS, P2P)
 	tcpReadyCh := make(chan struct{}, len(configs))
@@ -90,7 +94,7 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 			Name:      config.Name,
 			Role:      config.Role,
 			TCPAddr:   config.Address,
-			UDPPort:   config.UDPPort, // Use correct UDP port
+			UDPPort:   config.UDPPort,
 			HTTPPort:  config.HTTPPort,
 			WSPort:    config.WSPort,
 			SeedNodes: config.SeedNodes,
@@ -111,6 +115,11 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 			return nil, fmt.Errorf("duplicate public key detected for %s: %s", config.Name, pubHex)
 		}
 		publicKeys[pubHex] = config.Name
+
+		// Initialize TCP, WebSocket, and HTTP servers
+		tcpServers[i] = transport.NewTCPServer(config.Address, messageChans[i], rpcServers[i], tcpReadyCh)
+		wsServers[i] = transport.NewWebSocketServer(config.WSPort, messageChans[i], rpcServers[i])
+		httpServers[i] = http.NewServer(config.HTTPPort, messageChans[i], blockchains[i], readyCh)
 	}
 
 	// Bind TCP servers
@@ -135,13 +144,8 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 
 	// Start HTTP, WebSocket, and P2P servers
 	for i, config := range configs {
-		// Start HTTP server
 		startHTTPServer(config.Name, config.HTTPPort, messageChans[i], blockchains[i], readyCh, wg)
-
-		// Start WebSocket server
 		startWebSocketServer(config.Name, config.WSPort, messageChans[i], rpcServers[i], readyCh, wg)
-
-		// Start P2P server
 		startP2PServer(config.Name, p2pServers[i], readyCh, wg)
 	}
 
@@ -162,11 +166,14 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 	resources := make([]NodeResources, len(configs))
 	for i := range configs {
 		resources[i] = NodeResources{
-			Blockchain: blockchains[i],
-			MessageCh:  messageChans[i],
-			RPCServer:  rpcServers[i],
-			P2PServer:  p2pServers[i],
-			PublicKey:  hex.EncodeToString(p2pServers[i].LocalNode().PublicKey),
+			Blockchain:      blockchains[i],
+			MessageCh:       messageChans[i],
+			RPCServer:       rpcServers[i],
+			P2PServer:       p2pServers[i],
+			PublicKey:       hex.EncodeToString(p2pServers[i].LocalNode().PublicKey),
+			TCPServer:       tcpServers[i],
+			WebSocketServer: wsServers[i],
+			HTTPServer:      httpServers[i],
 		}
 	}
 

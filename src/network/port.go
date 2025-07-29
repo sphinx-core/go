@@ -52,11 +52,11 @@ func GetNodePortConfigs(numNodes int, roles []NodeRole, flagOverrides map[string
 		return nil, fmt.Errorf("number of roles (%d) must match number of nodes (%d)", len(roles), numNodes)
 	}
 	const (
-		baseTCPPort  = 30303
-		baseUDPPort  = 30304
+		baseTCPPort  = 30307 // Changed from 30303
+		baseUDPPort  = 30308 // Changed from 30304
 		baseHTTPPort = 8545
 		baseWSPort   = 8600
-		portStep     = 4 // Increased to accommodate UDP
+		portStep     = 2 // Changed from 4 to align with expected ports
 	)
 	tcpAddrs := make([]string, numNodes)
 	udpAddrs := make([]string, numNodes)
@@ -94,7 +94,7 @@ func GetNodePortConfigs(numNodes int, roles []NodeRole, flagOverrides map[string
 		} else {
 			for j := range tcpAddrs {
 				if j != i {
-					seedNodes = append(seedNodes, udpAddrs[j]) // Use UDP addresses for seeds
+					seedNodes = append(seedNodes, udpAddrs[j])
 				}
 			}
 		}

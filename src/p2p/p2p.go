@@ -67,7 +67,7 @@ func NewServer(config network.NodePortConfig, blockchain *core.Blockchain, db *l
 		localNode:   localNode,
 		nodeManager: nodeManager,
 		seedNodes:   config.SeedNodes,
-		messageCh:   make(chan *security.Message, 100),
+		messageCh:   make(chan *security.Message, 10000), // Increased buffer size
 		blockchain:  blockchain,
 		db:          db,
 		sphincsMgr:  sphincsMgr,
@@ -120,9 +120,10 @@ func (s *Server) FetchPeer(nodeID string) (*network.PeerInfo, error) {
 }
 
 // handleMessages processes incoming messages.
+// handleMessages processes incoming messages.
 func (s *Server) handleMessages() {
 	for msg := range s.messageCh {
-		log.Printf("Received message: Type=%s, Data=%v", msg.Type, msg.Data)
+		log.Printf("Processing message from channel: Type=%s, Data=%v, ChannelLen=%d", msg.Type, msg.Data, len(s.messageCh))
 		originID := ""
 		switch msg.Type {
 		case "transaction":
@@ -217,15 +218,48 @@ func (s *Server) handleMessages() {
 					log.Printf("Invalid node_id in version message")
 					continue
 				}
-				verackMsg := &security.Message{Type: "verack", Data: s.localNode.ID}
-				if peer, ok := s.nodeManager.GetPeers()[peerID]; ok {
-					transport.SendMessage(peer.Node.Address, verackMsg)
-					s.peerManager.UpdatePeerScore(peerID, 5)
+				node := s.nodeManager.GetNode(peerID)
+				if node == nil {
+					node = &network.Node{
+						ID:         peerID,
+						Address:    "",
+						Status:     network.NodeStatusActive,
+						LastSeen:   time.Now(),
+						KademliaID: network.GenerateKademliaID(peerID),
+					}
+					s.nodeManager.AddNode(node)
+					log.Printf("Created temporary node for version message: ID=%s", peerID)
 				}
-			}
-		case "verack":
-			if peerID, ok := msg.Data.(string); ok {
+				verackMsg := &security.Message{
+					Type: "verack",
+					Data: s.localNode.ID,
+				}
+				sourceAddr := node.Address
+				if sourceAddr == "" {
+					if addr, ok := versionData["address"].(string); ok && addr != "" {
+						sourceAddr = addr
+					} else {
+						log.Printf("No valid source address for verack to %s", peerID)
+						continue
+					}
+				}
+				if err := transport.SendMessage(sourceAddr, verackMsg); err != nil {
+					log.Printf("Failed to send verack to %s at %s: %v", peerID, sourceAddr, err)
+					s.peerManager.UpdatePeerScore(peerID, -10)
+					continue
+				}
+				log.Printf("Sent verack to %s at %s", peerID, sourceAddr)
 				s.peerManager.UpdatePeerScore(peerID, 5)
+				if addr, ok := versionData["address"].(string); ok && addr != "" && node.Address == "" {
+					node.Address = addr
+					if err := s.nodeManager.UpdateNode(node); err != nil {
+						log.Printf("Failed to update node %s address to %s: %v", peerID, addr, err)
+					} else {
+						log.Printf("Updated node %s address to %s", peerID, addr)
+					}
+				}
+			} else {
+				log.Printf("Invalid version message data: %v", msg.Data)
 			}
 		case "getheaders":
 			if data, ok := msg.Data.(map[string]interface{}); ok {

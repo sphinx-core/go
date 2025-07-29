@@ -21,7 +21,6 @@
 // SOFTWARE.
 
 // go/src/p2p/discovery.go
-// go/src/p2p/discovery.go
 package p2p
 
 import (
@@ -32,8 +31,11 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/sphinx-core/go/src/core/hashtree"
 	sigproof "github.com/sphinx-core/go/src/core/proof"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 	"github.com/sphinx-core/go/src/network"
@@ -54,11 +56,43 @@ func (s *Server) DiscoverPeers() error {
 			log.Printf("DiscoverPeers: Failed to resolve seed address %s: %v", seed, err)
 			continue
 		}
-		node := network.NewNode(seed, addr.IP.String(), fmt.Sprintf("%d", addr.Port), seed, false, network.RoleNone)
-		node.KademliaID = network.GenerateKademliaID(seed)
+		// Get TCP address from seed configuration
+		configs, err := network.GetNodePortConfigs(2, []network.NodeRole{network.RoleNone, network.RoleNone}, nil)
+		if err != nil {
+			log.Printf("DiscoverPeers: Failed to get node port configs: %v", err)
+			continue
+		}
+		tcpAddr, tcpPort := "", ""
+		for _, cfg := range configs {
+			if cfg.UDPPort == seed {
+				tcpAddr = cfg.TCPAddr
+				if len(strings.Split(tcpAddr, ":")) == 2 {
+					tcpPort = strings.Split(tcpAddr, ":")[1]
+				}
+				break
+			}
+		}
+		if tcpAddr == "" {
+			// Fallback: Assume TCP port is one less than UDP port
+			parts := strings.Split(seed, ":")
+			if len(parts) != 2 {
+				log.Printf("DiscoverPeers: Invalid seed address format %s", seed)
+				continue
+			}
+			udpPort, err := strconv.Atoi(parts[1])
+			if err != nil {
+				log.Printf("DiscoverPeers: Invalid UDP port in %s: %v", seed, err)
+				continue
+			}
+			tcpPort = fmt.Sprintf("%d", udpPort-1)
+			tcpAddr = fmt.Sprintf("%s:%s", parts[0], tcpPort)
+			log.Printf("DiscoverPeers: Using fallback TCP address %s for seed %s", tcpAddr, seed)
+		}
+		node := network.NewNode(tcpAddr, addr.IP.String(), tcpPort, seed, false, network.RoleNone)
+		node.KademliaID = network.GenerateKademliaID(tcpAddr) // Use TCP address for KademliaID
 		log.Printf("DiscoverPeers: Sending PING to seed node %s (KademliaID: %x)", seed, node.KademliaID[:8])
 
-		// Send PING to seed node using sendUDPPing
+		// Send PING to seed node
 		nonce := make([]byte, 8)
 		_, err = rand.Read(nonce)
 		if err != nil {
@@ -68,13 +102,13 @@ func (s *Server) DiscoverPeers() error {
 		s.sendUDPPing(addr, node.KademliaID, nonce)
 
 		// Wait for PONG or NEIGHBORS response
-		timeout := time.After(5 * time.Second)
+		timeout := time.After(10 * time.Second)
 		select {
 		case peers := <-s.nodeManager.ResponseCh:
 			log.Printf("DiscoverPeers: Received %d peers from %s", len(peers), seed)
 			for _, peer := range peers {
 				log.Printf("DiscoverPeers: Attempting to connect to peer %s (KademliaID: %x)", peer.Node.Address, peer.Node.KademliaID[:8])
-				if peer.Node.Address != s.localNode.Address {
+				if peer.Node.Address != s.localNode.Address && peer.Node.Address != "" {
 					if err := s.peerManager.ConnectPeer(peer.Node); err != nil {
 						log.Printf("DiscoverPeers: Failed to connect to peer %s: %v", peer.Node.Address, err)
 						continue
@@ -82,6 +116,8 @@ func (s *Server) DiscoverPeers() error {
 					log.Printf("DiscoverPeers: Successfully connected to peer %s", peer.Node.Address)
 					// Perform FINDNODE to discover more peers
 					go s.iterativeFindNode(peer.Node.KademliaID)
+				} else {
+					log.Printf("DiscoverPeers: Skipping peer %s (empty address or self)", peer.Node.Address)
 				}
 			}
 		case <-timeout:
@@ -156,17 +192,24 @@ func (s *Server) iterativeFindNode(targetID network.NodeID) {
 					}
 					timestamp := make([]byte, 8)
 					binary.BigEndian.PutUint64(timestamp, uint64(data.Timestamp.Unix()))
-					signature, merkleRoot, _, nonce, err := s.sphincsMgr.SignMessage(dataBytes, privateKey)
+					signature, merkleRoot, _, _, err := s.sphincsMgr.SignMessage(dataBytes, privateKey)
 					if err != nil {
 						errorCh <- err
 						return
 					}
+					// Store signature locally
 					signatureBytes, err := s.sphincsMgr.SerializeSignature(signature)
 					if err != nil {
 						errorCh <- err
 						return
 					}
-					proofData := append(timestamp, append(nonce, dataBytes...)...)
+					err = hashtree.SaveLeavesToDB(s.db, [][]byte{dataBytes, signatureBytes})
+					if err != nil {
+						log.Printf("iterativeFindNode: Failed to store signature: %v", err)
+						errorCh <- err
+						return
+					}
+					proofData := append(timestamp, append(nonce, dataBytes...)...) // Use the provided nonce
 					proof, err := sigproof.GenerateSigProof([][]byte{proofData}, [][]byte{merkleRoot.Hash.Bytes()}, s.localNode.PublicKey)
 					if err != nil {
 						errorCh <- err
@@ -174,8 +217,7 @@ func (s *Server) iterativeFindNode(targetID network.NodeID) {
 					}
 					msg := network.DiscoveryMessage{
 						Type:       "FINDNODE",
-						Data:       dataBytes,
-						Signature:  signatureBytes,
+						Data:       dataBytes, // Store as []byte
 						PublicKey:  s.localNode.PublicKey,
 						MerkleRoot: merkleRoot.Hash.Bytes(),
 						Proof:      proof,

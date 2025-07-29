@@ -30,6 +30,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 )
 
@@ -115,22 +116,20 @@ func (enc *EncryptionKey) Decrypt(ciphertext []byte) ([]byte, error) {
 
 // SecureMessage serializes and encrypts the message struct
 func SecureMessage(msg *Message, enc *EncryptionKey) ([]byte, error) {
-	// Check encryption key
-	if enc == nil {
-		return nil, errors.New("encryption key is nil")
-	}
-
-	// Serialize message to JSON
-	data, err := json.Marshal(msg)
+	// Encode the message to JSON
+	data, err := msg.Encode()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to encode message: %v", err)
 	}
-
-	// Log encoding info
 	log.Printf("Encoding message, type: %s, data length: %d", msg.Type, len(data))
 
-	// Encrypt the serialized data
-	return enc.Encrypt(data)
+	// Encrypt the data using the EncryptionKey
+	ciphertext, err := enc.Encrypt(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt message: %v", err)
+	}
+	log.Printf("Encrypted message, nonce: %x, ciphertext length: %d", ciphertext[:enc.AESGCM.NonceSize()], len(ciphertext))
+	return ciphertext, nil
 }
 
 // DecodeSecureMessage decrypts and deserializes an encrypted message

@@ -24,6 +24,7 @@
 package p2p
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -33,6 +34,7 @@ import (
 	"log"
 	"math"
 	"math/big"
+	"net"
 	"time"
 
 	security "github.com/sphinx-core/go/src/handshake"
@@ -65,15 +67,14 @@ func (pm *PeerManager) ConnectPeer(node *network.Node) error {
 		log.Printf("Maximum peer limit reached: %d", pm.maxPeers)
 		return errors.New("maximum peer limit reached")
 	}
-	if err := transport.ConnectNode(node, pm.server.messageCh); err != nil {
+	log.Printf("Connecting to node %s via TCP: %s", node.ID, node.Address)
+	_, err := transport.ConnectTCP(node.Address, pm.server.messageCh)
+	if err != nil {
 		log.Printf("Failed to connect to %s: %v", node.ID, err)
 		return fmt.Errorf("failed to connect to %s: %v", node.ID, err)
 	}
-	if err := pm.performHandshake(node); err != nil {
-		log.Printf("Handshake failed with %s: %v", node.ID, err)
-		transport.DisconnectNode(node)
-		return fmt.Errorf("handshake failed with %s: %v", node.ID, err)
-	}
+
+	// Add peer to nodeManager.peers before handshake
 	peer := &network.Peer{
 		Node:             node,
 		ConnectionStatus: "connected",
@@ -87,6 +88,17 @@ func (pm *PeerManager) ConnectPeer(node *network.Node) error {
 	}
 	pm.peers[node.ID] = peer
 	pm.scores[node.ID] = 50
+
+	// Perform handshake after adding peer
+	if err := pm.performHandshake(node); err != nil {
+		log.Printf("Handshake failed with %s: %v", node.ID, err)
+		transport.DisconnectNode(node)
+		pm.server.nodeManager.RemovePeer(node.ID)
+		delete(pm.peers, node.ID)
+		delete(pm.scores, node.ID)
+		return fmt.Errorf("handshake failed with %s: %v", node.ID, err)
+	}
+
 	if err := pm.server.StorePeer(peer); err != nil {
 		log.Printf("Failed to store peer %s in DB: %v", node.ID, err)
 	}
@@ -110,7 +122,21 @@ func (pm *PeerManager) ConnectPeer(node *network.Node) error {
 
 // performHandshake negotiates protocol version and capabilities.
 func (pm *PeerManager) performHandshake(node *network.Node) error {
-	log.Printf("Sending version message to %s", node.Address)
+	log.Printf("Starting handshake with %s (ID=%s)", node.Address, node.ID)
+
+	// Add peer to nodeManager.peers before sending version message
+	pm.mu.Lock()
+	if _, exists := pm.peers[node.ID]; !exists {
+		pm.peers[node.ID] = &network.Peer{
+			Node:             node,
+			ConnectionStatus: "pending",
+			ConnectedAt:      time.Now(),
+			LastSeen:         time.Now(),
+		}
+		log.Printf("Added peer %s to nodeManager.peers before handshake", node.ID)
+	}
+	pm.mu.Unlock()
+
 	nonce := make([]byte, 8)
 	rand.Read(nonce)
 	versionMsg := &security.Message{
@@ -121,16 +147,53 @@ func (pm *PeerManager) performHandshake(node *network.Node) error {
 			"chain_id":     "sphinx-mainnet",
 			"block_height": pm.server.blockchain.GetBlockCount(),
 			"nonce":        hex.EncodeToString(nonce),
+			"address":      pm.server.localNode.Address,
 		},
+	}
+	conn, err := transport.GetConnection(node.Address)
+	if err != nil {
+		log.Printf("No active connection to %s: %v", node.Address, err)
+		return fmt.Errorf("no active connection to %s: %v", node.Address, err)
+	}
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		tcpConn.Write([]byte{}) // Flush the connection
 	}
 	if err := transport.SendMessage(node.Address, versionMsg); err != nil {
 		log.Printf("Failed to send version message to %s: %v", node.Address, err)
 		return err
 	}
-	log.Printf("Version message sent to %s, waiting for response", node.Address)
-	time.Sleep(1 * time.Second) // Placeholder for response
-	log.Printf("Handshake placeholder completed for %s", node.Address)
-	return nil
+	log.Printf("Version message sent to %s, waiting for verack response", node.Address)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for {
+		select {
+		case msg := <-pm.server.messageCh:
+			log.Printf("Received message in handshake for %s: Type=%s, Data=%v", node.Address, msg.Type, msg.Data)
+			if msg.Type == "verack" {
+				if peerID, ok := msg.Data.(string); ok && peerID == node.ID {
+					log.Printf("Received valid verack from %s for node_id: %s", node.Address, peerID)
+					pm.mu.Lock()
+					if peer, exists := pm.peers[node.ID]; exists {
+						peer.ConnectionStatus = "active"
+						peer.LastSeen = time.Now()
+					} else {
+						log.Printf("Peer %s not found in nodeManager.peers during verack", node.ID)
+					}
+					pm.mu.Unlock()
+					return nil
+				} else {
+					log.Printf("Invalid verack from %s: peerID=%v, expected=%s", node.Address, msg.Data, node.ID)
+				}
+			} else {
+				log.Printf("Unexpected message type in handshake for %s: %s", node.Address, msg.Type)
+			}
+		case <-ctx.Done():
+			log.Printf("Timeout waiting for verack from %s: %v", node.Address, ctx.Err())
+			return fmt.Errorf("timeout waiting for verack from %s", node.Address)
+		}
+	}
 }
 
 // DisconnectPeer terminates a peer connection.

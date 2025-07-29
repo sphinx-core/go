@@ -53,11 +53,13 @@ func ResolveAddress(ip, port string) (string, error) {
 }
 
 // NodeToAddress converts a network.Node's IP and Port into a usable address string.
+// NodeToAddress converts a Node to a TCP address.
 func NodeToAddress(node *network.Node) (string, error) {
 	if node.IP == "" || node.Port == "" {
-		return "", fmt.Errorf("node %s has empty IP or port", node.ID) // Ensure both fields are set
+		log.Printf("NodeToAddress: node %s has empty IP=%s or Port=%s", node.ID, node.IP, node.Port)
+		return "", fmt.Errorf("node %s has empty IP or port", node.ID)
 	}
-	return ResolveAddress(node.IP, node.Port) // Generate address from IP and port
+	return fmt.Sprintf("%s:%s", node.IP, node.Port), nil
 }
 
 // ConnectNode attempts to connect to a node using TCP and WebSocket up to 3 times.

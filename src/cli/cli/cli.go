@@ -21,7 +21,6 @@
 // SOFTWARE.
 
 // go/src/cli/cli/cli.go
-// go/src/cli/cli/cli.go
 package cli
 
 import (
@@ -34,14 +33,12 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
+	"github.com/sphinx-core/go/src/bind"
 	config "github.com/sphinx-core/go/src/core/sphincs/config"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 	sign "github.com/sphinx-core/go/src/core/sphincs/sign/backend"
-	logger "github.com/sphinx-core/go/src/log"
 	"github.com/sphinx-core/go/src/network"
-	"github.com/sphinx-core/go/src/server"
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
@@ -107,9 +104,9 @@ func Execute() error {
 	return startNode(nodeConfig, cfg.dataDir)
 }
 
-// runTwoNodes starts two nodes with default configurations.
+// runTwoNodes starts two nodes with default configurations using the bind package.
+// runTwoNodes starts two nodes with default configurations using the bind package.
 func runTwoNodes() error {
-	// Define configurations for two nodes
 	configs := []network.NodePortConfig{
 		{
 			Name:      "Node-0",
@@ -118,7 +115,7 @@ func runTwoNodes() error {
 			HTTPPort:  "127.0.0.1:8547",
 			WSPort:    "127.0.0.1:8602",
 			Role:      network.RoleNone,
-			SeedNodes: []string{},
+			SeedNodes: []string{"127.0.0.1:30310"},
 		},
 		{
 			Name:      "Node-1",
@@ -127,46 +124,28 @@ func runTwoNodes() error {
 			HTTPPort:  "127.0.0.1:8548",
 			WSPort:    "127.0.0.1:8603",
 			Role:      network.RoleNone,
-			SeedNodes: []string{"127.0.0.1:30308"}, // Node-1 uses Node-0 as seed
+			SeedNodes: []string{"127.0.0.1:30308"},
 		},
 	}
 
-	var wg sync.WaitGroup
-	startErrCh := make(chan error, 2)
-	srvCh := make(chan *server.Server, 2)
-
-	// Start both nodes
-	for i, nodeConfig := range configs {
-		wg.Add(1)
-		go func(idx int, cfg network.NodePortConfig) {
-			defer wg.Done()
-			logger.Infof("Starting node %s", cfg.Name)
-			if err := startNode(cfg, "data"); err != nil {
-				logger.Errorf("Failed to start node %s: %v", cfg.Name, err)
-				startErrCh <- fmt.Errorf("node %s failed: %v", cfg.Name, err)
-				return
-			}
-			srvCh <- server.GetServer(cfg.Name) // Assume server package tracks servers by name
-		}(i, nodeConfig)
+	// Convert []network.NodePortConfig to []bind.NodeSetupConfig
+	setupConfigs := make([]bind.NodeSetupConfig, len(configs))
+	for i, config := range configs {
+		setupConfigs[i] = bind.NodeSetupConfig{
+			Name:      config.Name,
+			Address:   config.TCPAddr,
+			UDPPort:   config.UDPPort,
+			HTTPPort:  config.HTTPPort,
+			WSPort:    config.WSPort,
+			Role:      config.Role,
+			SeedNodes: config.SeedNodes,
+		}
 	}
 
-	// Wait for servers to start
-	servers := make([]*server.Server, 0, 2)
-	for i := 0; i < 2; i++ {
-		select {
-		case srv := <-srvCh:
-			servers = append(servers, srv)
-		case err := <-startErrCh:
-			for _, srv := range servers {
-				srv.Close()
-			}
-			return err
-		case <-time.After(10 * time.Second):
-			for _, srv := range servers {
-				srv.Close()
-			}
-			return fmt.Errorf("timeout waiting for node %d to start", i)
-		}
+	var wg sync.WaitGroup
+	resources, err := bind.SetupNodes(setupConfigs, &wg)
+	if err != nil {
+		return fmt.Errorf("failed to set up nodes: %v", err)
 	}
 
 	// Handle shutdown
@@ -174,16 +153,14 @@ func runTwoNodes() error {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 	log.Println("Shutting down servers...")
-	for _, srv := range servers {
-		if err := srv.Close(); err != nil {
-			log.Printf("Failed to close server %s: %v", srv.P2PServer().LocalNode().Address, err)
-		}
+	if err := bind.Shutdown(resources); err != nil {
+		log.Printf("Failed to shut down servers: %v", err)
 	}
 	wg.Wait()
 	return nil
 }
 
-// startNode starts a single node with the given configuration.
+// startNode starts a single node with the given configuration using the bind package.
 func startNode(nodeConfig network.NodePortConfig, dataDir string) error {
 	// Create data directory
 	dataDir = filepath.Join(dataDir, nodeConfig.Name)
@@ -196,6 +173,7 @@ func startNode(nodeConfig network.NodePortConfig, dataDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open LevelDB at %s: %v", dataDir, err)
 	}
+	defer db.Close()
 
 	// Initialize KeyManager
 	keyManager, err := key.NewKeyManager()
@@ -215,105 +193,41 @@ func startNode(nodeConfig network.NodePortConfig, dataDir string) error {
 		return fmt.Errorf("failed to initialize SphincsManager")
 	}
 
-	// Initialize full server (TCP, WebSocket, HTTP, P2P)
-	readyCh := make(chan struct{}, 4) // Buffer for all 4 servers
-	srv := server.NewServer(nodeConfig.TCPAddr, nodeConfig.WSPort, nodeConfig.HTTPPort, nodeConfig.UDPPort, nodeConfig.SeedNodes, db, readyCh, nodeConfig.Role)
-	srv.P2PServer().SetSphincsMgr(sphincsMgr)
-
-	// Start servers with wait group and readiness channel
-	var wg sync.WaitGroup
-	startErrCh := make(chan error, 4) // For TCP, HTTP, WebSocket, P2P servers
-
-	// Start TCP server
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		logger.Infof("Starting TCP server for %s on %s", nodeConfig.Name, nodeConfig.TCPAddr)
-		if err := srv.TCPServer().Start(); err != nil {
-			logger.Errorf("TCP server failed for %s: %v", nodeConfig.Name, err)
-			startErrCh <- fmt.Errorf("TCP server failed: %v", err)
-			return
-		}
-		logger.Infof("TCP server for %s started successfully", nodeConfig.Name)
-	}()
-
-	// Start HTTP server
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		logger.Infof("Starting HTTP server for %s on %s", nodeConfig.Name, nodeConfig.HTTPPort)
-		if err := srv.HTTPServer().Start(); err != nil {
-			logger.Errorf("HTTP server failed for %s: %v", nodeConfig.Name, err)
-			startErrCh <- fmt.Errorf("HTTP server failed: %v", err)
-			return
-		}
-		logger.Infof("HTTP server for %s started successfully", nodeConfig.Name)
-	}()
-
-	// Start WebSocket server
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		logger.Infof("Starting WebSocket server for %s on %s", nodeConfig.Name, nodeConfig.WSPort)
-		if err := srv.WSServer().Start(readyCh); err != nil {
-			logger.Errorf("WebSocket server failed for %s: %v", nodeConfig.Name, err)
-			startErrCh <- fmt.Errorf("WebSocket server failed: %v", err)
-			return
-		}
-		logger.Infof("WebSocket server for %s started successfully", nodeConfig.Name)
-	}()
-
-	// Start P2P server
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		logger.Infof("Starting P2P server for %s on %s", nodeConfig.Name, srv.P2PServer().LocalNode().Address)
-		startCh := make(chan error, 1)
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					logger.Errorf("Panic in P2P server startup for %s: %v", nodeConfig.Name, r)
-					startCh <- fmt.Errorf("panic: %v", r)
-				}
-			}()
-			err := srv.P2PServer().Start()
-			startCh <- err
-		}()
-		select {
-		case err := <-startCh:
-			if err != nil {
-				logger.Errorf("P2P server failed for %s: %v", nodeConfig.Name, err)
-				startErrCh <- fmt.Errorf("P2P server failed: %v", err)
-				return
-			}
-			logger.Infof("P2P server for %s started successfully", nodeConfig.Name)
-			readyCh <- struct{}{}
-		case <-time.After(2 * time.Second):
-			logger.Warnf("P2P server for %s took too long to start, assuming ready", nodeConfig.Name)
-			readyCh <- struct{}{}
-		}
-	}()
-
-	// Wait for all servers to be ready or fail
-	for i := 0; i < 4; i++ {
-		select {
-		case <-readyCh:
-			logger.Infof("Server component %d for %s is ready", i+1, nodeConfig.Name)
-		case err := <-startErrCh:
-			srv.Close()
-			return fmt.Errorf("failed to start server component: %v", err)
-		case <-time.After(10 * time.Second):
-			srv.Close()
-			return fmt.Errorf("timeout waiting for server component %d to start for %s", i+1, nodeConfig.Name)
-		}
+	// Convert network.NodePortConfig to bind.NodeSetupConfig
+	setupConfig := bind.NodeSetupConfig{
+		Name:      nodeConfig.Name,
+		Address:   nodeConfig.TCPAddr,
+		UDPPort:   nodeConfig.UDPPort,
+		HTTPPort:  nodeConfig.HTTPPort,
+		WSPort:    nodeConfig.WSPort,
+		Role:      nodeConfig.Role,
+		SeedNodes: nodeConfig.SeedNodes,
 	}
+
+	var wg sync.WaitGroup
+	resources, err := bind.SetupNodes([]bind.NodeSetupConfig{setupConfig}, &wg)
+	if err != nil {
+		return fmt.Errorf("failed to set up node %s: %v", nodeConfig.Name, err)
+	}
+	if len(resources) != 1 {
+		return fmt.Errorf("expected 1 node resource, got %d", len(resources))
+	}
+
+	// Set SphincsManager on P2P server
+	resources[0].P2PServer.SetSphincsMgr(sphincsMgr)
 
 	log.Printf("Node %s started with role %s on TCP %s, UDP %s, HTTP %s, WebSocket %s",
 		nodeConfig.Name, nodeConfig.Role, nodeConfig.TCPAddr, nodeConfig.UDPPort, nodeConfig.HTTPPort, nodeConfig.WSPort)
 
-	// Store server for shutdown (temporary hack for runTwoNodes)
-	server.StoreServer(nodeConfig.Name, srv)
-
+	// Handle shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+	log.Printf("Shutting down node %s...", nodeConfig.Name)
+	if err := bind.Shutdown([]bind.NodeResources{resources[0]}); err != nil {
+		log.Printf("Failed to shut down node %s: %v", nodeConfig.Name, err)
+	}
+	wg.Wait()
 	return nil
 }
 

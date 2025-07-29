@@ -75,10 +75,12 @@ func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string, db *le
 	// Create NodePortConfig for p2p.NewServer
 	config := network.NodePortConfig{
 		Name:      "Node-" + parts[1], // Use port for unique name
-		TCPAddr:   p2pAddr,
+		TCPAddr:   tcpAddr,            // Use tcpAddr instead of p2pAddr
 		UDPPort:   p2pAddr,
+		HTTPPort:  httpAddr,
+		WSPort:    wsAddr,
 		SeedNodes: seeds,
-		Role:      role, // Use provided role
+		Role:      role,
 	}
 
 	return &Server{
@@ -87,6 +89,7 @@ func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string, db *le
 		httpServer: http.NewServer(httpAddr, messageCh, blockchain, readyCh),
 		p2pServer:  p2p.NewServer(config, blockchain, db),
 		readyCh:    readyCh,
+		nodeConfig: config, // Store the NodePortConfig
 	}
 }
 

@@ -39,16 +39,16 @@ type IPConfig struct {
 }
 
 // TCPServer represents a TCP server for handling P2P connections
-// TCPServer manages TCP connections.
 type TCPServer struct {
-	address     string
 	listener    net.Listener
+	address     string
 	messageCh   chan *security.Message
 	rpcServer   *rpc.Server
 	handshake   *security.Handshake
 	tcpReadyCh  chan struct{}
-	connections map[string]net.Conn // Added to store connections
-	mu          sync.Mutex          // Added to protect connections map
+	connections map[string]net.Conn                // Map of node address (e.g., 127.0.0.1:30307) to connection
+	encKeys     map[string]*security.EncryptionKey // Map of node address to encryption key
+	mu          sync.Mutex
 }
 
 // WebSocketServer manages WebSocket connections.

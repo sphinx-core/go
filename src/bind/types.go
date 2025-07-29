@@ -21,15 +21,16 @@
 // SOFTWARE.
 
 // go/src/bind/types.go
-// go/src/bind/types.go
 package bind
 
 import (
 	"github.com/sphinx-core/go/src/core"
 	security "github.com/sphinx-core/go/src/handshake"
+	"github.com/sphinx-core/go/src/http"
 	"github.com/sphinx-core/go/src/network"
 	"github.com/sphinx-core/go/src/p2p"
 	"github.com/sphinx-core/go/src/rpc"
+	"github.com/sphinx-core/go/src/transport"
 )
 
 // NodeConfig defines the configuration for a node’s TCP server.
@@ -48,15 +49,18 @@ type NodeSetupConfig struct {
 	Role      network.NodeRole
 	HTTPPort  string
 	WSPort    string
-	UDPPort   string // Added UDPPort field
+	UDPPort   string
 	SeedNodes []string
 }
 
 // NodeResources holds the initialized resources for a node.
 type NodeResources struct {
-	Blockchain *core.Blockchain
-	MessageCh  chan *security.Message
-	RPCServer  *rpc.Server
-	P2PServer  *p2p.Server
-	PublicKey  string
+	Blockchain      *core.Blockchain
+	MessageCh       chan *security.Message
+	RPCServer       *rpc.Server
+	P2PServer       *p2p.Server
+	PublicKey       string
+	TCPServer       *transport.TCPServer
+	WebSocketServer *transport.WebSocketServer
+	HTTPServer      *http.Server // Use custom http.Server
 }

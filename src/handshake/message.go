@@ -72,6 +72,32 @@ func (m *Message) ValidateMessage() error {
 		if _, ok := m.Data.(network.PeerInfo); !ok {
 			return errors.New("invalid peer_info data")
 		}
+	case "version":
+		// Validate that Data is a map with required fields
+		if data, ok := m.Data.(map[string]interface{}); ok {
+			if _, ok := data["version"].(string); !ok {
+				return errors.New("invalid version data: missing or invalid version")
+			}
+			if _, ok := data["node_id"].(string); !ok {
+				return errors.New("invalid version data: missing or invalid node_id")
+			}
+			if _, ok := data["chain_id"].(string); !ok {
+				return errors.New("invalid version data: missing or invalid chain_id")
+			}
+			if _, ok := data["block_height"].(float64); !ok { // JSON numbers are decoded as float64
+				return errors.New("invalid version data: missing or invalid block_height")
+			}
+			if _, ok := data["nonce"].(string); !ok {
+				return errors.New("invalid version data: missing or invalid nonce")
+			}
+		} else {
+			return errors.New("invalid version data: must be a map")
+		}
+	case "verack":
+		// Validate that Data is a string (node ID)
+		if _, ok := m.Data.(string); !ok {
+			return errors.New("invalid verack data: must be node ID string")
+		}
 	default:
 		// Unknown message types are not allowed
 		return errors.New("unknown message type")

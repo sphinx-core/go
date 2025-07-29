@@ -24,6 +24,7 @@
 package network
 
 import (
+	"encoding/hex"
 	"sync"
 	"time"
 )
@@ -49,6 +50,11 @@ const (
 
 // NodeID is a 256-bit identifier for Kademlia DHT.
 type NodeID [32]byte
+
+// String converts the NodeID to a hexadecimal string representation.
+func (id NodeID) String() string {
+	return hex.EncodeToString(id[:])
+}
 
 // KBucket represents a Kademlia bucket for peers at a specific distance range.
 type KBucket struct {
@@ -123,14 +129,14 @@ type NodePortConfig struct {
 
 // DiscoveryMessage represents a UDP discovery message.
 type DiscoveryMessage struct {
-	Type       string      `json:"type"`
-	Data       interface{} `json:"data"`
-	Signature  []byte      `json:"signature"`
-	PublicKey  []byte      `json:"public_key"`
-	MerkleRoot []byte      `json:"merkle_root"`
-	Proof      []byte      `json:"proof"`
-	Nonce      []byte      `json:"nonce"`
-	Timestamp  []byte      `json:"timestamp"`
+	Type       string `json:"type"`
+	Data       []byte `json:"data"` // Changed from interface{} to []byte
+	Signature  []byte `json:"signature"`
+	PublicKey  []byte `json:"public_key"`
+	MerkleRoot []byte `json:"merkle_root"`
+	Proof      []byte `json:"proof"`
+	Nonce      []byte `json:"nonce"`
+	Timestamp  []byte `json:"timestamp"`
 }
 
 // PingData for PING messages.

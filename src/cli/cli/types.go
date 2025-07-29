@@ -20,9 +20,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/cli/cli/types.go
 package cli
 
-// Config holds CLI configuration.
+// Config holds CLI configuration parameters.
 type Config struct {
 	configFile string
 	numNodes   int

@@ -51,8 +51,13 @@ func NewNode(address, ip, port, udpPort string, isLocal bool, role NodeRole) *No
 	}
 	log.Printf("Generated keys for node %s: PrivateKey length=%d, PublicKey length=%d", address, len(skBytes), len(pkBytes))
 
+	nodeID := fmt.Sprintf("Node-%s", address)
+	if address == "" {
+		nodeID = fmt.Sprintf("Node-%s", GenerateKademliaID(udpPort).String()[:8])
+	}
+
 	node := &Node{
-		ID:         fmt.Sprintf("Node-%s", address),
+		ID:         nodeID,
 		Address:    address,
 		IP:         ip,
 		Port:       port,

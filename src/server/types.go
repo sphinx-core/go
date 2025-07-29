@@ -25,6 +25,7 @@ package server
 
 import (
 	"github.com/sphinx-core/go/src/http"
+	"github.com/sphinx-core/go/src/network"
 	"github.com/sphinx-core/go/src/p2p"
 	"github.com/sphinx-core/go/src/transport"
 )
@@ -35,5 +36,6 @@ type Server struct {
 	wsServer   *transport.WebSocketServer
 	httpServer *http.Server
 	p2pServer  *p2p.Server
-	readyCh    chan struct{} // Add readyCh to Server struct
+	readyCh    chan struct{}
+	nodeConfig network.NodePortConfig // Add nodeConfig to store configuration
 }
