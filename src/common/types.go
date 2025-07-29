@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/common/types.go
 package common
 
 import spxhash "github.com/sphinx-core/go/src/spxhash/hash"

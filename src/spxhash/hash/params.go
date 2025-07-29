@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/spxhash/hash/params.go
 package spxhash
 
 // SIPS-0001 https://github.com/sphinx-core/sips/wiki/SIPS-0001
