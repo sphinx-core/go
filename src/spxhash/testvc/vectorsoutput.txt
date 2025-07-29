@@ -1,0 +1,124 @@
+Using opcode: SphinxHash=0x10
+inputLen: 0, hash: c20f4bc14267aad693be2bb6e9799675ec4c494c654a6ad275b3124ae3182782
+Using opcode: SphinxHash=0x10 (cached)
+inputLen: 0, hash: c20f4bc14267aad693be2bb6e9799675ec4c494c654a6ad275b3124ae3182782
+Using opcode: SphinxHash=0x10
+inputLen: 1, hash: 350a3ccb38261de839186ee3faf07ce6582cc4255edadba80e9afc29889a2a25
+Using opcode: SphinxHash=0x10
+inputLen: 1023, hash: 080afb7b8fa2f060d639a75968a56ccbf7ccafa73f17a04a837bbcc0d71798c3
+Using opcode: SphinxHash=0x10
+inputLen: 1024, hash: c05d1a039284c225a7e2c62a3f5b55e513772526e436e8795314ed75c52263e6
+Using opcode: SphinxHash=0x10
+inputLen: 2048, hash: 474d4f92c82cc17d428f310153ef88b2ef9564c85f89e3b0b8e84df2a806365c
+Using opcode: SphinxHash=0x10
+inputLen: 4096, hash: 0182389897ec0a966907c29a08f157581fef96b475c35b7d98914d2630c31090
+=== RUN   TestPrintHashes
+Using opcode: SphinxHash=0x10 (cached)
+<vector inputLen=0 hash=c20f4bc14267aad693be2bb6e9799675ec4c494c654a6ad275b3124ae3182782 keyedHash=c098615604bb025f47999595c04e030f364e5435a7577d7ababb03a271e9989e deriveKey=6012eaca7a9daf58879ab88bb04fdecf36774425a22074274605b50a5ce0b6f6>
+Using opcode: SphinxHash=0x10 (cached)
+<vector inputLen=0 hash=c20f4bc14267aad693be2bb6e9799675ec4c494c654a6ad275b3124ae3182782 keyedHash=c098615604bb025f47999595c04e030f364e5435a7577d7ababb03a271e9989e deriveKey=6012eaca7a9daf58879ab88bb04fdecf36774425a22074274605b50a5ce0b6f6>
+Using opcode: SphinxHash=0x10 (cached)
+<vector inputLen=1 hash=350a3ccb38261de839186ee3faf07ce6582cc4255edadba80e9afc29889a2a25 keyedHash=ea27697ab40a291b93dc90c1618337974d06462882918405420871911fcb29ec deriveKey=6012eaca7a9daf58879ab88bb04fdecf36774425a22074274605b50a5ce0b6f6>
+Using opcode: SphinxHash=0x10 (cached)
+<vector inputLen=1023 hash=080afb7b8fa2f060d639a75968a56ccbf7ccafa73f17a04a837bbcc0d71798c3 keyedHash=8002a9d0715ee58d3e796d0a2474c7eaefb5d38544d2e7ca4e1c636b9e2ddfce deriveKey=91c42dbe900f6de7d935d03c9b4353e85af0ec3a2dc6855afcabf4c389156a61>
+Using opcode: SphinxHash=0x10 (cached)
+<vector inputLen=1024 hash=c05d1a039284c225a7e2c62a3f5b55e513772526e436e8795314ed75c52263e6 keyedHash=a5e689a6065c86606c29be00b70d9fb777ef8273c212a8caa574dd51dd39a714 deriveKey=c94bb9e8fe57faa53c52166f203ddbcc7fd7b4f981c331f238e8e83c28cc7f4d>
+Using opcode: SphinxHash=0x10 (cached)
+<vector inputLen=2048 hash=474d4f92c82cc17d428f310153ef88b2ef9564c85f89e3b0b8e84df2a806365c keyedHash=1b8dbedc8bb976b4a5b5eae089397f6c0db4f3ece3159b917774ee6e2a26d6d1 deriveKey=c423e784acd3624b2b1bdf929e881132d8613aadffc5f2630e95b979e882e423>
+Using opcode: SphinxHash=0x10 (cached)
+<vector inputLen=4096 hash=0182389897ec0a966907c29a08f157581fef96b475c35b7d98914d2630c31090 keyedHash=950c63a2454e97c3a12e78804c23c65944436b53b1f513fbf72d874f22446995 deriveKey=6191b71d1a551df206de55b3563e266f656234c1d7ecb0194fef8c1c8a650eb0>
+--- PASS: TestPrintHashes (0.00s)
+=== RUN   BenchmarkSpxHash
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=0-8 1 5499.000000 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=0-8 100 2656.060000 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=0-8 10000 9224.111100 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=0-8 130010 9424.018045 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=0-8 1 10486.000000 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=0-8 100 3478.000000 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=0-8 10000 7192.223400 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=0-8 166723 9227.645676 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=1-8 1 9566.000000 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=1-8 100 3440.770000 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=1-8 10000 7739.101100 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=1-8 154863 10002.119635 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=1023-8 1 10286.000000 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=1023-8 100 6129.680000 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=1023-8 10000 9233.875500 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=1023-8 129897 9310.084983 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=1024-8 1 10679.000000 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=1024-8 100 12521.720000 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=1024-8 10000 8273.355000 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=1024-8 144962 12223.864834 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=2048-8 1 28307.000000 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=2048-8 100 2900.530000 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=2048-8 10000 6587.374600 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=2048-8 182048 17910.939615 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=4096-8 1 8774.000000 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=4096-8 100 5734.010000 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=4096-8 10000 11493.768800 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=4096-8 104347 8010.517437 ns/op
+Using opcode: SphinxHash=0x10 (cached)
+BenchmarkSpxHash/inputLen=4096-8 149793 7146.979685 ns/op
+--- PASS: BenchmarkSpxHash
+=== RUN   BenchmarkSHA512_256
+BenchmarkSHA512_256/inputLen=0-8 1 34415.000000 ns/op
+BenchmarkSHA512_256/inputLen=0-8 100 854.210000 ns/op
+BenchmarkSHA512_256/inputLen=0-8 10000 446.948700 ns/op
+BenchmarkSHA512_256/inputLen=0-8 1000000 492.434805 ns/op
+BenchmarkSHA512_256/inputLen=0-8 2436255 332.797896 ns/op
+BenchmarkSHA512_256/inputLen=0-8 3605466 380.587457 ns/op
+BenchmarkSHA512_256/inputLen=0-8 1 5261.000000 ns/op
+BenchmarkSHA512_256/inputLen=0-8 100 363.350000 ns/op
+BenchmarkSHA512_256/inputLen=0-8 10000 317.773000 ns/op
+BenchmarkSHA512_256/inputLen=0-8 1000000 333.223001 ns/op
+BenchmarkSHA512_256/inputLen=0-8 3600582 330.251852 ns/op
+BenchmarkSHA512_256/inputLen=1-8 1 5540.000000 ns/op
+BenchmarkSHA512_256/inputLen=1-8 100 333.160000 ns/op
+BenchmarkSHA512_256/inputLen=1-8 10000 347.383800 ns/op
+BenchmarkSHA512_256/inputLen=1-8 1000000 350.104191 ns/op
+BenchmarkSHA512_256/inputLen=1-8 3426948 339.196342 ns/op
+BenchmarkSHA512_256/inputLen=1023-8 1 8517.000000 ns/op
+BenchmarkSHA512_256/inputLen=1023-8 100 2455.530000 ns/op
+BenchmarkSHA512_256/inputLen=1023-8 10000 2470.081700 ns/op
+BenchmarkSHA512_256/inputLen=1023-8 483834 2260.959656 ns/op
+BenchmarkSHA512_256/inputLen=1024-8 1 15271.000000 ns/op
+BenchmarkSHA512_256/inputLen=1024-8 100 2137.270000 ns/op
+BenchmarkSHA512_256/inputLen=1024-8 10000 2400.924600 ns/op
+BenchmarkSHA512_256/inputLen=1024-8 498339 2252.994191 ns/op
+BenchmarkSHA512_256/inputLen=2048-8 1 5693.000000 ns/op
+BenchmarkSHA512_256/inputLen=2048-8 100 4394.520000 ns/op
+BenchmarkSHA512_256/inputLen=2048-8 10000 4491.987100 ns/op
+BenchmarkSHA512_256/inputLen=2048-8 266366 5229.732038 ns/op
+BenchmarkSHA512_256/inputLen=4096-8 1 13022.000000 ns/op
+BenchmarkSHA512_256/inputLen=4096-8 100 7688.640000 ns/op
+BenchmarkSHA512_256/inputLen=4096-8 10000 8718.039200 ns/op
+BenchmarkSHA512_256/inputLen=4096-8 137464 7899.257908 ns/op
+--- PASS: BenchmarkSHA512_256

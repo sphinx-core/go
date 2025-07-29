@@ -24,7 +24,10 @@
 package svm
 
 import (
+	"encoding/binary"
 	"fmt"
+
+	spxhash "github.com/sphinx-core/go/src/spxhash/hash"
 )
 
 // OpCode represents an instruction in the SVM
@@ -42,6 +45,14 @@ func (op OpCode) IsPush() bool {
 // ExecuteOp processes an operation based on the given opcode (OpCode).
 func ExecuteOp(op OpCode, a, b uint64, n uint) uint64 {
 	switch op {
+	case SphinxHash:
+		// Convert inputs to byte slices and call spxhash logic
+		data := make([]byte, 8)
+		binary.LittleEndian.PutUint64(data, a)
+		sphinx := spxhash.NewSphinxHash(256, data)
+		hash := sphinx.GetHash(data)
+		// Return first 64 bits of the hash
+		return binary.LittleEndian.Uint64(hash[:8])
 	case Xor:
 		return XorOp(a, b)
 	case Or:
