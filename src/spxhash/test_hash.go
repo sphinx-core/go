@@ -21,7 +21,7 @@
 // SOFTWARE.
 
 // go/src/spxhash/test_hash.go
-package testVec
+package main
 
 import (
 	"fmt"
