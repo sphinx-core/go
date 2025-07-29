@@ -50,3 +50,27 @@ This will identify bottlenecks in common.SpxHash (e.g., Argon2 or excessive roun
 go test -bench=. -cpuprofile=cpu.prof
 go tool pprof cpu.prof
 ```
+
+6. nconsistent Benchmark Iteration Counts:
+
+The BenchmarkSpxHash results show multiple runs for each input length with varying b.N values (e.g., 1, 100, 10000, 130010, 166723 for inputLen=0). This is normal for Go benchmarks as the testing framework increases b.N to stabilize measurements, but the output includes redundant runs.
+Impact: The multiple runs clutter the output and vectorsoutput.txt, making it harder to analyze the most stable results (typically those with higher b.N).
+Fix: Use the -benchtime flag to control benchmark duration and stabilize b.N. For example:
+
+This runs each benchmark for 3 seconds, producing more consistent b.N values. Alternatively, modify the benchmark to log only the final result with the highest b.N.
+
+```bash
+go test -v -bench=. -benchtime=3s -cpuprofile=cpu.prof
+go tool pprof cpu.prof
+```
+
+7. Issues in the OutputMultiple Benchmark Runs per Input Length:
+
+Each input length has multiple benchmark results with varying b.N (e.g., inputLen=0 for SpxHash has b.N=1, 100, 10000, 845132). This is normal for Go benchmarks but clutters the output and makes it harder to identify the most stable results.
+Impact: The single-iteration runs (b.N=1) are unreliable (e.g., 7986 ns/op for inputLen=0 vs. 4909.421180 ns/op for b.N=845132), as they are affected by system noise.
+Fix: Use -benchtime to increase benchmark duration and stabilize b.N:
+
+```bash
+go test -v -bench=. -benchtime=5s -cpuprofile=cpu.prof
+go tool pprof cpu.prof
+```

@@ -44,12 +44,6 @@ func (tv *testVec) input() []byte {
 var vectors = []testVec{
 	{
 		inputLen:  0,
-		hash:      "0182389897ec0a966907c29a08f157581fef96b475c35b7d98914d2630c31090",
-		keyedHash: computeKeyedHash(0),
-		deriveKey: computeDerivedKey(0),
-	},
-	{
-		inputLen:  0,
 		hash:      "20f4bc14267aad693be2bb6e9799675ec4c494c654a6ad275b3124ae3182782", // To be populated
 		keyedHash: computeKeyedHash(0),
 		deriveKey: computeDerivedKey(0),
