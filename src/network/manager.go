@@ -34,7 +34,7 @@ import (
 // NewNodeManager creates a new NodeManager with Kademlia buckets.
 func NewNodeManager(bucketSize int) *NodeManager {
 	if bucketSize <= 0 {
-		bucketSize = 16 // standard default size for kademlia k=16
+		bucketSize = 16 // Standard default size for Kademlia k=16
 	}
 	return &NodeManager{
 		nodes:       make(map[string]*Node),

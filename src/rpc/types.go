@@ -24,6 +24,7 @@
 package rpc
 
 import (
+	"encoding/hex"
 	"net"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -31,10 +32,12 @@ import (
 	security "github.com/sphinx-core/go/src/handshake"
 )
 
-// NodeID represents a unique node identifier.
-type NodeID struct {
-	High uint64
-	Low  uint64
+// NodeID represents a unique 256-bit node identifier.
+type NodeID [32]byte
+
+// String converts the NodeID to a hexadecimal string representation.
+func (id NodeID) String() string {
+	return hex.EncodeToString(id[:])
 }
 
 // RPCID represents a unique RPC request identifier.

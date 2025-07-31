@@ -34,6 +34,15 @@ import (
 // NodeStatus represents the operational state of a node in the network.
 type NodeStatus string
 
+// NodeID represents a 256-bit identifier for Kademlia DHT.
+type NodeID [32]byte
+
+// Key represents a 256-bit key used in the DHT, matching NodeID.
+type Key [32]byte
+
+// nodeID is an alias for Key, used to represent node identifiers in the DHT.
+type nodeID = Key
+
 const (
 	NodeStatusActive   NodeStatus = "active"
 	NodeStatusInactive NodeStatus = "inactive"
@@ -49,9 +58,6 @@ const (
 	RoleValidator NodeRole = "validator"
 	RoleNone      NodeRole = "none"
 )
-
-// NodeID is a 256-bit identifier for Kademlia DHT.
-type NodeID [32]byte
 
 // String converts the NodeID to a hexadecimal string representation.
 func (id NodeID) String() string {
@@ -132,10 +138,10 @@ type NodePortConfig struct {
 // DiscoveryMessage represents a UDP discovery message.
 type DiscoveryMessage struct {
 	Type       string       `json:"type"`
-	Data       []byte       `json:"data"`      // Changed from interface{} to []byte
-	Signature  []byte       `json:"signature"` // Add Signature field
+	Data       []byte       `json:"data"`
+	Signature  []byte       `json:"signature"`
 	PublicKey  []byte       `json:"public_key"`
-	MerkleRoot *uint256.Int // Changed from []byte to *uint256.Int
+	MerkleRoot *uint256.Int `json:"merkle_root"`
 	Proof      []byte       `json:"proof"`
 	Nonce      []byte       `json:"nonce"`
 	Timestamp  []byte       `json:"timestamp"`

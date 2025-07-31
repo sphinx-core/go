@@ -24,17 +24,16 @@
 package network
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"log"
 	"time"
 
-	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
+	sphincsKey "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 )
 
 // NewNode creates a new node with the specified parameters.
 func NewNode(address, ip, port, udpPort string, isLocal bool, role NodeRole) *Node {
-	km, err := key.NewKeyManager()
+	km, err := sphincsKey.NewKeyManager()
 	if err != nil {
 		log.Printf("Failed to create key manager: %v", err)
 		return nil
@@ -73,8 +72,7 @@ func NewNode(address, ip, port, udpPort string, isLocal bool, role NodeRole) *No
 }
 
 func (n *Node) GenerateNodeID() NodeID {
-	hash := sha256.Sum256(n.PublicKey)
-	return NodeID(hash)
+	return GenerateKademliaID(string(n.PublicKey))
 }
 
 func (n *Node) UpdateStatus(status NodeStatus) {
@@ -140,9 +138,4 @@ func (p *Peer) GetPeerInfo() PeerInfo {
 		ProtocolVersion: "1.0",
 		PublicKey:       p.Node.PublicKey,
 	}
-}
-
-func GenerateKademliaID(address string) NodeID {
-	hash := sha256.Sum256([]byte(address))
-	return NodeID(hash)
 }

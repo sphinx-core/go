@@ -63,7 +63,7 @@ func (c *Codec) Uint16(buf []byte) uint16 {
 
 // MarshalSize calculates the size needed to marshal a Remote.
 func (r *Remote) MarshalSize() int {
-	sz := 16                      // NodeID (High + Low)
+	sz := 32                      // NodeID (256 bits)
 	sz += 4 + len(r.Address.IP)   // IP size + IP
 	sz += 4                       // Port
 	sz += 4 + len(r.Address.Zone) // Zone size + Zone
@@ -75,65 +75,63 @@ func (r *Remote) Marshal(buf []byte) ([]byte, error) {
 	if len(buf) < r.MarshalSize() {
 		return nil, ErrBufferTooSmall
 	}
-	codec := &Codec{}
-	// NodeID
-	codec.PutUint64(buf, r.NodeID.High)
-	codec.PutUint64(buf[8:], r.NodeID.Low)
+	// NodeID (256 bits)
+	copy(buf[:32], r.NodeID[:])
 	// Address.IP
 	ipsz := len(r.Address.IP)
-	codec.PutUint32(buf[16:], uint32(ipsz))
-	copy(buf[20:], r.Address.IP)
+	codec := &Codec{}
+	codec.PutUint32(buf[32:], uint32(ipsz))
+	copy(buf[36:], r.Address.IP)
 	// Address.Port
-	codec.PutUint32(buf[20+ipsz:], uint32(r.Address.Port))
+	codec.PutUint32(buf[36+ipsz:], uint32(r.Address.Port))
 	// Address.Zone
 	zonesz := len(r.Address.Zone)
-	codec.PutUint32(buf[24+ipsz:], uint32(zonesz))
-	copy(buf[28+ipsz:], []byte(r.Address.Zone))
-	return buf[:28+ipsz+zonesz], nil
+	codec.PutUint32(buf[40+ipsz:], uint32(zonesz))
+	copy(buf[44+ipsz:], []byte(r.Address.Zone))
+	return buf[:44+ipsz+zonesz], nil
 }
 
 // Unmarshal deserializes a Remote from a byte slice.
 func (r *Remote) Unmarshal(buf []byte) error {
-	if len(buf) < 16 {
+	if len(buf) < 32 {
 		return ErrBufferTooSmall
 	}
-	codec := &Codec{}
-	// NodeID
-	r.NodeID.High = codec.Uint64(buf)
-	r.NodeID.Low = codec.Uint64(buf[8:])
+	// NodeID (256 bits)
+	copy(r.NodeID[:], buf[:32])
 	// IP size
-	if len(buf[16:]) < 4 {
+	codec := &Codec{}
+	if len(buf[32:]) < 4 {
 		return ErrBufferTooSmall
 	}
-	ipSize := int(codec.Uint32(buf[16:]))
-	if len(buf[20:]) < ipSize {
+	ipSize := int(codec.Uint32(buf[32:]))
+	if len(buf[36:]) < ipSize {
 		return ErrBufferTooSmall
 	}
 	ip := make([]byte, ipSize)
-	copy(ip, buf[20:20+ipSize])
+	copy(ip, buf[36:36+ipSize])
 	r.Address = net.UDPAddr{IP: ip}
 	// Port
-	if len(buf[20+ipSize:]) < 4 {
+	if len(buf[36+ipSize:]) < 4 {
 		return ErrBufferTooSmall
 	}
-	r.Address.Port = int(codec.Uint32(buf[20+ipSize:]))
+	r.Address.Port = int(codec.Uint32(buf[36+ipSize:]))
 	// Zone
-	if len(buf[24+ipSize:]) < 4 {
+	if len(buf[40+ipSize:]) < 4 {
 		return ErrBufferTooSmall
 	}
-	zoneSize := int(codec.Uint32(buf[24+ipSize:]))
-	if len(buf[28+ipSize:]) < zoneSize {
+	zoneSize := int(codec.Uint32(buf[40+ipSize:]))
+	if len(buf[44+ipSize:]) < zoneSize {
 		return ErrBufferTooSmall
 	}
 	zone := make([]byte, zoneSize)
-	copy(zone, buf[28+ipSize:28+ipSize+zoneSize])
+	copy(zone, buf[44+ipSize:44+ipSize+zoneSize])
 	r.Address.Zone = string(zone)
 	return nil
 }
 
 // MarshalSize calculates the size needed to marshal a Message.
 func (m *Message) MarshalSize() int {
-	sz := 28                   // RPCType(1) + Query(1) + TTL(2) + Target(16) + RPCID(8)
+	sz := 44                   // RPCType(1) + Query(1) + TTL(2) + Target(32) + RPCID(8)
 	sz += m.From.MarshalSize() // From
 	sz += 4                    // Nodes count
 	for _, n := range m.Nodes {
@@ -164,12 +162,11 @@ func (m *Message) Marshal(buf []byte) ([]byte, error) {
 	}
 	// TTL
 	codec.PutUint16(buf[2:], m.TTL)
-	// Target
-	codec.PutUint64(buf[4:], m.Target.High)
-	codec.PutUint64(buf[12:], m.Target.Low)
+	// Target (256 bits)
+	copy(buf[4:36], m.Target[:])
 	// RPCID
-	codec.PutUint64(buf[20:], uint64(m.RPCID))
-	offset := 28
+	codec.PutUint64(buf[36:], uint64(m.RPCID))
+	offset := 44
 	// From
 	b, err := m.From.Marshal(buf[offset:])
 	if err != nil {
@@ -203,7 +200,7 @@ func (m *Message) Marshal(buf []byte) ([]byte, error) {
 
 // Unmarshal deserializes a Message from a byte slice.
 func (m *Message) Unmarshal(data []byte) error {
-	if len(data) < 28 {
+	if len(data) < 44 {
 		return ErrBufferTooSmall
 	}
 	codec := &Codec{}
@@ -213,12 +210,11 @@ func (m *Message) Unmarshal(data []byte) error {
 	m.Query = data[1] != 0
 	// TTL
 	m.TTL = codec.Uint16(data[2:])
-	// Target
-	m.Target.High = codec.Uint64(data[4:])
-	m.Target.Low = codec.Uint64(data[12:])
+	// Target (256 bits)
+	copy(m.Target[:], data[4:36])
 	// RPCID
-	m.RPCID = RPCID(codec.Uint64(data[20:]))
-	offset := 28
+	m.RPCID = RPCID(codec.Uint64(data[36:]))
+	offset := 44
 	// From
 	rr := &Remote{}
 	if err := rr.Unmarshal(data[offset:]); err != nil {

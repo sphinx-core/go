@@ -25,7 +25,6 @@ package bind
 
 import (
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 
@@ -54,10 +53,8 @@ func CallNodeRPC(resources []NodeResources, nodeName, method string, params inte
 
 	// Generate NodeID from the node's PublicKey (consistent with network.GenerateKademliaID)
 	hash := sha256.Sum256(node.PublicKey)
-	nodeID := rpc.NodeID{
-		High: binary.BigEndian.Uint64(hash[:8]),
-		Low:  binary.BigEndian.Uint64(hash[8:16]),
-	}
+	var nodeID rpc.NodeID
+	copy(nodeID[:], hash[:]) // Copy the 32-byte hash directly into nodeID
 
 	// Call RPC
 	resp, err := rpc.CallRPC(udpAddr, method, params, nodeID, ttl)
