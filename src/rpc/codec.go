@@ -1,3 +1,13 @@
+// Copyright 2024 Lei Ni (nilei81@gmail.com)
+//
+// This library follows a dual licensing model -
+//
+// - it is licensed under the 2-clause BSD license if you have written evidence showing that you are a licensee of github.com/lni/pothos
+// - otherwise, it is licensed under the GPL-2 license
+//
+// See the LICENSE file for details
+// https://github.com/lni/dht/tree/main
+//
 // MIT License
 //
 // Copyright (c) 2024 sphinx-core
@@ -25,11 +35,14 @@ package rpc
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"net"
 )
 
-// Codec provides binary encoding/decoding utilities.
-type Codec struct{}
+// String converts the NodeID to a hexadecimal string representation.
+func (id NodeID) String() string {
+	return hex.EncodeToString(id[:])
+}
 
 // PutUint64 writes a uint64 to the buffer.
 func (c *Codec) PutUint64(buf []byte, v uint64) {

@@ -61,6 +61,11 @@ func (h *JSONRPCHandler) registerMethods() {
 	h.methods["getblocks"] = h.getBlocks
 	h.methods["sendrawtransaction"] = h.sendRawTransaction
 	h.methods["gettransaction"] = h.getTransaction
+	h.methods["ping"] = h.ping
+	h.methods["join"] = h.join
+	h.methods["findnode"] = h.findNode
+	h.methods["get"] = h.get
+	h.methods["store"] = h.store
 }
 
 // ProcessRequest processes a JSON-RPC request or batch of requests.
@@ -121,6 +126,20 @@ func (h *JSONRPCHandler) processBinaryMessage(msg Message) ([]byte, error) {
 	if !exists {
 		h.server.metrics.ErrorCount.WithLabelValues(method).Inc()
 		return h.errorResponse(msg.RPCID, ErrCodeMethodNotFound, fmt.Sprintf("Method %s not found", methodName))
+	}
+
+	// Track queries for specific RPC types
+	if msg.Query {
+		switch msg.RPCType {
+		case RPCPing:
+			h.server.queryManager.AddPing(msg.RPCID, msg.Target)
+		case RPCJoin:
+			h.server.queryManager.AddJoin(msg.RPCID)
+		case RPCFindNode:
+			h.server.queryManager.AddFindNode(msg.RPCID, msg.Target, nil)
+		case RPCGet, RPCStore:
+			h.server.queryManager.AddGet(msg.RPCID)
+		}
 	}
 
 	result, err := handler(params)
@@ -235,6 +254,16 @@ func (h *JSONRPCHandler) mapRPCTypeToMethod(rpcType RPCType) (string, error) {
 		return "sendrawtransaction", nil
 	case RPCGetTransaction:
 		return "gettransaction", nil
+	case RPCPing:
+		return "ping", nil
+	case RPCJoin:
+		return "join", nil
+	case RPCFindNode:
+		return "findnode", nil
+	case RPCGet:
+		return "get", nil
+	case RPCStore:
+		return "store", nil
 	default:
 		return "", ErrUnsupportedRPCType
 	}
@@ -255,6 +284,16 @@ func (t RPCType) String() string {
 		return "sendrawtransaction"
 	case RPCGetTransaction:
 		return "gettransaction"
+	case RPCPing:
+		return "ping"
+	case RPCJoin:
+		return "join"
+	case RPCFindNode:
+		return "findnode"
+	case RPCGet:
+		return "get"
+	case RPCStore:
+		return "store"
 	default:
 		return "unknown"
 	}
@@ -339,6 +378,86 @@ func (h *JSONRPCHandler) getTransaction(params interface{}) (interface{}, error)
 		return nil, err
 	}
 	return tx, nil
+}
+
+func (h *JSONRPCHandler) ping(params interface{}) (interface{}, error) {
+	return map[string]string{"status": "pong"}, nil
+}
+
+func (h *JSONRPCHandler) join(params interface{}) (interface{}, error) {
+	return map[string]string{"status": "joined"}, nil
+}
+
+func (h *JSONRPCHandler) findNode(params interface{}) (interface{}, error) {
+	var paramsArray []string
+	if err := h.parseParams(params, &paramsArray); err != nil {
+		return nil, err
+	}
+	if len(paramsArray) < 1 {
+		return nil, errors.New("missing node ID parameter")
+	}
+	nodeIDStr := paramsArray[0]
+	nodeIDBytes, err := hex.DecodeString(nodeIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid node ID: %v", err)
+	}
+	var nodeID NodeID
+	copy(nodeID[:], nodeIDBytes)
+	// Placeholder: Implement node lookup logic
+	return map[string]string{"nodeID": nodeIDStr}, nil
+}
+
+func (h *JSONRPCHandler) get(params interface{}) (interface{}, error) {
+	var paramsArray []string
+	if err := h.parseParams(params, &paramsArray); err != nil {
+		return nil, err
+	}
+	if len(paramsArray) < 1 {
+		return nil, errors.New("missing key parameter")
+	}
+	keyStr := paramsArray[0]
+	keyBytes, err := hex.DecodeString(keyStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid key: %v", err)
+	}
+	var key Key
+	copy(key[:], keyBytes)
+	values, ok := h.server.store.Get(key)
+	if !ok {
+		return nil, errors.New("key not found")
+	}
+	// Convert values to hex strings for JSON response
+	hexValues := make([]string, len(values))
+	for i, v := range values {
+		hexValues[i] = hex.EncodeToString(v)
+	}
+	return map[string]interface{}{"values": hexValues}, nil
+}
+
+func (h *JSONRPCHandler) store(params interface{}) (interface{}, error) {
+	var paramsStruct struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
+		TTL   uint16 `json:"ttl"`
+	}
+	if err := h.parseParams(params, &paramsStruct); err != nil {
+		return nil, err
+	}
+	if paramsStruct.Key == "" || paramsStruct.Value == "" {
+		return nil, errors.New("missing key or value parameter")
+	}
+	keyBytes, err := hex.DecodeString(paramsStruct.Key)
+	if err != nil {
+		return nil, fmt.Errorf("invalid key: %v", err)
+	}
+	valueBytes, err := hex.DecodeString(paramsStruct.Value)
+	if err != nil {
+		return nil, fmt.Errorf("invalid value: %v", err)
+	}
+	var key Key
+	copy(key[:], keyBytes)
+	h.server.store.Put(key, valueBytes, paramsStruct.TTL)
+	return map[string]string{"status": "stored"}, nil
 }
 
 func (h *JSONRPCHandler) parseParams(params interface{}, target interface{}) error {
