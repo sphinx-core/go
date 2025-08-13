@@ -31,7 +31,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"strconv"
 	"strings"
 	"time"
 
@@ -43,138 +42,190 @@ import (
 
 // DiscoverPeers initiates Kademlia-based peer discovery.
 func (s *Server) DiscoverPeers() error {
-	log.Printf("DiscoverPeers: Starting peer discovery for node %s with %d seed nodes: %v", s.localNode.Address, len(s.seedNodes), s.seedNodes)
-	if len(s.seedNodes) == 0 {
-		log.Printf("DiscoverPeers: No seed nodes provided for node %s, skipping peer discovery", s.localNode.Address)
-		return nil
-	}
+	const maxOverallRetries = 3
+	const retryDelay = 5 * time.Second
+	const seedTimeout = 60 * time.Second
+	const globalTimeout = 120 * time.Second
 
-	receivedPeers := make(map[string]bool)
-	timeout := time.After(90 * time.Second)
-	seedTimeout := 45 * time.Second
-	maxRetries := 3
+	for overallRetry := 1; overallRetry <= maxOverallRetries; overallRetry++ {
+		log.Printf("DiscoverPeers: Attempt %d/%d for node %s with %d seed nodes: %v", overallRetry, maxOverallRetries, s.localNode.Address, len(s.seedNodes), s.seedNodes)
+		if len(s.seedNodes) == 0 {
+			log.Printf("DiscoverPeers: No seed nodes provided for node %s, skipping peer discovery", s.localNode.Address)
+			return nil
+		}
 
-	for _, seed := range s.seedNodes {
-		for retry := 1; retry <= maxRetries; retry++ {
-			log.Printf("DiscoverPeers: Processing seed node %s (attempt %d/%d) for %s", seed, retry, maxRetries, s.localNode.Address)
+		receivedPeers := make(map[string]bool)
+		timeout := time.After(globalTimeout)
+		maxRetries := 3
+
+		// Start a goroutine to continuously drain ResponseCh
+		peerCh := make(chan []*network.Peer, 100) // Increased buffer size
+		go func() {
+			for {
+				select {
+				case peers := <-s.nodeManager.ResponseCh:
+					log.Printf("DiscoverPeers: Received %d peers from ResponseCh for %s", len(peers), s.localNode.Address)
+					select {
+					case peerCh <- peers:
+						log.Printf("DiscoverPeers: Sent %d peers to peerCh for %s", len(peers), s.localNode.Address)
+					default:
+						log.Printf("DiscoverPeers: peerCh full, dropping %d peers for %s", len(peers), s.localNode.Address)
+					}
+				case <-timeout:
+					log.Printf("DiscoverPeers: Global timeout reached, stopping ResponseCh drain for %s", s.localNode.Address)
+					close(peerCh) // Close peerCh to signal completion
+					return
+				}
+			}
+		}()
+
+		for _, seed := range s.seedNodes {
+			// Normalize seed to just "port" (strip IP if present)
+			seedPort := strings.Split(seed, ":")
+			seedPortStr := seedPort[len(seedPort)-1]
+			log.Printf("DiscoverPeers: Normalized seed %s to port %s for %s", seed, seedPortStr, s.localNode.Address)
+
+			// Validate seed port
+			expectedPorts := map[string]bool{
+				"32418": true, "32419": true, "32420": true, "32421": true, // Adjust based on baseUDPPort
+			}
+			if !expectedPorts[seedPortStr] {
+				log.Printf("DiscoverPeers: Skipping unexpected seed port %s for %s", seedPortStr, s.localNode.Address)
+				continue
+			}
+
+			// Resolve seed address
 			addr, err := net.ResolveUDPAddr("udp", seed)
 			if err != nil {
 				log.Printf("DiscoverPeers: Failed to resolve seed address %s for %s: %v", seed, s.localNode.Address, err)
 				continue
 			}
 
-			configs, err := network.GetNodePortConfigs(3, []network.NodeRole{network.RoleNone, network.RoleNone, network.RoleNone}, nil)
-			if err != nil {
-				log.Printf("DiscoverPeers: Failed to get node port configs for %s: %v", s.localNode.Address, err)
-				continue
-			}
-			tcpAddr, tcpPort := "", ""
-			for _, cfg := range configs {
-				if cfg.UDPPort == seed {
-					tcpAddr = cfg.TCPAddr
-					if len(strings.Split(tcpAddr, ":")) == 2 {
-						tcpPort = strings.Split(tcpAddr, ":")[1]
-					}
-					break
-				}
-			}
-			if tcpAddr == "" {
-				parts := strings.Split(seed, ":")
-				if len(parts) != 2 {
-					log.Printf("DiscoverPeers: Invalid seed address format %s for %s", seed, s.localNode.Address)
-					continue
-				}
-				udpPort, err := strconv.Atoi(parts[1])
+			for retry := 1; retry <= maxRetries; retry++ {
+				nonce := make([]byte, 8)
+				_, err := rand.Read(nonce)
 				if err != nil {
-					log.Printf("DiscoverPeers: Invalid UDP port in %s for %s: %v", seed, s.localNode.Address, err)
+					log.Printf("DiscoverPeers: Failed to generate nonce for %s for %s: %v", seed, s.localNode.Address, err)
 					continue
 				}
-				tcpPort = fmt.Sprintf("%d", udpPort-1)
-				tcpAddr = fmt.Sprintf("%s:%s", parts[0], tcpPort)
-				log.Printf("DiscoverPeers: Using fallback TCP address %s for seed %s for %s", tcpAddr, seed, s.localNode.Address)
-			}
+				s.sendUDPPing(addr, s.localNode.KademliaID, nonce)
 
-			node := network.NewNode(tcpAddr, addr.IP.String(), tcpPort, seed, false, network.RoleNone)
-			if node == nil {
-				log.Printf("DiscoverPeers: Failed to create node for seed %s for %s", seed, s.localNode.Address)
-				continue
-			}
-			node.KademliaID = network.GenerateKademliaID(tcpAddr)
-			log.Printf("DiscoverPeers: Sending PING to seed node %s (KademliaID: %x) for %s", seed, node.KademliaID[:8], s.localNode.Address)
-
-			nonce := make([]byte, 8)
-			_, err = rand.Read(nonce)
-			if err != nil {
-				log.Printf("DiscoverPeers: Failed to generate nonce for %s for %s: %v", seed, s.localNode.Address, err)
-				continue
-			}
-			s.sendUDPPing(addr, node.KademliaID, nonce)
-
-			seedTimer := time.NewTimer(seedTimeout)
-			select {
-			case peers := <-s.nodeManager.ResponseCh:
-				log.Printf("DiscoverPeers: Received %d peers from %s for %s", len(peers), seed, s.localNode.Address)
-				seedTimer.Stop()
-				for _, peer := range peers {
-					if receivedPeers[peer.Node.ID] {
-						log.Printf("DiscoverPeers: Skipping already processed peer %s for %s", peer.Node.Address, s.localNode.Address)
-						continue
+				seedTimer := time.NewTimer(seedTimeout)
+				select {
+				case peers, ok := <-peerCh:
+					if !ok {
+						log.Printf("DiscoverPeers: peerCh closed for %s", s.localNode.Address)
+						break
 					}
-					receivedPeers[peer.Node.ID] = true
-					log.Printf("DiscoverPeers: Processing peer %s (KademliaID: %x) for %s", peer.Node.Address, peer.Node.KademliaID[:8], s.localNode.Address)
-					if peer.Node.Address != s.localNode.Address && peer.Node.Address != "" {
+					log.Printf("DiscoverPeers: Received %d peers from seed %s for %s", len(peers), seed, s.localNode.Address)
+					seedTimer.Stop()
+					for _, peer := range peers {
+						if receivedPeers[peer.Node.ID] {
+							log.Printf("DiscoverPeers: Skipping already processed peer %s for %s", peer.Node.Address, s.localNode.Address)
+							continue
+						}
+						if peer.Node.Address == "" || peer.Node.Address == s.localNode.Address {
+							log.Printf("DiscoverPeers: Skipping peer %s (empty address or self) for %s", peer.Node.Address, s.localNode.Address)
+							continue
+						}
+						receivedPeers[peer.Node.ID] = true
+						log.Printf("DiscoverPeers: Processing peer %s (KademliaID: %x) for %s", peer.Node.Address, peer.Node.KademliaID[:8], s.localNode.Address)
 						if err := s.peerManager.ConnectPeer(peer.Node); err != nil {
 							log.Printf("DiscoverPeers: Failed to connect to peer %s for %s: %v", peer.Node.Address, s.localNode.Address, err)
 							continue
 						}
 						log.Printf("DiscoverPeers: Successfully connected to peer %s for %s", peer.Node.Address, s.localNode.Address)
 						go s.iterativeFindNode(peer.Node.KademliaID)
-					} else {
-						log.Printf("DiscoverPeers: Skipping peer %s (empty address or self) for %s", peer.Node.Address, s.localNode.Address)
 					}
-				}
-				goto ProcessNextSeed
-			case <-seedTimer.C:
-				log.Printf("DiscoverPeers: Timeout waiting for response from seed %s (attempt %d/%d) for %s", seed, retry, maxRetries, s.localNode.Address)
-				if retry == maxRetries {
-					log.Printf("DiscoverPeers: All retries exhausted for seed %s for %s", seed, s.localNode.Address)
-				}
-			case <-timeout:
-				log.Printf("DiscoverPeers: Global timeout reached for node %s", s.localNode.Address)
-				s.nodeManager.Lock()
-				if len(s.nodeManager.GetPeers()) > 0 {
-					log.Printf("DiscoverPeers: Found %d peers in nodeManager.GetPeers() for %s despite timeout", len(s.nodeManager.GetPeers()), s.localNode.Address)
-					for _, peer := range s.nodeManager.GetPeers() {
-						receivedPeers[peer.Node.ID] = true
+					if len(receivedPeers) > 0 {
+						return nil // Success
 					}
+				case <-seedTimer.C:
+					log.Printf("DiscoverPeers: Timeout waiting for response from seed %s (attempt %d/%d) for %s", seed, retry, maxRetries, s.localNode.Address)
+				case <-timeout:
+					log.Printf("DiscoverPeers: Global timeout reached for node %s", s.localNode.Address)
+					s.nodeManager.Lock()
+					peers := s.nodeManager.GetPeers()
 					s.nodeManager.Unlock()
-					return nil
+					if len(peers) > 0 {
+						log.Printf("DiscoverPeers: Found %d peers in nodeManager.GetPeers() for %s despite timeout: %v", len(peers), s.localNode.Address, peers)
+						return nil // Success if peers are found
+					}
+					if overallRetry == maxOverallRetries {
+						return errors.New("global timeout reached with no peers found")
+					}
 				}
-				s.nodeManager.Unlock()
-				return errors.New("global timeout reached with no peers found")
+				seedTimer.Stop()
+				if retry < maxRetries {
+					log.Printf("DiscoverPeers: Retrying seed %s after %v for %s", seed, retryDelay, s.localNode.Address)
+					time.Sleep(retryDelay)
+				}
 			}
-			seedTimer.Stop()
-			time.Sleep(5 * time.Second)
+
+			// Check nodeManager.peers after each seed
+			s.nodeManager.Lock()
+			peers := s.nodeManager.GetPeers()
+			s.nodeManager.Unlock()
+			if len(peers) > 0 {
+				log.Printf("DiscoverPeers: Found %d peers in nodeManager.peers after seed %s for %s: %v", len(peers), seed, s.localNode.Address, peers)
+				return nil // Success
+			}
 		}
-	ProcessNextSeed:
+
+		// Check for late-arriving peers
+		select {
+		case peers, ok := <-peerCh:
+			if !ok {
+				log.Printf("DiscoverPeers: peerCh closed for %s", s.localNode.Address)
+				break
+			}
+			log.Printf("DiscoverPeers: Received %d late-arriving peers for %s", len(peers), s.localNode.Address)
+			for _, peer := range peers {
+				if receivedPeers[peer.Node.ID] {
+					continue
+				}
+				if peer.Node.Address == "" || peer.Node.Address == s.localNode.Address {
+					continue
+				}
+				receivedPeers[peer.Node.ID] = true
+				log.Printf("DiscoverPeers: Processing late peer %s (KademliaID: %x) for %s", peer.Node.Address, peer.Node.KademliaID[:8], s.localNode.Address)
+				if err := s.peerManager.ConnectPeer(peer.Node); err != nil {
+					log.Printf("DiscoverPeers: Failed to connect to late peer %s for %s: %v", peer.Node.Address, s.localNode.Address, err)
+					continue
+				}
+				log.Printf("DiscoverPeers: Successfully connected to late peer %s for %s", peer.Node.Address, s.localNode.Address)
+				go s.iterativeFindNode(peer.Node.KademliaID)
+			}
+			if len(receivedPeers) > 0 {
+				return nil // Success
+			}
+		case <-timeout:
+			log.Printf("DiscoverPeers: Global timeout reached, no late peers for %s", s.localNode.Address)
+		}
+
+		// Check nodeManager.peers after seed loop
+		s.nodeManager.Lock()
+		peers := s.nodeManager.GetPeers()
+		s.nodeManager.Unlock()
+		if len(peers) > 0 {
+			log.Printf("DiscoverPeers: Found %d peers in nodeManager.peers after seed loop for %s: %v", len(peers), s.localNode.Address, peers)
+			return nil // Success
+		}
+
+		log.Printf("DiscoverPeers: No peers found on attempt %d, retrying after %v for %s", overallRetry, retryDelay, s.localNode.Address)
+		time.Sleep(retryDelay)
 	}
 
-	if len(receivedPeers) == 0 {
-		s.nodeManager.Lock()
-		if len(s.nodeManager.GetPeers()) > 0 {
-			log.Printf("DiscoverPeers: Found %d peers in nodeManager.GetPeers() for %s", len(s.nodeManager.GetPeers()), s.localNode.Address)
-			for _, peer := range s.nodeManager.GetPeers() {
-				receivedPeers[peer.Node.ID] = true
-			}
-			s.nodeManager.Unlock()
-			return nil
-		}
-		s.nodeManager.Unlock()
-		log.Printf("DiscoverPeers: No peers found after processing all seed nodes for %s", s.localNode.Address)
-		return errors.New("no peers found")
+	// Final check
+	s.nodeManager.Lock()
+	peers := s.nodeManager.GetPeers()
+	s.nodeManager.Unlock()
+	if len(peers) > 0 {
+		log.Printf("DiscoverPeers: Found %d peers in nodeManager.peers after retries for %s: %v", len(peers), s.localNode.Address, peers)
+		return nil
 	}
-	log.Printf("DiscoverPeers: Found %d peers for %s", len(receivedPeers), s.localNode.Address)
-	return nil
+
+	return errors.New("no peers found after retries")
 }
 
 // iterativeFindNode performs iterative FINDNODE queries with hop tracking and error handling.

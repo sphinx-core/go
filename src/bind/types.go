@@ -34,6 +34,7 @@ import (
 )
 
 // NodeConfig defines the configuration for a node’s TCP server.
+// NodeConfig defines the configuration for a TCP server.
 type NodeConfig struct {
 	Address   string
 	Name      string

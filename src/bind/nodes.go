@@ -54,7 +54,9 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 	readyCh := make(chan struct{}, len(configs)*3) // 3 services per node (HTTP, WS, P2P)
 	tcpReadyCh := make(chan struct{}, len(configs))
 	p2pErrorCh := make(chan error, len(configs))
-	udpReadyCh := make(chan struct{}, len(configs)) // New channel for UDP readiness
+	udpReadyCh := make(chan struct{}, len(configs))
+	dbs := make([]*leveldb.DB, len(configs)) // Track DBs for cleanup
+	closed := make([]bool, len(configs))     // Track closed servers
 
 	// Initialize resources and TCP server configs
 	tcpConfigs := make([]NodeConfig, len(configs))
@@ -90,19 +92,24 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 			logger.Errorf("Failed to open LevelDB for %s: %v", config.Name, err)
 			return nil, fmt.Errorf("failed to open LevelDB for %s: %w", config.Name, err)
 		}
+		dbs[i] = db
 
-		p2pServers[i] = p2p.NewServer(network.NodePortConfig{
+		// Initialize p2p.Server with NodePortConfig, ensuring Node.ID is set
+		nodeConfig := network.NodePortConfig{
+			ID:        config.Name, // Set ID to match Name
 			Name:      config.Name,
-			Role:      config.Role,
 			TCPAddr:   config.Address,
 			UDPPort:   config.UDPPort,
 			HTTPPort:  config.HTTPPort,
 			WSPort:    config.WSPort,
+			Role:      config.Role,
 			SeedNodes: config.SeedNodes,
-		}, blockchains[i], db)
+		}
+		p2pServers[i] = p2p.NewServer(nodeConfig, blockchains[i], db)
 		localNode := p2pServers[i].LocalNode()
+		localNode.ID = config.Name // Explicitly set Node.ID
 		localNode.UpdateRole(config.Role)
-		logger.Infof("Node %s initialized with role %s", config.Name, config.Role)
+		logger.Infof("Node %s initialized with ID %s and role %s", config.Name, localNode.ID, config.Role)
 
 		if len(localNode.PublicKey) == 0 || len(localNode.PrivateKey) == 0 {
 			logger.Errorf("Key generation failed for %s", config.Name)
@@ -156,9 +163,49 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 			logger.Infof("P2P server %d of %d ready", i+1, len(configs))
 		case err := <-p2pErrorCh:
 			logger.Errorf("P2P server %d failed: %v", i+1, err)
+			// Cleanup resources before returning
+			for i, db := range dbs {
+				if db != nil {
+					db.Close()
+					dbs[i] = nil
+				}
+			}
+			for i, srv := range tcpServers {
+				if srv != nil {
+					srv.Stop()
+					tcpServers[i] = nil
+				}
+			}
+			for i, srv := range p2pServers {
+				if srv != nil && !closed[i] {
+					srv.Close()
+					closed[i] = true
+					p2pServers[i] = nil
+				}
+			}
 			return nil, fmt.Errorf("P2P server %d failed: %v", i+1, err)
 		case <-time.After(10 * time.Second):
 			logger.Errorf("Timeout waiting for P2P server %d to be ready", i+1)
+			// Cleanup resources before returning
+			for i, db := range dbs {
+				if db != nil {
+					db.Close()
+					dbs[i] = nil
+				}
+			}
+			for i, srv := range tcpServers {
+				if srv != nil {
+					srv.Stop()
+					tcpServers[i] = nil
+				}
+			}
+			for i, srv := range p2pServers {
+				if srv != nil && !closed[i] {
+					srv.Close()
+					closed[i] = true
+					p2pServers[i] = nil
+				}
+			}
 			return nil, fmt.Errorf("timeout waiting for P2P server %d to be ready", i+1)
 		}
 	}
@@ -172,6 +219,26 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 			logger.Infof("UDP listener %d of %d ready", i+1, len(configs))
 		case <-time.After(5 * time.Second):
 			logger.Errorf("Timeout waiting for UDP listener %d to be ready", i+1)
+			// Cleanup resources before returning
+			for i, db := range dbs {
+				if db != nil {
+					db.Close()
+					dbs[i] = nil
+				}
+			}
+			for i, srv := range tcpServers {
+				if srv != nil {
+					srv.Stop()
+					tcpServers[i] = nil
+				}
+			}
+			for i, srv := range p2pServers {
+				if srv != nil && !closed[i] {
+					srv.Close()
+					closed[i] = true
+					p2pServers[i] = nil
+				}
+			}
 			return nil, fmt.Errorf("timeout waiting for UDP listener %d to be ready", i+1)
 		}
 	}
@@ -202,6 +269,26 @@ func SetupNodes(configs []NodeSetupConfig, wg *sync.WaitGroup) ([]NodeResources,
 			logger.Infof("Server %d of %d ready", i+1, len(configs)*2)
 		case <-time.After(10 * time.Second):
 			logger.Errorf("Timeout waiting for server %d to be ready after 10s", i+1)
+			// Cleanup resources before returning
+			for i, db := range dbs {
+				if db != nil {
+					db.Close()
+					dbs[i] = nil
+				}
+			}
+			for i, srv := range tcpServers {
+				if srv != nil {
+					srv.Stop()
+					tcpServers[i] = nil
+				}
+			}
+			for i, srv := range p2pServers {
+				if srv != nil && !closed[i] {
+					srv.Close()
+					closed[i] = true
+					p2pServers[i] = nil
+				}
+			}
 			return nil, fmt.Errorf("timeout waiting for server %d to be ready after 10s", i+1)
 		}
 	}

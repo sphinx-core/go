@@ -48,6 +48,7 @@ type Server struct {
 	sphincsMgr  *sign.SphincsManager
 	stopCh      chan struct{} // Channel to signal stop
 	udpReadyCh  chan struct{} // Channel to signal UDP readiness
+	dht         network.DHT   // Add DHT field
 }
 
 func (s *Server) LocalNode() *network.Node {

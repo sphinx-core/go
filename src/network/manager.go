@@ -24,15 +24,15 @@
 package network
 
 import (
-	"crypto/rand"
 	"fmt"
 	"log"
-	"math/big"
+	"net"
+	"strings"
 	"time"
 )
 
-// NewNodeManager creates a new NodeManager with Kademlia buckets.
-func NewNodeManager(bucketSize int) *NodeManager {
+// NewNodeManager creates a new NodeManager with Kademlia buckets and a DHT implementation.
+func NewNodeManager(bucketSize int, dht DHT) *NodeManager {
 	if bucketSize <= 0 {
 		bucketSize = 16 // Standard default size for Kademlia k=16
 	}
@@ -44,6 +44,7 @@ func NewNodeManager(bucketSize int) *NodeManager {
 		K:           bucketSize,
 		PingTimeout: 5 * time.Second,
 		ResponseCh:  make(chan []*Peer, 100),
+		DHT:         dht, // Initialize DHT
 	}
 }
 
@@ -201,8 +202,14 @@ func (nm *NodeManager) evictInactivePeer(bucket *KBucket, newNode *Node) bool {
 // pingPeer sends a ping and waits for a pong response.
 func (nm *NodeManager) pingPeer(peer *Peer) bool {
 	peer.SendPing()
-	time.Sleep(nm.PingTimeout)
-	return !peer.LastPong.IsZero() && time.Since(peer.LastPong) < nm.PingTimeout
+	addr, err := net.ResolveUDPAddr("udp", peer.Node.UDPPort)
+	if err != nil {
+		log.Printf("Failed to resolve UDP address for peer %s: %v", peer.Node.ID, err)
+		return false
+	}
+	nm.DHT.PingNode(peer.Node.KademliaID, *addr)
+	time.Sleep(10 * time.Second) // Increase timeout
+	return !peer.LastPong.IsZero() && time.Since(peer.LastPong) < 10*time.Second
 }
 
 // RemoveNode removes a node and its peer entry.
@@ -390,43 +397,45 @@ func (nm *NodeManager) logDistance(distance NodeID) int {
 }
 
 // FindClosestPeers returns the k closest peers to a target ID, randomly selecting if more than k are available.
+// FindClosestPeers returns the k closest peers to a target ID, using the DHT interface.
 func (nm *NodeManager) FindClosestPeers(targetID NodeID, k int) []*Peer {
 	nm.mu.RLock()
 	defer nm.mu.RUnlock()
-	type peerDistance struct {
-		peer     *Peer
-		distance NodeID
-	}
-	var candidates []peerDistance
-	for _, buckets := range nm.kBuckets {
-		for _, bucket := range buckets {
-			for _, peer := range bucket.Peers {
-				distance := nm.CalculateDistance(targetID, peer.Node.KademliaID)
-				candidates = append(candidates, peerDistance{peer, distance})
-			}
-		}
-	}
-	// Sort by distance
-	for i := 0; i < len(candidates)-1; i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			if nm.CompareDistance(candidates[i].distance, candidates[j].distance) > 0 {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
-		}
-	}
-	// Randomly select up to k peers if more than k candidates
+
+	// Use DHT interface to find nearest nodes
+	remotes := nm.DHT.KNearest(targetID)
 	result := make([]*Peer, 0, k)
-	if len(candidates) <= k {
-		for i := 0; i < len(candidates); i++ {
-			result = append(result, candidates[i].peer)
+
+	for _, remote := range remotes {
+		node := nm.GetNodeByKademliaID(remote.NodeID)
+		if node == nil {
+			// Parse remote.Address (format: "IP:port") to extract IP and port
+			addrParts := strings.Split(remote.Address.String(), ":")
+			if len(addrParts) != 2 {
+				log.Printf("FindClosestPeers: Invalid remote address format %s", remote.Address.String())
+				continue
+			}
+			port := addrParts[1] // Port number as string
+			ip := addrParts[0]
+			node = &Node{
+				ID:         fmt.Sprintf("Node-%s", remote.NodeID.String()[:8]),
+				KademliaID: remote.NodeID,
+				Address:    fmt.Sprintf("%s:%d", ip, remote.Address.Port-1), // Assume TCP port is UDP port - 1
+				IP:         ip,
+				UDPPort:    port, // Store port number as string
+				Status:     NodeStatusActive,
+				Role:       RoleNone,
+				LastSeen:   time.Now(),
+			}
+			nm.nodes[node.ID] = node
 		}
-	} else {
-		// Shuffle the first k candidates
-		for i := 0; i < k; i++ {
-			j, _ := rand.Int(rand.Reader, big.NewInt(int64(len(candidates)-i)))
-			idx := i + int(j.Int64())
-			candidates[i], candidates[idx] = candidates[idx], candidates[i]
-			result = append(result, candidates[i].peer)
+		peer := NewPeer(node)
+		if err := peer.ConnectPeer(); err == nil {
+			nm.peers[node.ID] = peer
+			result = append(result, peer)
+		}
+		if len(result) >= k {
+			break
 		}
 	}
 	return result

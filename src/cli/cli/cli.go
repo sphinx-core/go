@@ -27,12 +27,14 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/sphinx-core/go/src/bind"
 	config "github.com/sphinx-core/go/src/core/sphincs/config"
@@ -43,14 +45,13 @@ import (
 )
 
 // Execute runs the CLI to start network nodes with all backend servers.
-// [Previous Execute function unchanged, included for context]
 func Execute() error {
 	cfg := &Config{}
 	flag.StringVar(&cfg.configFile, "config", "", "Path to node configuration JSON file")
 	flag.IntVar(&cfg.numNodes, "nodes", 1, "Number of nodes to initialize")
 	flag.StringVar(&cfg.roles, "roles", "none", "Comma-separated node roles (sender,receiver,validator,none)")
 	flag.StringVar(&cfg.tcpAddr, "tcp-addr", "", "TCP address (e.g., 127.0.0.1:30303)")
-	flag.StringVar(&cfg.udpPort, "udp-port", "", "UDP port for discovery (e.g., 127.0.0.1:30304)")
+	flag.StringVar(&cfg.udpPort, "udp-port", "", "UDP port for discovery (e.g., 30304)")
 	flag.StringVar(&cfg.httpPort, "http-port", "", "HTTP port for API (e.g., 127.0.0.1:8545)")
 	flag.StringVar(&cfg.wsPort, "ws-port", "", "WebSocket port (e.g., 127.0.0.1:8600)")
 	flag.StringVar(&cfg.seedNodes, "seeds", "", "Comma-separated seed node UDP addresses")
@@ -105,37 +106,95 @@ func Execute() error {
 
 // runTwoNodes starts three nodes with default configurations using the bind package.
 func runTwoNodes() error {
-	configs := []network.NodePortConfig{
-		// Node-0
-		{
-			Name:      "Node-0",
-			TCPAddr:   "127.0.0.1:31307",
-			UDPPort:   "127.0.0.1:31308",
-			HTTPPort:  "127.0.0.1:8547",
-			WSPort:    "127.0.0.1:8602",
+	// Initialize wait group
+	var wg sync.WaitGroup
+
+	// Initialize used ports map to avoid conflicts
+	usedPorts := make(map[int]bool)
+
+	// Define base ports
+	const baseTCPPort = 32307
+	const baseUDPPort = 32418
+	const baseHTTPPort = 8645
+	const baseWSPort = 8700
+
+	configs := make([]network.NodePortConfig, 3)
+	dbs := make([]*leveldb.DB, 3)
+	sphincsMgrs := make([]*sign.SphincsManager, 3)
+
+	// Initialize LevelDB and SphincsManager for each node
+	for i := 0; i < 3; i++ {
+		dataDir := filepath.Join("data", fmt.Sprintf("Node-%d", i))
+		if err := os.MkdirAll(dataDir, 0755); err != nil {
+			return fmt.Errorf("failed to create data directory %s: %v", dataDir, err)
+		}
+
+		db, err := leveldb.OpenFile(filepath.Join(dataDir, "leveldb"), nil)
+		if err != nil {
+			return fmt.Errorf("failed to open LevelDB at %s: %v", dataDir, err)
+		}
+		dbs[i] = db
+
+		keyManager, err := key.NewKeyManager()
+		if err != nil {
+			return fmt.Errorf("failed to initialize KeyManager for Node-%d: %v", i, err)
+		}
+
+		sphincsParams, err := config.NewSPHINCSParameters()
+		if err != nil {
+			return fmt.Errorf("failed to initialize SPHINCSParameters for Node-%d: %v", i, err)
+		}
+
+		sphincsMgr := sign.NewSphincsManager(db, keyManager, sphincsParams)
+		if sphincsMgr == nil {
+			return fmt.Errorf("failed to initialize SphincsManager for Node-%d", i)
+		}
+		sphincsMgrs[i] = sphincsMgr
+
+		// Find free TCP port
+		tcpPort, err := network.FindFreePort(baseTCPPort+i*2, "tcp")
+		if err != nil {
+			return fmt.Errorf("failed to find free TCP port for Node-%d: %v", i, err)
+		}
+		usedPorts[tcpPort] = true
+		tcpAddr := fmt.Sprintf("127.0.0.1:%d", tcpPort)
+
+		// Find free UDP port
+		udpPort, err := network.FindFreePort(baseUDPPort+i*2, "udp")
+		if err != nil {
+			return fmt.Errorf("failed to find free UDP port for Node-%d: %v", i, err)
+		}
+		usedPorts[udpPort] = true
+		udpPortStr := fmt.Sprintf("%d", udpPort)
+
+		// Find free HTTP port
+		httpPort, err := network.FindFreePort(baseHTTPPort+i, "tcp")
+		if err != nil {
+			return fmt.Errorf("failed to find free HTTP port for Node-%d: %v", i, err)
+		}
+		usedPorts[httpPort] = true
+		httpAddr := fmt.Sprintf("127.0.0.1:%d", httpPort)
+
+		// Find free WebSocket port
+		wsPort, err := network.FindFreePort(baseWSPort+i, "tcp")
+		if err != nil {
+			return fmt.Errorf("failed to find free WebSocket port for Node-%d: %v", i, err)
+		}
+		usedPorts[wsPort] = true
+		wsAddr := fmt.Sprintf("127.0.0.1:%d", wsPort)
+
+		configs[i] = network.NodePortConfig{
+			ID:        fmt.Sprintf("Node-%d", i),
+			Name:      fmt.Sprintf("Node-%d", i),
+			TCPAddr:   tcpAddr,
+			UDPPort:   udpPortStr,
+			HTTPPort:  httpAddr,
+			WSPort:    wsAddr,
 			Role:      network.RoleNone,
-			SeedNodes: []string{"127.0.0.1:31310", "127.0.0.1:31312"},
-		},
-		// Node-1
-		{
-			Name:      "Node-1",
-			TCPAddr:   "127.0.0.1:31309",
-			UDPPort:   "127.0.0.1:31310",
-			HTTPPort:  "127.0.0.1:8548",
-			WSPort:    "127.0.0.1:8603",
-			Role:      network.RoleNone,
-			SeedNodes: []string{"127.0.0.1:31308", "127.0.0.1:31312"},
-		},
-		// Node-2
-		{
-			Name:      "Node-2",
-			TCPAddr:   "127.0.0.1:31311",
-			UDPPort:   "127.0.0.1:31312",
-			HTTPPort:  "127.0.0.1:8549",
-			WSPort:    "127.0.0.1:8604",
-			Role:      network.RoleNone,
-			SeedNodes: []string{"127.0.0.1:31308", "127.0.0.1:31310"},
-		},
+			SeedNodes: []string{}, // Initialize empty; seeds will be set later
+		}
+		// Store initial config
+		network.UpdateNodeConfig(configs[i])
 	}
 
 	// Convert []network.NodePortConfig to []bind.NodeSetupConfig
@@ -152,11 +211,80 @@ func runTwoNodes() error {
 		}
 	}
 
-	var wg sync.WaitGroup
 	resources, err := bind.SetupNodes(setupConfigs, &wg)
 	if err != nil {
 		return fmt.Errorf("failed to set up nodes: %v", err)
 	}
+
+	// Wait briefly to ensure P2P servers are initialized
+	time.Sleep(2 * time.Second)
+	for i := 0; i < 3; i++ {
+		log.Printf("Checking P2P server for Node-%d: TCP=%s, UDP=%s", i, resources[i].P2PServer.LocalNode().Address, resources[i].P2PServer.LocalNode().UDPPort)
+	}
+
+	// Set SphincsManager for each P2PServer
+	for i := 0; i < 3; i++ {
+		resources[i].P2PServer.SetSphincsMgr(sphincsMgrs[i])
+	}
+
+	// Update seed nodes with actual UDP ports BEFORE calling DiscoverPeers
+	for i, config := range configs {
+		actualUDPPort := resources[i].P2PServer.LocalNode().UDPPort
+		config.UDPPort = actualUDPPort
+		seedNodes := []string{}
+		for j := 0; j < 3; j++ {
+			if j != i {
+				seedConfig, exists := network.GetNodeConfig(fmt.Sprintf("Node-%d", j))
+				if exists && seedConfig.UDPPort != "" {
+					seedAddr := fmt.Sprintf("127.0.0.1:%s", seedConfig.UDPPort)
+					// Validate seed node address and port
+					if _, err := net.ResolveUDPAddr("udp", seedAddr); err != nil {
+						log.Printf("Invalid seed node address for Node-%d: %s, error: %v", j, seedAddr, err)
+						continue
+					}
+					// Check if port is expected
+					expectedPorts := map[string]bool{
+						"32418": true, "32419": true, "32420": true, "32421": true, // Adjust based on baseUDPPort
+					}
+					portStr := strings.Split(seedAddr, ":")[1]
+					if !expectedPorts[portStr] {
+						log.Printf("Unexpected seed port %s for Node-%d, skipping", portStr, j)
+						continue
+					}
+					seedNodes = append(seedNodes, seedAddr)
+				}
+			}
+		}
+		if len(seedNodes) == 0 {
+			log.Printf("Warning: No valid seed nodes for Node-%d", i)
+		}
+		config.SeedNodes = seedNodes
+		network.UpdateNodeConfig(config)
+		resources[i].P2PServer.UpdateSeedNodes(config.SeedNodes)
+		log.Printf("Updated seed nodes for Node-%d: %v", i, seedNodes)
+	}
+
+	// NOW call DiscoverPeers for each node
+	for i := 0; i < 3; i++ {
+		go func(idx int) {
+			log.Printf("Starting DiscoverPeers for Node-%d", idx)
+			if err := resources[idx].P2PServer.DiscoverPeers(); err != nil {
+				log.Printf("DiscoverPeers failed for Node-%d: %v", idx, err)
+			} else {
+				log.Printf("DiscoverPeers completed successfully for Node-%d", idx)
+			}
+		}(i)
+	}
+
+	// Clear global configs and close databases on shutdown
+	defer func() {
+		network.ClearNodeConfigs()
+		for i, db := range dbs {
+			if err := db.Close(); err != nil {
+				log.Printf("Failed to close LevelDB for Node-%d: %v", i, err)
+			}
+		}
+	}()
 
 	// Handle shutdown
 	sigCh := make(chan os.Signal, 1)
@@ -171,7 +299,6 @@ func runTwoNodes() error {
 }
 
 // startNode starts a single node with the given configuration using the bind package.
-// [Previous startNode function unchanged]
 func startNode(nodeConfig network.NodePortConfig, dataDir string) error {
 	dataDir = filepath.Join(dataDir, nodeConfig.Name)
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
@@ -220,6 +347,13 @@ func startNode(nodeConfig network.NodePortConfig, dataDir string) error {
 
 	resources[0].P2PServer.SetSphincsMgr(sphincsMgr)
 
+	// Start peer discovery after setup
+	go func() {
+		if err := resources[0].P2PServer.DiscoverPeers(); err != nil {
+			log.Printf("DiscoverPeers failed for %s: %v", nodeConfig.Name, err)
+		}
+	}()
+
 	log.Printf("Node %s started with role %s on TCP %s, UDP %s, HTTP %s, WebSocket %s",
 		nodeConfig.Name, nodeConfig.Role, nodeConfig.TCPAddr, nodeConfig.UDPPort, nodeConfig.HTTPPort, nodeConfig.WSPort)
 
@@ -235,7 +369,6 @@ func startNode(nodeConfig network.NodePortConfig, dataDir string) error {
 }
 
 // parseRoles converts a comma-separated roles string into a slice of NodeRole.
-// [Previous parseRoles function unchanged]
 func parseRoles(rolesStr string, numNodes int) []network.NodeRole {
 	roles := strings.Split(rolesStr, ",")
 	result := make([]network.NodeRole, numNodes)

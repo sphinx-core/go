@@ -25,6 +25,7 @@ package network
 
 import (
 	"encoding/hex"
+	"net"
 	"sync"
 	"time"
 
@@ -72,7 +73,7 @@ type KBucket struct {
 
 // NodeManager manages nodes and their peers.
 type NodeManager struct {
-	mu          sync.RWMutex // Unexported mutex
+	mu          sync.RWMutex
 	nodes       map[string]*Node
 	peers       map[string]*Peer
 	seenMsgs    map[string]bool
@@ -81,6 +82,7 @@ type NodeManager struct {
 	K           int
 	ResponseCh  chan []*Peer
 	PingTimeout time.Duration
+	DHT         DHT // Add DHT interface field
 }
 
 // Node represents a participant in the blockchain or P2P network.
@@ -125,14 +127,17 @@ type PeerInfo struct {
 }
 
 // NodePortConfig defines port assignments for a node.
+// NodePortConfig defines the port configuration for a node.
 type NodePortConfig struct {
-	Name      string
-	Role      NodeRole
-	TCPAddr   string
-	UDPPort   string
-	HTTPPort  string
-	WSPort    string
-	SeedNodes []string
+	ID        string   `json:"id"` // Aligns with Node.ID
+	Name      string   `json:"name"`
+	TCPAddr   string   `json:"tcp_addr"`
+	UDPPort   string   `json:"udp_port"`
+	HTTPPort  string   `json:"http_port"`
+	WSPort    string   `json:"ws_port"`
+	Role      NodeRole `json:"role"`
+	SeedNodes []string `json:"seed_nodes"`
+	DHTSecret uint16   // New field
 }
 
 // DiscoveryMessage represents a UDP discovery message.
@@ -175,6 +180,26 @@ type NeighborsData struct {
 	Nodes     []PeerInfo `json:"nodes"`
 	Timestamp time.Time  `json:"timestamp"`
 	Nonce     []byte     `json:"nonce"`
+}
+
+// DHT defines the interface for DHT operations used by NodeManager.
+type DHT interface {
+	KNearest(target NodeID) []Remote
+	Put(key Key, value []byte, ttl uint16)
+	Get(key Key) ([][]byte, bool)
+	ScheduleGet(delay time.Duration, key Key)
+	GetCached(key Key) [][]byte
+	Join()
+	SelfNodeID() NodeID
+	PingNode(nodeID NodeID, addr net.UDPAddr)
+	Close() error
+	Start() error // Add Start method
+}
+
+// Remote represents a remote node in the DHT.
+type Remote struct {
+	NodeID  NodeID
+	Address net.UDPAddr
 }
 
 // Lock locks the NodeManager's mutex.

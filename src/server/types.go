@@ -37,5 +37,5 @@ type Server struct {
 	httpServer *http.Server
 	p2pServer  *p2p.Server
 	readyCh    chan struct{}
-	nodeConfig network.NodePortConfig // Add nodeConfig to store configuration
+	nodeConfig network.NodePortConfig
 }

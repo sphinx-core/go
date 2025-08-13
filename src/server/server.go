@@ -28,6 +28,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sphinx-core/go/src/core"
 	security "github.com/sphinx-core/go/src/handshake"
@@ -66,17 +67,18 @@ func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string, db *le
 	blockchain := core.NewBlockchain()
 	rpcServer := rpc.NewServer(messageCh, blockchain)
 
-	// Validate p2pAddr format
+	// Validate p2pAddr format and extract port
 	parts := strings.Split(p2pAddr, ":")
 	if len(parts) != 2 {
 		log.Fatalf("Invalid p2pAddr format: %s, expected IP:port", p2pAddr)
 	}
+	udpPort := parts[1] // Extract just the port number
 
 	// Create NodePortConfig for p2p.NewServer
 	config := network.NodePortConfig{
-		Name:      "Node-" + parts[1], // Use port for unique name
-		TCPAddr:   tcpAddr,            // Use tcpAddr instead of p2pAddr
-		UDPPort:   p2pAddr,
+		Name:      "Node-" + udpPort,
+		TCPAddr:   tcpAddr,
+		UDPPort:   udpPort, // Use only the port number
 		HTTPPort:  httpAddr,
 		WSPort:    wsAddr,
 		SeedNodes: seeds,
@@ -89,49 +91,96 @@ func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string, db *le
 		httpServer: http.NewServer(httpAddr, messageCh, blockchain, readyCh),
 		p2pServer:  p2p.NewServer(config, blockchain, db),
 		readyCh:    readyCh,
-		nodeConfig: config, // Store the NodePortConfig
+		nodeConfig: config,
 	}
 }
 
 func (s *Server) Start() error {
+	var errs []error
+	var mu sync.Mutex
+
+	// Start TCP server
 	go func() {
 		if err := s.tcpServer.Start(); err != nil {
 			log.Printf("TCP server failed: %v", err)
+			mu.Lock()
+			errs = append(errs, fmt.Errorf("TCP server: %v", err))
+			mu.Unlock()
 		}
 	}()
+
+	// Start HTTP server
 	go func() {
 		if err := s.httpServer.Start(); err != nil {
 			log.Printf("HTTP server failed: %v", err)
+			mu.Lock()
+			errs = append(errs, fmt.Errorf("HTTP server: %v", err))
+			mu.Unlock()
 		}
 	}()
+
+	// Start P2P server
 	go func() {
 		if err := s.p2pServer.Start(); err != nil {
 			log.Printf("P2P server failed: %v", err)
+			mu.Lock()
+			errs = append(errs, fmt.Errorf("P2P server: %v", err))
+			mu.Unlock()
 		}
 	}()
-	return s.wsServer.Start(s.readyCh)
+
+	// Start WebSocket server
+	if err := s.wsServer.Start(s.readyCh); err != nil {
+		log.Printf("WebSocket server failed: %v", err)
+		mu.Lock()
+		errs = append(errs, fmt.Errorf("WebSocket server: %v", err))
+		mu.Unlock()
+	}
+
+	// Wait briefly to collect errors
+	time.Sleep(1 * time.Second)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(errs) > 0 {
+		return fmt.Errorf("errors starting servers: %v", errs)
+	}
+	return nil
 }
 
 func (s *Server) Close() error {
 	var errs []error
-	if err := s.p2pServer.CloseDB(); err != nil {
-		errs = append(errs, err)
+
+	// Close P2P server
+	if s.p2pServer != nil {
+		if err := s.p2pServer.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close P2P server: %v", err))
+		}
+		if err := s.p2pServer.CloseDB(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close P2P DB: %v", err))
+		}
 	}
+
+	// Close TCP server
 	if s.tcpServer != nil {
 		if err := s.tcpServer.Stop(); err != nil {
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("failed to stop TCP server: %v", err))
 		}
 	}
+
+	// Close HTTP server
 	if s.httpServer != nil {
 		if err := s.httpServer.Stop(); err != nil {
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("failed to stop HTTP server: %v", err))
 		}
 	}
+
+	// Close WebSocket server
 	if s.wsServer != nil {
 		if err := s.wsServer.Stop(); err != nil {
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("failed to stop WebSocket server: %v", err))
 		}
 	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("errors during server shutdown: %v", errs)
 	}

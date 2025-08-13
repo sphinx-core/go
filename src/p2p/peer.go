@@ -176,7 +176,7 @@ func (pm *PeerManager) performHandshake(node *network.Node) error {
 			log.Printf("Received message in handshake for %s: Type=%s, Data=%v, ChannelLen=%d", node.Address, msg.Type, msg.Data, len(pm.server.messageCh))
 			if msg.Type == "verack" {
 				if peerID, ok := msg.Data.(string); ok && peerID == node.ID {
-					log.Printf("Received valid verack from %s for node_id: %s", node.Address, peerID)
+					log.Printf("Received valid verack from %s for node_id: %s, Address: %s", node.Address, peerID, node.Address)
 					pm.mu.Lock()
 					if peer, exists := pm.peers[node.ID]; exists {
 						peer.ConnectionStatus = "active"
@@ -187,7 +187,7 @@ func (pm *PeerManager) performHandshake(node *network.Node) error {
 					pm.mu.Unlock()
 					return nil
 				} else {
-					log.Printf("Invalid verack from %s: peerID=%v, expected=%s", node.Address, msg.Data, node.ID)
+					log.Printf("Invalid verack from %s: peerID=%v, expected=%s, Address: %s", node.Address, msg.Data, node.ID, node.Address)
 				}
 			} else {
 				log.Printf("Unexpected message type in handshake for %s: %s", node.Address, msg.Type)

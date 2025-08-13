@@ -55,6 +55,13 @@ func startP2PServer(name string, server *p2p.Server, readyCh chan<- struct{}, er
 		case err := <-startCh:
 			if err != nil {
 				logger.Errorf("P2P server failed for %s: %v", name, err)
+				// Attempt to close the server on failure
+				if closeErr := server.Close(); closeErr != nil {
+					logger.Errorf("Failed to close P2P server for %s: %v", name, closeErr)
+				}
+				if closeErr := server.CloseDB(); closeErr != nil {
+					logger.Errorf("Failed to close DB for %s: %v", name, closeErr)
+				}
 				errorCh <- err
 				return
 			}

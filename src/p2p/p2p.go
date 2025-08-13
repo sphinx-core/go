@@ -24,73 +24,168 @@
 package p2p
 
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"net"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/sphinx-core/go/src/core"
-	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
-	sign "github.com/sphinx-core/go/src/core/sphincs/sign/backend"
 	types "github.com/sphinx-core/go/src/core/transaction"
+	"github.com/sphinx-core/go/src/dht"
 	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/network"
 	"github.com/sphinx-core/go/src/transport"
 	"github.com/syndtr/goleveldb/leveldb"
+	"go.uber.org/zap"
 )
 
 // NewServer creates a new P2P server.
 func NewServer(config network.NodePortConfig, blockchain *core.Blockchain, db *leveldb.DB) *Server {
-	bucketSize := 16 // standard default size for kademlia k=16
+	bucketSize := 16 // Standard default size for Kademlia k=16
 	parts := strings.Split(config.TCPAddr, ":")
 	if len(parts) != 2 {
 		log.Fatalf("Invalid TCPAddr format: %s", config.TCPAddr)
 	}
-	localNode := network.NewNode(config.TCPAddr, parts[0], parts[1], config.UDPPort, true, config.Role)
-	nodeManager := network.NewNodeManager(bucketSize)
-	nodeManager.AddNode(localNode)
-	nodeManager.LocalNodeID = localNode.KademliaID
-
-	// Initialize KeyManager and SPHINCSParameters for SphincsManager
-	km, err := key.NewKeyManager()
+	udpPort, err := strconv.Atoi(config.UDPPort)
 	if err != nil {
-		log.Fatalf("Failed to initialize KeyManager: %v", err)
+		log.Fatalf("Invalid UDPPort format: %s, %v", config.UDPPort, err)
 	}
-	parameters := km.GetSPHINCSParameters()
+	localNode := network.NewNode(config.TCPAddr, parts[0], parts[1], config.UDPPort, true, config.Role)
 
-	// Initialize SphincsManager with db, KeyManager, and SPHINCSParameters
-	sphincsMgr := sign.NewSphincsManager(db, km, parameters)
+	// Initialize logger for DHT
+	logger, err := zap.NewProduction()
+	if err != nil {
+		log.Fatalf("Failed to initialize logger: %v", err)
+	}
 
-	server := &Server{
+	// Generate or use DHT secret
+	var secret uint16
+	if config.DHTSecret != 0 {
+		secret = config.DHTSecret
+		log.Printf("Using DHT secret from config: %d", secret)
+	} else {
+		secretBytes := make([]byte, 2)
+		if _, err := rand.Read(secretBytes); err != nil {
+			log.Fatalf("Failed to generate random secret for DHT: %v", err)
+		}
+		secret = binary.BigEndian.Uint16(secretBytes)
+	}
+	// Allow override via environment variable
+	if envSecret := os.Getenv("DHT_SECRET"); envSecret != "" {
+		if parsedSecret, err := strconv.ParseUint(envSecret, 10, 16); err == nil {
+			secret = uint16(parsedSecret)
+			log.Printf("Using DHT secret from environment variable: %d", secret)
+		} else {
+			log.Printf("Invalid DHT_SECRET environment variable: %v, generating random secret", err)
+			secretBytes := make([]byte, 2)
+			if _, err := rand.Read(secretBytes); err != nil {
+				log.Fatalf("Failed to generate random secret for DHT: %v", err)
+			}
+			secret = binary.BigEndian.Uint16(secretBytes)
+		}
+	} else {
+		log.Printf("No DHT_SECRET provided, using config secret: %d", secret)
+	}
+
+	// Configure DHT
+	dhtConfig := dht.Config{
+		Proto:   "udp",
+		Address: net.UDPAddr{IP: net.ParseIP(parts[0]), Port: udpPort},
+		Routers: make([]net.UDPAddr, 0, len(config.SeedNodes)),
+		Secret:  secret,
+	}
+	for _, seed := range config.SeedNodes {
+		seedParts := strings.Split(seed, ":")
+		if len(seedParts) == 2 {
+			port, err := strconv.Atoi(seedParts[1])
+			if err != nil {
+				log.Printf("Invalid seed node port %s: %v", seed, err)
+				continue
+			}
+			dhtConfig.Routers = append(dhtConfig.Routers, net.UDPAddr{
+				IP:   net.ParseIP(seedParts[0]),
+				Port: port,
+			})
+		}
+	}
+	dhtInstance, err := dht.NewDHT(dhtConfig, logger)
+	if err != nil {
+		log.Fatalf("Failed to initialize DHT: %v", err)
+	}
+
+	nodeManager := network.NewNodeManager(bucketSize, dhtInstance)
+	return &Server{
 		localNode:   localNode,
 		nodeManager: nodeManager,
 		seedNodes:   config.SeedNodes,
-		messageCh:   make(chan *security.Message, 10000), // Increased buffer size
-		blockchain:  blockchain,
+		dht:         dhtInstance,
+		peerManager: NewPeerManager(nil, bucketSize),
+		sphincsMgr:  nil,
 		db:          db,
-		sphincsMgr:  sphincsMgr,
+		udpReadyCh:  make(chan struct{}, 1),
+		messageCh:   make(chan *security.Message, 100),
+		blockchain:  blockchain,
+		stopCh:      make(chan struct{}),
 	}
-	server.peerManager = NewPeerManager(server, bucketSize)
-	return server
 }
 
-// Start initializes the P2P network.
+// UpdateSeedNodes updates the server's seed nodes.
+func (s *Server) UpdateSeedNodes(seedNodes []string) {
+	s.mu.Lock()
+	s.seedNodes = seedNodes
+	log.Printf("UpdateSeedNodes: Set seed nodes for %s to %v", s.localNode.Address, s.seedNodes)
+	s.mu.Unlock()
+}
+
+// SetServer sets the server field for the peer manager.
+func (s *Server) SetServer() {
+	s.peerManager.server = s
+}
+
+// Start starts the P2P server and initializes peer discovery.
 func (s *Server) Start() error {
-	log.Printf("Initializing P2P server for node %s", s.localNode.Address)
+	s.SetServer() // Set server for peerManager
 	if err := s.StartUDPDiscovery(s.localNode.UDPPort); err != nil {
-		return err
+		return fmt.Errorf("failed to start UDP discovery: %v", err)
 	}
-	go s.handleMessages()
-	go s.peerManager.MaintainPeers()
-	log.Printf("P2P server started, local node: ID=%s, Address=%s, Role=%s", s.localNode.ID, s.localNode.Address, s.localNode.Role)
-	go func() {
-		log.Printf("Starting peer discovery for node %s", s.localNode.Address)
-		if err := s.DiscoverPeers(); err != nil {
-			log.Printf("Peer discovery failed for node %s: %v", s.localNode.Address, err)
+	go s.handleMessages() // Start message handler
+	return nil
+}
+
+// Close shuts down the P2P server.
+func (s *Server) Close() error {
+	var errs []error
+	if err := s.StopUDPDiscovery(); err != nil {
+		errs = append(errs, fmt.Errorf("failed to stop UDP discovery: %v", err))
+	}
+	if s.messageCh != nil {
+		select {
+		case <-s.messageCh:
+			// Channel already closed
+		default:
+			close(s.messageCh)
 		}
-	}()
+	}
+	// Allow time for sockets to release
+	time.Sleep(1 * time.Second)
+	if len(errs) > 0 {
+		return fmt.Errorf("errors during P2P server shutdown: %v", errs)
+	}
+	return nil
+}
+
+// CloseDB closes the LevelDB instance.
+func (s *Server) CloseDB() error {
+	if s.db != nil {
+		return s.db.Close()
+	}
 	return nil
 }
 
@@ -103,41 +198,6 @@ func (s *Server) StorePeer(peer *network.Peer) error {
 	}
 	key := []byte("peer-" + peer.Node.ID)
 	return s.db.Put(key, data, nil)
-}
-
-// Close shuts down the P2P server and releases resources.
-// Close closes the P2P server and its resources.
-func (s *Server) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.stopCh != nil {
-		close(s.stopCh) // Signal handleUDP to stop
-	}
-
-	if s.udpConn != nil {
-		log.Printf("Closing UDP connection for %s", s.localNode.Address)
-		if err := s.udpConn.Close(); err != nil {
-			log.Printf("Failed to close UDP connection for %s: %v", s.localNode.Address, err)
-			return err
-		}
-		log.Printf("UDP connection closed for %s", s.localNode.Address)
-		s.udpConn = nil
-	}
-	return nil
-}
-
-// CloseDB closes the LevelDB database.
-func (s *Server) CloseDB() error {
-	if s.db != nil {
-		if err := s.db.Close(); err != nil {
-			log.Printf("Failed to close LevelDB for %s: %v", s.localNode.Address, err)
-			return fmt.Errorf("failed to close LevelDB: %v", err)
-		}
-		log.Printf("LevelDB closed for %s", s.localNode.Address)
-		s.db = nil
-	}
-	return nil
 }
 
 // FetchPeer retrieves peer information from LevelDB.
@@ -154,7 +214,6 @@ func (s *Server) FetchPeer(nodeID string) (*network.PeerInfo, error) {
 	return &peerInfo, nil
 }
 
-// handleMessages processes incoming messages.
 // handleMessages processes incoming messages.
 func (s *Server) handleMessages() {
 	for msg := range s.messageCh {

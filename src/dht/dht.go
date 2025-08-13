@@ -36,6 +36,7 @@ package dht
 import (
 	"math/rand"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/lni/goutils/syncutil"
@@ -65,7 +66,7 @@ var (
 
 func NewDHT(cfg Config, logger *zap.Logger) (*DHT, error) {
 	nodeID := network.GetRandomNodeID()
-	conn, err := newConn(cfg, logger) // Pass logger to newConn
+	conn, err := newConn(cfg, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +92,8 @@ func NewDHT(cfg Config, logger *zap.Logger) (*DHT, error) {
 func (d *DHT) Start() error {
 	d.stopper.RunWorker(func() {
 		if err := d.conn.ReceiveMessageLoop(d.stopper.ShouldStop()); err != nil {
-			panic(err)
+			d.log.Error("ReceiveMessageLoop failed", zap.Error(err))
+			return
 		}
 	})
 	d.stopper.RunWorker(func() {
@@ -108,12 +110,13 @@ func (d *DHT) Start() error {
 }
 
 func (d *DHT) Close() error {
-	d.log.Debug("going to stop the stopper")
+	d.log.Debug("Stopping DHT")
 	d.stopper.Stop()
-	d.log.Debug("stopper stopped")
+	d.log.Debug("Stopper stopped")
 	return d.conn.Close()
 }
 
+// Put implements network.DHT.Put.
 func (d *DHT) Put(key network.Key, value []byte, ttl uint16) {
 	req := request{
 		RequestType: RequestPut,
@@ -124,17 +127,38 @@ func (d *DHT) Put(key network.Key, value []byte, ttl uint16) {
 	d.request(req)
 }
 
-func (d *DHT) Get(key network.Key) {
-	req := request{
-		RequestType: RequestGet,
-		Target:      key,
+// Get implements network.DHT.Get.
+func (d *DHT) Get(key network.Key) ([][]byte, bool) {
+	rpcID := rpc.GetRPCID()
+	responseCh := make(chan [][]byte, 1)
+	d.ongoing.AddGet(rpcID)
+	msg := rpc.Message{
+		RPCType: rpc.RPCGet,
+		RPCID:   rpcID,
+		Query:   true,
+		Target:  rpc.NodeID(key),
+		From:    d.self,
 	}
-	d.request(req)
+	kn := d.rt.KNearest(rpc.NodeID(key))
+	for _, rt := range kn {
+		d.sendMessage(msg, rt.Address)
+	}
+	select {
+	case values := <-responseCh:
+		return values, true
+	case <-time.After(defaultFindNodeTimeout):
+		// Fallback to cached store
+		values, ok := d.cached.Get(rpc.Key(key))
+		return values, ok
+	case <-d.stopper.ShouldStop():
+		return nil, false
+	}
 }
 
+// ScheduleGet implements network.DHT.ScheduleGet.
 func (d *DHT) ScheduleGet(delay time.Duration, key network.Key) {
 	d.stopper.RunWorker(func() {
-		timer := time.NewTicker(delay)
+		timer := time.NewTimer(delay)
 		defer timer.Stop()
 		select {
 		case <-d.stopper.ShouldStop():
@@ -144,18 +168,59 @@ func (d *DHT) ScheduleGet(delay time.Duration, key network.Key) {
 	})
 }
 
+// GetCached implements network.DHT.GetCached.
 func (d *DHT) GetCached(key network.Key) [][]byte {
-	req := request{
-		RequestType:  RequestGetFromCached,
-		Target:       key,
-		FromCachedCh: make(chan [][]byte, 1),
+	v, _ := d.cached.Get(rpc.Key(key))
+	return v
+}
+
+// KNearest implements network.DHT.KNearest.
+func (d *DHT) KNearest(target network.NodeID) []network.Remote {
+	rpcRemotes := d.rt.KNearest(rpc.NodeID(target))
+	remotes := make([]network.Remote, len(rpcRemotes))
+	for i, r := range rpcRemotes {
+		remotes[i] = network.Remote{
+			NodeID:  network.NodeID(r.NodeID),
+			Address: r.Address,
+		}
 	}
-	d.request(req)
-	select {
-	case <-d.stopper.ShouldStop():
-		return nil
-	case v := <-req.FromCachedCh:
-		return v
+	return remotes
+}
+
+// SelfNodeID implements network.DHT.SelfNodeID.
+func (d *DHT) SelfNodeID() network.NodeID {
+	return network.NodeID(d.self.NodeID)
+}
+
+// PingNode implements network.DHT.PingNode.
+func (d *DHT) PingNode(nodeID network.NodeID, addr net.UDPAddr) {
+	msg := rpc.Message{
+		RPCType: rpc.RPCPing,
+		Query:   true,
+		RPCID:   rpc.GetRPCID(),
+		From:    d.self,
+		Target:  rpc.NodeID(nodeID),
+	}
+	d.ongoing.AddPing(msg.RPCID, rpc.NodeID(nodeID))
+	d.sendMessage(msg, addr)
+}
+
+// Join implements network.DHT.Join.
+func (d *DHT) Join() {
+	if !d.allowToJoin() {
+		return
+	}
+	rpcID := rpc.GetRPCID()
+	d.ongoing.AddJoin(rpcID)
+	msg := rpc.Message{
+		RPCType: rpc.RPCJoin,
+		Query:   true,
+		RPCID:   rpcID,
+		Target:  d.self.NodeID,
+		From:    d.self,
+	}
+	for _, router := range d.cfg.Routers {
+		d.sendMessage(msg, router)
 	}
 }
 
@@ -165,10 +230,8 @@ func (d *DHT) sendMessageWorker() {
 		case <-d.stopper.ShouldStop():
 			return
 		case req := <-d.sendMsgCh:
-			msg := req.Msg
-			msg.Secret = d.cfg.Secret
 			if err := d.conn.SendMessage(req.EncodedData, req.Addr); err != nil {
-				d.log.Debug("failed to send message", zap.Error(err))
+				d.log.Debug("Failed to send message", zap.Error(err))
 			}
 		}
 	}
@@ -190,14 +253,14 @@ func (d *DHT) loop() {
 	for {
 		select {
 		case <-d.stopper.ShouldStop():
-			d.log.Debug("main loop going to return")
+			d.log.Debug("Main loop exiting")
 			return
 		case msg := <-d.loopbackCh:
 			d.handleMessage(msg)
 		case <-storeGCTicker.C:
 			d.storeGC()
 		case <-ongoingGCTicker.C:
-			d.log.Debug("query manager gc called")
+			d.log.Debug("Query manager GC called")
 			d.ongoing.GC()
 		case fn := <-d.scheduledCh:
 			fn()
@@ -227,7 +290,7 @@ func (d *DHT) request(r request) {
 func (d *DHT) handleRequest(req request) {
 	switch req.RequestType {
 	case RequestJoin:
-		d.Join() // Changed from join
+		d.Join()
 	case RequestPut:
 		d.put(req.Target, req.Value, req.TTL)
 	case RequestGet:
@@ -235,7 +298,7 @@ func (d *DHT) handleRequest(req request) {
 	case RequestGetFromCached:
 		d.getFromCached(req.Target, req.FromCachedCh)
 	default:
-		panic("unknown request type")
+		d.log.Error("Unknown request type", zap.Int("type", int(req.RequestType)))
 	}
 }
 
@@ -243,69 +306,20 @@ func (d *DHT) requestToJoin() {
 	d.request(request{RequestType: RequestJoin})
 }
 
-func (d *DHT) pingNode(nodeID rpc.NodeID, addr net.UDPAddr) {
-	msg := rpc.Message{
-		RPCType: rpc.RPCPing,
-		Query:   true,
-		RPCID:   rpc.GetRPCID(),
-		From:    d.self,
-		Target:  nodeID,
-	}
-	d.ongoing.AddPing(msg.RPCID, nodeID)
-	d.sendMessage(msg, addr)
-}
-
-// KNearest returns the k-nearest nodes to the target NodeID from the routing table.
-func (d *DHT) KNearest(target rpc.NodeID) []rpc.Remote {
-	return d.rt.KNearest(target)
-}
-
-// SelfNodeID returns the NodeID of the local DHT node.
-func (d *DHT) SelfNodeID() rpc.NodeID {
-	return d.self.NodeID
-}
-
-// Join initiates the DHT join process by sending RPCJoin messages to seed nodes.
-func (d *DHT) Join() {
-	if !d.allowToJoin() {
-		return
-	}
-	rpcID := rpc.GetRPCID()
-	d.ongoing.AddJoin(rpcID)
-	msg := rpc.Message{
-		RPCType: rpc.RPCJoin,
-		Query:   true,
-		RPCID:   rpcID,
-		Target:  d.self.NodeID,
-		From:    d.self,
-	}
-	for _, router := range d.cfg.Routers {
-		d.sendMessage(msg, router)
-	}
-}
-
-func (d *DHT) findNode(target rpc.NodeID) {
-	d.doFindNode(target, nil)
-}
-
-func (d *DHT) put(target network.Key, value []byte, ttl uint16) {
+func (d *DHT) put(key network.Key, value []byte, ttl uint16) {
 	onCompletion := func() {
-		d.log.Debug("find node completed for put query",
-			targetField(target),
-			localNodeIDField(d))
-		d.putKeyValue(target, value, ttl)
+		d.log.Debug("Find node completed for put query", d.targetField(key), d.localNodeIDField())
+		d.putKeyValue(key, value, ttl)
 	}
-	d.doFindNode(rpc.NodeID(target), onCompletion)
+	d.doFindNode(rpc.NodeID(key), onCompletion)
 }
 
-func (d *DHT) get(target network.Key) {
+func (d *DHT) get(key network.Key) {
 	onCompletion := func() {
-		d.log.Debug("find node completed for get query",
-			targetField(target),
-			localNodeIDField(d))
-		d.getKeyValue(target)
+		d.log.Debug("Find node completed for get query", d.targetField(key), d.localNodeIDField())
+		d.getKeyValue(key)
 	}
-	d.doFindNode(rpc.NodeID(target), onCompletion)
+	d.doFindNode(rpc.NodeID(key), onCompletion)
 }
 
 func (d *DHT) getFromCached(target network.Key, ch chan [][]byte) {
@@ -360,7 +374,7 @@ func (d *DHT) doFindNode(target rpc.NodeID, onCompletion schedulable) {
 	}
 	if len(kn) < DefaultK {
 		d.schedule(getRandomDelay(time.Second), func() {
-			d.Join() // Changed from d.join() to d.Join()
+			d.Join()
 		})
 	}
 }
@@ -384,7 +398,7 @@ func (d *DHT) toLocalNode(addr net.UDPAddr) bool {
 }
 
 func (d *DHT) sendMessage(m rpc.Message, addr net.UDPAddr) {
-	verifyMessage(m)
+	d.verifyMessage(m)
 	data, err := m.Marshal(make([]byte, m.MarshalSize()))
 	if err != nil {
 		d.log.Error("Failed to marshal message", zap.Error(err))
@@ -396,7 +410,8 @@ func (d *DHT) sendMessage(m rpc.Message, addr net.UDPAddr) {
 		d.log.Error("Failed to encode security message", zap.Error(err))
 		return
 	}
-	req := sendReq{Addr: addr, Msg: m, EncodedData: encodedData} // Create sendReq early
+	m.Secret = d.cfg.Secret // Set Secret before sending
+	req := sendReq{Addr: addr, Msg: m, EncodedData: encodedData}
 	if d.toLocalNode(addr) {
 		select {
 		case d.loopbackCh <- m:
@@ -425,25 +440,19 @@ func (d *DHT) handleQuery(msg rpc.Message) {
 	case rpc.RPCGet:
 		d.handleGetQuery(msg)
 	default:
-		panic("unknown type")
+		d.log.Error("Unknown RPC type", zap.String("type", strconv.Itoa(int(msg.RPCType))))
 	}
 }
 
 func (d *DHT) handlePutQuery(msg rpc.Message) {
-	d.log.Debug("received put query",
-		fromField(msg.From),
-		localNodeIDField(d),
-		targetField(network.Key(msg.Target)))
+	d.log.Debug("Received put query", d.fromField(msg.From), d.localNodeIDField(), d.targetField(network.Key(msg.Target)))
 	if len(msg.Values) > 0 {
 		d.store.Put(rpc.Key(msg.Target), msg.Values[0], msg.TTL)
 	}
 }
 
 func (d *DHT) handleGetQuery(msg rpc.Message) {
-	d.log.Debug("received get query",
-		fromField(msg.From),
-		localNodeIDField(d),
-		targetField(network.Key(msg.Target)))
+	d.log.Debug("Received get query", d.fromField(msg.From), d.localNodeIDField(), d.targetField(network.Key(msg.Target)))
 	values, ok := d.store.Get(rpc.Key(msg.Target))
 	if !ok {
 		return
@@ -463,9 +472,7 @@ func (d *DHT) handleGetQuery(msg rpc.Message) {
 }
 
 func (d *DHT) handleJoinQuery(msg rpc.Message) {
-	d.log.Debug("received join query",
-		fromField(msg.From),
-		localNodeIDField(d))
+	d.log.Debug("Received join query", d.fromField(msg.From), d.localNodeIDField())
 	resp := rpc.Message{
 		RPCType: msg.RPCType,
 		Query:   false,
@@ -488,12 +495,10 @@ func (d *DHT) handlePingQuery(msg rpc.Message) {
 }
 
 func (d *DHT) handleFindNodeQuery(msg rpc.Message) {
-	d.log.Debug("received find node query",
-		fromField(msg.From),
-		localNodeIDField(d),
-		targetField(network.Key(msg.Target)))
+	d.log.Debug("Received find node query", d.fromField(msg.From), d.localNodeIDField(), d.targetField(network.Key(msg.Target)))
 	if network.Key(msg.Target).IsEmpty() {
-		panic("empty target")
+		d.log.Error("Empty target in find node query")
+		return
 	}
 	kn := d.rt.KNearest(msg.Target)
 	resp := rpc.Message{
@@ -513,7 +518,7 @@ func (d *DHT) handleResponse(msg rpc.Message) {
 	}
 	switch msg.RPCType {
 	case rpc.RPCPing:
-		// nothing to do
+		// Nothing to do
 	case rpc.RPCGet:
 		d.handleGetResponse(msg)
 	case rpc.RPCFindNode:
@@ -521,7 +526,7 @@ func (d *DHT) handleResponse(msg rpc.Message) {
 	case rpc.RPCJoin:
 		d.handleJoinResponse(msg)
 	default:
-		panic("unknown type")
+		d.log.Error("Unknown response type", zap.String("type", strconv.Itoa(int(msg.RPCType))))
 	}
 }
 
@@ -618,26 +623,26 @@ func (d *DHT) handleTimeout(timeout timeout) {
 }
 
 func (d *DHT) pingStaleRemotes() {
-	d.log.Debug("pinging staled remotes")
+	d.log.Debug("Pinging stale remotes")
 	staled := d.rt.GetStaleRemote()
 	ms := staledRemotePingInterval.Milliseconds()
 	for _, sr := range staled {
 		remote := sr
 		delay := time.Duration(rand.Uint64()%uint64(ms)) * time.Millisecond
 		d.schedule(delay, func() {
-			d.pingNode(remote.NodeID, remote.Address)
+			d.PingNode(network.NodeID(remote.NodeID), remote.Address)
 		})
 	}
 }
 
 func (d *DHT) storeGC() {
-	d.log.Debug("store gc called")
+	d.log.Debug("Store GC called")
 	d.store.GC()
 	d.cached.GC()
 }
 
 func (d *DHT) routingTableGC() {
-	d.log.Debug("routing table gc called")
+	d.log.Debug("Routing table GC called")
 	d.rt.GC()
 }
 
@@ -645,7 +650,7 @@ func (d *DHT) refillEmptyKBucket(noDelay bool) {
 	if !d.allowToRefill() {
 		return
 	}
-	d.log.Debug("refilling empty kbucket")
+	d.log.Debug("Refilling empty k-bucket")
 	nodes := d.rt.InterestedNodes()
 	ms := emptyKBucketRefillInterval.Milliseconds()
 	for _, node := range nodes {
@@ -655,7 +660,7 @@ func (d *DHT) refillEmptyKBucket(noDelay bool) {
 			delay = minDelay
 		}
 		d.schedule(delay, func() {
-			d.findNode(n)
+			d.findNode(network.NodeID(n))
 		})
 	}
 }
@@ -706,28 +711,35 @@ func (d *DHT) doSchedule(delay time.Duration, mainThread bool, fn schedulable) {
 	}()
 }
 
-func verifyMessage(msg rpc.Message) {
+func (d *DHT) findNode(target network.NodeID) {
+	d.doFindNode(rpc.NodeID(target), nil)
+}
+
+// verifyMessage verifies the RPC message, logging errors if invalid.
+func (d *DHT) verifyMessage(msg rpc.Message) {
 	if network.Key(msg.From.NodeID).IsEmpty() {
-		panic("empty from node id")
+		d.log.Error("Empty from node ID")
+		return
 	}
 	if msg.RPCID == 0 {
-		panic("empty RPCID")
+		d.log.Error("Empty RPCID")
+		return
 	}
+}
+
+func (d *DHT) targetField(k network.Key) zap.Field {
+	return zap.String("target", k.Short())
+}
+
+func (d *DHT) fromField(r rpc.Remote) zap.Field {
+	return zap.String("from", network.Key(r.NodeID).Short())
+}
+
+func (d *DHT) localNodeIDField() zap.Field {
+	return zap.String("local", network.Key(d.self.NodeID).Short())
 }
 
 func getRandomDelay(d time.Duration) time.Duration {
 	ms := d.Milliseconds()
 	return time.Duration(rand.Uint64()%uint64(ms)) * time.Millisecond
-}
-
-func targetField(k network.Key) zap.Field {
-	return zap.String("target", k.Short())
-}
-
-func fromField(r rpc.Remote) zap.Field {
-	return zap.String("from", network.Key(r.NodeID).Short())
-}
-
-func localNodeIDField(d *DHT) zap.Field {
-	return zap.String("local", network.Key(d.self.NodeID).Short())
 }
