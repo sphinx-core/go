@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"strings"
 	"time"
@@ -44,8 +45,8 @@ import (
 func (s *Server) DiscoverPeers() error {
 	const maxOverallRetries = 3
 	const retryDelay = 5 * time.Second
-	const seedTimeout = 60 * time.Second
-	const globalTimeout = 120 * time.Second
+	const seedTimeout = 90 * time.Second    // Increased from 60s
+	const globalTimeout = 180 * time.Second // Increased from 120s
 
 	for overallRetry := 1; overallRetry <= maxOverallRetries; overallRetry++ {
 		log.Printf("DiscoverPeers: Attempt %d/%d for node %s with %d seed nodes: %v", overallRetry, maxOverallRetries, s.localNode.Address, len(s.seedNodes), s.seedNodes)
@@ -59,7 +60,7 @@ func (s *Server) DiscoverPeers() error {
 		maxRetries := 3
 
 		// Start a goroutine to continuously drain ResponseCh
-		peerCh := make(chan []*network.Peer, 100) // Increased buffer size
+		peerCh := make(chan []*network.Peer, 100)
 		go func() {
 			for {
 				select {
@@ -73,7 +74,7 @@ func (s *Server) DiscoverPeers() error {
 					}
 				case <-timeout:
 					log.Printf("DiscoverPeers: Global timeout reached, stopping ResponseCh drain for %s", s.localNode.Address)
-					close(peerCh) // Close peerCh to signal completion
+					close(peerCh)
 					return
 				}
 			}
@@ -84,15 +85,6 @@ func (s *Server) DiscoverPeers() error {
 			seedPort := strings.Split(seed, ":")
 			seedPortStr := seedPort[len(seedPort)-1]
 			log.Printf("DiscoverPeers: Normalized seed %s to port %s for %s", seed, seedPortStr, s.localNode.Address)
-
-			// Validate seed port
-			expectedPorts := map[string]bool{
-				"32418": true, "32419": true, "32420": true, "32421": true, // Adjust based on baseUDPPort
-			}
-			if !expectedPorts[seedPortStr] {
-				log.Printf("DiscoverPeers: Skipping unexpected seed port %s for %s", seedPortStr, s.localNode.Address)
-				continue
-			}
 
 			// Resolve seed address
 			addr, err := net.ResolveUDPAddr("udp", seed)
@@ -157,8 +149,10 @@ func (s *Server) DiscoverPeers() error {
 				}
 				seedTimer.Stop()
 				if retry < maxRetries {
-					log.Printf("DiscoverPeers: Retrying seed %s after %v for %s", seed, retryDelay, s.localNode.Address)
-					time.Sleep(retryDelay)
+					// Exponential backoff
+					backoff := retryDelay * time.Duration(math.Pow(2, float64(retry-1)))
+					log.Printf("DiscoverPeers: Retrying seed %s after %v for %s", seed, backoff, s.localNode.Address)
+					time.Sleep(backoff)
 				}
 			}
 

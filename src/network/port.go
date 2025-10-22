@@ -226,18 +226,10 @@ func GetNodePortConfigs(numNodes int, roles []NodeRole, overrides map[string]str
 			// Validate seed nodes
 			validSeeds := []string{}
 			for _, seed := range seedNodes {
-				seedPort := strings.Split(seed, ":")[len(strings.Split(seed, ":"))-1]
-				expectedPorts := map[string]bool{
-					"32418": true, "32419": true, "32420": true, "32421": true, // Adjust based on baseUDPPort
-				}
-				if expectedPorts[seedPort] {
-					if _, err := net.ResolveUDPAddr("udp", seed); err == nil {
-						validSeeds = append(validSeeds, seed)
-					} else {
-						log.Printf("GetNodePortConfigs: Invalid seed address %s for node %s: %v", seed, id, err)
-					}
+				if _, err := net.ResolveUDPAddr("udp", seed); err == nil {
+					validSeeds = append(validSeeds, seed)
 				} else {
-					log.Printf("GetNodePortConfigs: Skipping unexpected seed port %s for node %s", seedPort, id)
+					log.Printf("GetNodePortConfigs: Invalid seed address %s for node %s: %v", seed, id, err)
 				}
 			}
 			seedNodes = validSeeds

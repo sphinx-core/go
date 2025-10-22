@@ -42,46 +42,26 @@ func NewNodeManager(bucketSize int, dht DHT) *NodeManager {
 		seenMsgs:    make(map[string]bool),
 		kBuckets:    [256][]*KBucket{},
 		K:           bucketSize,
-		PingTimeout: 5 * time.Second,
+		PingTimeout: 10 * time.Second, // Increased from 5s to 10s
 		ResponseCh:  make(chan []*Peer, 100),
-		DHT:         dht, // Initialize DHT
+		DHT:         dht,
 	}
 }
 
 // AddNode adds a new node to the manager and updates k-buckets.
+// Around line 30 in manager.go
 func (nm *NodeManager) AddNode(node *Node) {
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
 
 	// Check for existing node by ID or KademliaID
 	if existingNode, exists := nm.nodes[node.ID]; exists && existingNode.KademliaID == node.KademliaID {
-		// Update existing node's attributes
-		existingNode.Address = node.Address
-		existingNode.IP = node.IP
-		existingNode.Port = node.Port
-		existingNode.UDPPort = node.UDPPort
-		existingNode.Role = node.Role
-		existingNode.Status = node.Status
-		existingNode.LastSeen = time.Now()
-		log.Printf("Updated existing node: ID=%s, Address=%s, Role=%s, KademliaID=%x", node.ID, node.Address, node.Role, node.KademliaID[:8])
+		log.Printf("Node %s (KademliaID: %x) already exists, skipping addition", node.ID, node.KademliaID[:8])
 		return
 	}
-
-	// Check for existing node by KademliaID (in case ID differs)
 	for _, n := range nm.nodes {
 		if n.KademliaID == node.KademliaID && n.ID != node.ID {
-			// Update the existing node's ID and other attributes
-			delete(nm.nodes, n.ID) // Remove old ID mapping
-			n.ID = node.ID
-			n.Address = node.Address
-			n.IP = node.IP
-			n.Port = node.Port
-			n.UDPPort = node.UDPPort
-			n.Role = node.Role
-			n.Status = node.Status
-			n.LastSeen = time.Now()
-			nm.nodes[node.ID] = n
-			log.Printf("Updated node with matching KademliaID: ID=%s, Address=%s, Role=%s, KademliaID=%x", node.ID, node.Address, node.Role, node.KademliaID[:8])
+			log.Printf("Node with KademliaID %x already exists as %s, skipping addition", node.KademliaID[:8], n.ID)
 			return
 		}
 	}
@@ -97,14 +77,10 @@ func (nm *NodeManager) AddNode(node *Node) {
 			if nm.kBuckets[bucketIndex] == nil {
 				nm.kBuckets[bucketIndex] = make([]*KBucket, 0)
 			}
-			// Check if node already exists in k-bucket
 			for _, b := range nm.kBuckets[bucketIndex] {
 				for _, p := range b.Peers {
 					if p.Node.ID == node.ID || p.Node.KademliaID == node.KademliaID {
-						// Update existing peer's node attributes
-						p.Node = node
-						b.LastUpdated = time.Now()
-						log.Printf("Updated peer in k-bucket: ID=%s, Address=%s, Role=%s, KademliaID=%x", node.ID, node.Address, node.Role, node.KademliaID[:8])
+						log.Printf("Peer %s (KademliaID: %x) already in k-bucket, skipping addition", node.ID, node.KademliaID[:8])
 						return
 					}
 				}
@@ -114,12 +90,10 @@ func (nm *NodeManager) AddNode(node *Node) {
 					log.Printf("Added node to k-bucket: ID=%s, Address=%s, Role=%s, KademliaID=%x", node.ID, node.Address, node.Role, node.KademliaID[:8])
 					return
 				}
-				// Bucket is full, try to evict an inactive peer
 				if evicted := nm.evictInactivePeer(b, node); evicted {
 					return
 				}
 			}
-			// No space in existing buckets, create a new one
 			nm.kBuckets[bucketIndex] = append(nm.kBuckets[bucketIndex], &KBucket{
 				Peers:       []*Peer{NewPeer(node)},
 				LastUpdated: time.Now(),
@@ -285,9 +259,13 @@ func (nm *NodeManager) AddPeer(node *Node) error {
 		return fmt.Errorf("cannot add peer %s: empty IP or port", node.ID)
 	}
 	// Check for existing peer by ID or KademliaID
+	if _, exists := nm.peers[node.ID]; exists {
+		log.Printf("Peer %s already exists in peers map, skipping addition", node.ID)
+		return nil
+	}
 	for _, p := range nm.peers {
-		if p.Node.ID == node.ID || p.Node.KademliaID == node.KademliaID {
-			log.Printf("Peer %s already exists, skipping addition", node.ID)
+		if p.Node.KademliaID == node.KademliaID && p.Node.ID != node.ID {
+			log.Printf("Peer with KademliaID %x already exists as %s, skipping addition", node.KademliaID[:8], p.Node.ID)
 			return nil
 		}
 	}

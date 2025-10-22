@@ -237,18 +237,9 @@ func runTwoNodes() error {
 				seedConfig, exists := network.GetNodeConfig(fmt.Sprintf("Node-%d", j))
 				if exists && seedConfig.UDPPort != "" {
 					seedAddr := fmt.Sprintf("127.0.0.1:%s", seedConfig.UDPPort)
-					// Validate seed node address and port
+					// Validate seed node address
 					if _, err := net.ResolveUDPAddr("udp", seedAddr); err != nil {
 						log.Printf("Invalid seed node address for Node-%d: %s, error: %v", j, seedAddr, err)
-						continue
-					}
-					// Check if port is expected
-					expectedPorts := map[string]bool{
-						"32418": true, "32419": true, "32420": true, "32421": true, // Adjust based on baseUDPPort
-					}
-					portStr := strings.Split(seedAddr, ":")[1]
-					if !expectedPorts[portStr] {
-						log.Printf("Unexpected seed port %s for Node-%d, skipping", portStr, j)
 						continue
 					}
 					seedNodes = append(seedNodes, seedAddr)

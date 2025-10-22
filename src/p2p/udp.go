@@ -199,8 +199,16 @@ func (s *Server) handleUDP() {
 }
 
 // handleDiscoveryMessage processes discovery messages (PING, PONG, FINDNODE, NEIGHBORS).
+// Around line 150 in udp.go
 func (s *Server) handleDiscoveryMessage(msg *network.DiscoveryMessage, addr *net.UDPAddr) {
 	log.Printf("handleDiscoveryMessage: Received %s message from %s for node %s: Timestamp=%x, Nonce=%x", msg.Type, addr.String(), s.localNode.Address, msg.Timestamp, msg.Nonce[:8])
+	// Log message size
+	msgBytes, _ := json.Marshal(msg)
+	log.Printf("handleDiscoveryMessage: Message size: %d bytes", len(msgBytes))
+	if len(msgBytes) > 1472 {
+		log.Printf("handleDiscoveryMessage: Warning: Message size (%d bytes) exceeds typical UDP MTU (1472 bytes)", len(msgBytes))
+	}
+
 	// Check timestamp freshness (5-minute window)
 	timestampInt := binary.BigEndian.Uint64(msg.Timestamp)
 	currentTimestamp := uint64(time.Now().Unix())
