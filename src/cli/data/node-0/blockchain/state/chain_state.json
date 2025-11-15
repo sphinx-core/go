@@ -1,6 +1,6 @@
 {
   "chain_identification": {
-    "timestamp": "2025-11-16T05:08:12+07:00",
+    "timestamp": "2025-11-16T05:39:09+07:00",
     "chain_parameters": {
       "bip44_type": 7331,
       "chain_id": 7331,
@@ -39,7 +39,7 @@
         "default_port": 32307,
         "genesis_hash": "f23d0c8ce638a9845b757668848ede3bbd3d3233d54befbddd2f6096a8c1774e",
         "genesis_time": 1731375284,
-        "latest_block": "52860a2a0192471ec23def49a5b6d18339d5f3e85d55a8d6126b92a826f9ca2f",
+        "latest_block": "a969d88c6aa148e6a564324109f7e64f909847f0cf10a0c7204e2d2f1e9d9671",
         "ledger_name": "Sphinx",
         "magic_number": "0x53504858",
         "network": "Sphinx Mainnet",
@@ -47,14 +47,14 @@
         "version": "1.0.0"
       },
       "block_height": 1,
-      "block_hash": "52860a2a0192471ec23def49a5b6d18339d5f3e85d55a8d6126b92a826f9ca2f",
-      "timestamp": "2025-11-16T05:08:12+07:00",
+      "block_hash": "a969d88c6aa148e6a564324109f7e64f909847f0cf10a0c7204e2d2f1e9d9671",
+      "timestamp": "2025-11-16T05:39:09+07:00",
       "final_state": {
         "block_height": 1,
-        "block_hash": "52860a2a0192471ec23def49a5b6d18339d5f3e85d55a8d6126b92a826f9ca2f",
+        "block_hash": "a969d88c6aa148e6a564324109f7e64f909847f0cf10a0c7204e2d2f1e9d9671",
         "total_blocks": 2,
         "status": "completed",
-        "timestamp": "2025-11-16T05:08:12+07:00"
+        "timestamp": "2025-11-16T05:39:09+07:00"
       }
     },
     {
@@ -68,7 +68,7 @@
         "default_port": 32307,
         "genesis_hash": "f23d0c8ce638a9845b757668848ede3bbd3d3233d54befbddd2f6096a8c1774e",
         "genesis_time": 1731375284,
-        "latest_block": "52860a2a0192471ec23def49a5b6d18339d5f3e85d55a8d6126b92a826f9ca2f",
+        "latest_block": "a969d88c6aa148e6a564324109f7e64f909847f0cf10a0c7204e2d2f1e9d9671",
         "ledger_name": "Sphinx",
         "magic_number": "0x53504858",
         "network": "Sphinx Mainnet",
@@ -76,14 +76,14 @@
         "version": "1.0.0"
       },
       "block_height": 1,
-      "block_hash": "52860a2a0192471ec23def49a5b6d18339d5f3e85d55a8d6126b92a826f9ca2f",
-      "timestamp": "2025-11-16T05:08:12+07:00",
+      "block_hash": "a969d88c6aa148e6a564324109f7e64f909847f0cf10a0c7204e2d2f1e9d9671",
+      "timestamp": "2025-11-16T05:39:09+07:00",
       "final_state": {
         "block_height": 1,
-        "block_hash": "52860a2a0192471ec23def49a5b6d18339d5f3e85d55a8d6126b92a826f9ca2f",
+        "block_hash": "a969d88c6aa148e6a564324109f7e64f909847f0cf10a0c7204e2d2f1e9d9671",
         "total_blocks": 2,
         "status": "completed",
-        "timestamp": "2025-11-16T05:08:12+07:00"
+        "timestamp": "2025-11-16T05:39:09+07:00"
       }
     },
     {
@@ -97,7 +97,7 @@
         "default_port": 32307,
         "genesis_hash": "f23d0c8ce638a9845b757668848ede3bbd3d3233d54befbddd2f6096a8c1774e",
         "genesis_time": 1731375284,
-        "latest_block": "52860a2a0192471ec23def49a5b6d18339d5f3e85d55a8d6126b92a826f9ca2f",
+        "latest_block": "a969d88c6aa148e6a564324109f7e64f909847f0cf10a0c7204e2d2f1e9d9671",
         "ledger_name": "Sphinx",
         "magic_number": "0x53504858",
         "network": "Sphinx Mainnet",
@@ -105,28 +105,28 @@
         "version": "1.0.0"
       },
       "block_height": 1,
-      "block_hash": "52860a2a0192471ec23def49a5b6d18339d5f3e85d55a8d6126b92a826f9ca2f",
-      "timestamp": "2025-11-16T05:08:12+07:00",
+      "block_hash": "a969d88c6aa148e6a564324109f7e64f909847f0cf10a0c7204e2d2f1e9d9671",
+      "timestamp": "2025-11-16T05:39:09+07:00",
       "final_state": {
         "block_height": 1,
-        "block_hash": "52860a2a0192471ec23def49a5b6d18339d5f3e85d55a8d6126b92a826f9ca2f",
+        "block_hash": "a969d88c6aa148e6a564324109f7e64f909847f0cf10a0c7204e2d2f1e9d9671",
         "total_blocks": 2,
         "status": "completed",
-        "timestamp": "2025-11-16T05:08:12+07:00"
+        "timestamp": "2025-11-16T05:39:09+07:00"
       }
     }
   ],
   "storage_state": {
-    "best_block_hash": "52860a2a0192471ec23def49a5b6d18339d5f3e85d55a8d6126b92a826f9ca2f",
+    "best_block_hash": "a969d88c6aa148e6a564324109f7e64f909847f0cf10a0c7204e2d2f1e9d9671",
     "total_blocks": 2,
     "blocks_dir": "data/node-0/blockchain/blocks",
     "index_dir": "data/node-0/blockchain/index",
     "state_dir": "data/node-0/blockchain/state"
   },
   "basic_chain_state": {
-    "best_block_hash": "52860a2a0192471ec23def49a5b6d18339d5f3e85d55a8d6126b92a826f9ca2f",
+    "best_block_hash": "a969d88c6aa148e6a564324109f7e64f909847f0cf10a0c7204e2d2f1e9d9671",
     "total_blocks": 2,
-    "last_updated": "2025-11-16T05:08:12+07:00"
+    "last_updated": "2025-11-16T05:39:09+07:00"
   },
-  "timestamp": "2025-11-16T05:08:12+07:00"
+  "timestamp": "2025-11-16T05:39:09+07:00"
 }

@@ -71,4 +71,10 @@ type SphinxChainParameters struct {
 	BIP44CoinType uint64
 	LedgerName    string
 	Denominations map[string]*big.Int
+
+	// Block size configuration (NEW)
+	MaxBlockSize       uint64   // Maximum block size in bytes
+	MaxTransactionSize uint64   // Maximum individual transaction size
+	TargetBlockSize    uint64   // Target/optimal block size
+	BlockGasLimit      *big.Int // Maximum gas per block
 }

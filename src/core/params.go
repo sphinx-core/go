@@ -25,6 +25,7 @@ package core
 
 import (
 	"fmt"
+	"math/big"
 )
 
 // ChainParamsProvider defines an interface to get chain parameters without import cycle
@@ -49,5 +50,34 @@ func (m *MockChainParamsProvider) GetWalletDerivationPaths() map[string]string {
 		"BIP84":  fmt.Sprintf("m/84'/%d'/0'/0/0", m.params.BIP44CoinType),
 		"Ledger": fmt.Sprintf("m/44'/%d'/0'", m.params.BIP44CoinType),
 		"Trezor": fmt.Sprintf("m/44'/%d'/0'/0/0", m.params.BIP44CoinType),
+	}
+}
+
+// GetSphinxChainParams returns the mainnet parameters for Sphinx blockchain
+// GetSphinxChainParams returns the mainnet parameters for Sphinx blockchain
+// Now accepts genesisHash as parameter
+func GetSphinxChainParams(genesisHash string) *SphinxChainParameters {
+	return &SphinxChainParameters{
+		ChainID:       7331,
+		ChainName:     "Sphinx",
+		Symbol:        "SPX",
+		GenesisTime:   1731375284,
+		GenesisHash:   genesisHash,
+		Version:       "1.0.0",
+		MagicNumber:   0x53504858,
+		DefaultPort:   32307,
+		BIP44CoinType: 7331,
+		LedgerName:    "Sphinx",
+		Denominations: map[string]*big.Int{
+			"nSPX": big.NewInt(1e0),
+			"gSPX": big.NewInt(1e9),
+			"SPX":  big.NewInt(1e18),
+		},
+
+		// Block size limits (NEW)
+		MaxBlockSize:       2 * 1024 * 1024,      // 2MB max block size
+		MaxTransactionSize: 100 * 1024,           // 100KB max transaction size
+		TargetBlockSize:    1 * 1024 * 1024,      // 1MB target block size
+		BlockGasLimit:      big.NewInt(10000000), // 10 million gas
 	}
 }

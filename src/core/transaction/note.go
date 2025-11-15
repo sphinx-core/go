@@ -109,6 +109,7 @@ func (n *Note) ToTxs(nonce uint64, gasLimit, gasPrice *big.Int) *Transaction {
 		GasPrice:  gasPrice,    // Set the gas price for the transaction
 		Timestamp: n.Timestamp, // Set the timestamp of the note (used in the transaction)
 		Nonce:     nonce,       // Set the transaction nonce (used for order in the blockchain)
+		Signature: []byte{},    // Initialize empty signature
 	}
 }
 

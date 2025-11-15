@@ -58,14 +58,15 @@ type Block struct {
 
 // Transaction represents a single transaction within the block.
 type Transaction struct {
-	ID        string   `json:"id"`        // Unique transaction identifier (hash)
-	Sender    string   `json:"sender"`    // Sender’s address
-	Receiver  string   `json:"receiver"`  // Receiver’s address
-	Amount    *big.Int `json:"amount"`    // Amount transferred
-	GasLimit  *big.Int `json:"gas_limit"` // Maximum gas allowed
-	GasPrice  *big.Int `json:"gas_price"` // Price per gas unit
-	Timestamp int64    `json:"timestamp"` // Transaction creation time
-	Nonce     uint64   `json:"nonce"`     // Transaction nonce
+	ID        string   `json:"id"`
+	Sender    string   `json:"sender"`
+	Receiver  string   `json:"receiver"`
+	Amount    *big.Int `json:"amount"`
+	GasLimit  *big.Int `json:"gas_limit"`
+	GasPrice  *big.Int `json:"gas_price"`
+	Timestamp int64    `json:"timestamp"`
+	Nonce     uint64   `json:"nonce"`
+	Signature []byte   `json:"signature"` // ADD THIS FIELD
 }
 
 // Outpoint represents a specific transaction output.

@@ -556,7 +556,7 @@ func CallConsensus(numNodes int) error {
 	}
 
 	// Save chain state using the blockchain's built-in method
-	if err := blockchains[0].SaveChainState(nodes, nil); err != nil {
+	if err := blockchains[0].StoreChainState(nodes, nil); err != nil {
 		log.Printf("Warning: Failed to save chain state: %v", err)
 	} else {
 		log.Printf("✅ Chain state saved successfully")

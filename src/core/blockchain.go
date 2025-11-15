@@ -58,32 +58,81 @@ var genesisBlockDefinition = &types.BlockHeader{
 	UnclesHash: []byte{},
 }
 
-// GetSphinxChainParams returns the mainnet parameters for Sphinx blockchain
-// GetSphinxChainParams returns the mainnet parameters for Sphinx blockchain
-// Now accepts genesisHash as parameter
-func GetSphinxChainParams(genesisHash string) *SphinxChainParameters {
-	return &SphinxChainParameters{
-		ChainID:       7331, // "SPX" in leet speak
-		ChainName:     "Sphinx",
-		Symbol:        "SPX",
-		GenesisTime:   1731375284,  // Your genesis timestamp
-		GenesisHash:   genesisHash, // Dynamic genesis hash
-		Version:       "1.0.0",
-		MagicNumber:   0x53504858, // "SPHX" in ASCII
-		DefaultPort:   32307,      // Your default port
-		BIP44CoinType: 7331,       // Same as ChainID for consistency
-		LedgerName:    "Sphinx",
-		Denominations: map[string]*big.Int{
-			"nSPX": big.NewInt(1e0),  // 1 nSPX (nano SPX)
-			"gSPX": big.NewInt(1e9),  // 1 gSPX (giga SPX)
-			"SPX":  big.NewInt(1e18), // 1 SPX
-		},
+// CalculateBlockSize calculates the approximate size of a block in bytes
+func (bc *Blockchain) CalculateBlockSize(block *types.Block) uint64 {
+	size := uint64(0)
+
+	// Header size (approximate)
+	size += 80 // Fixed header components
+
+	// Transactions size
+	for _, tx := range block.Body.TxsList {
+		size += bc.CalculateTransactionSize(tx)
 	}
+
+	return size
+}
+
+// CalculateTransactionSize calculates the approximate size of a transaction
+// CalculateTransactionSize calculates the approximate size of a transaction
+func (bc *Blockchain) CalculateTransactionSize(tx *types.Transaction) uint64 {
+	// Basic fields
+	size := uint64(len(tx.Sender) + len(tx.Receiver))
+
+	// Amount size (big.Int)
+	if tx.Amount != nil {
+		size += uint64(len(tx.Amount.Bytes()))
+	}
+
+	// Gas fields
+	if tx.GasLimit != nil {
+		size += uint64(len(tx.GasLimit.Bytes()))
+	}
+	if tx.GasPrice != nil {
+		size += uint64(len(tx.GasPrice.Bytes()))
+	}
+
+	// Nonce and other fields
+	size += 8 // for Nonce (uint64)
+	size += uint64(len(tx.ID))
+
+	// Include signature if it exists
+	if tx.Signature != nil {
+		size += uint64(len(tx.Signature))
+	}
+
+	return size
+}
+
+// ValidateBlockSize checks if a block exceeds size limits
+func (bc *Blockchain) ValidateBlockSize(block *types.Block) error {
+	if bc.chainParams == nil {
+		return fmt.Errorf("chain parameters not initialized")
+	}
+
+	blockSize := bc.CalculateBlockSize(block)
+	maxBlockSize := bc.chainParams.MaxBlockSize
+
+	if blockSize > maxBlockSize {
+		return fmt.Errorf("block size %d exceeds maximum %d bytes", blockSize, maxBlockSize)
+	}
+
+	// Also validate individual transactions
+	for i, tx := range block.Body.TxsList {
+		txSize := bc.CalculateTransactionSize(tx)
+		maxTxSize := bc.chainParams.MaxTransactionSize
+
+		if txSize > maxTxSize {
+			return fmt.Errorf("transaction %d size %d exceeds maximum %d bytes", i, txSize, maxTxSize)
+		}
+	}
+
+	return nil
 }
 
 // SaveChainState saves the chain state with the actual genesis hash
 // This should be called after blockchain initialization to ensure chain_state.json has the correct hash
-func (bc *Blockchain) SaveChainState(nodes []*storage.NodeInfo, testSummary *storage.TestSummary) error {
+func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo, testSummary *storage.TestSummary) error {
 	if bc.chainParams == nil {
 		return fmt.Errorf("chain parameters not initialized")
 	}
@@ -130,7 +179,7 @@ func (bc *Blockchain) SaveChainState(nodes []*storage.NodeInfo, testSummary *sto
 
 // SaveBasicChainState saves a basic chain state
 func (bc *Blockchain) SaveBasicChainState() error {
-	return bc.SaveChainState(nil, nil)
+	return bc.StoreChainState(nil, nil)
 }
 
 // VerifyState verifies that chain_state.json has the correct genesis hash
@@ -661,19 +710,28 @@ func (bc *Blockchain) SetConsensus(consensus *consensus.Consensus) {
 // tx: The transaction to add to the blockchain
 // Returns error if transaction validation fails or transaction is duplicate
 // Transaction goes through multiple validation steps before being accepted
+// AddTransaction with size validation
 func (bc *Blockchain) AddTransaction(tx *types.Transaction) error {
-	bc.lock.Lock()         // Acquire lock for thread-safe transaction addition
-	defer bc.lock.Unlock() // Ensure lock is released when function exits
+	bc.lock.Lock()
+	defer bc.lock.Unlock()
 
-	// Check if blockchain is ready to accept transactions
 	if bc.status != StatusRunning {
 		return fmt.Errorf("blockchain not ready to accept transactions, status: %s",
 			bc.StatusString(bc.status))
 	}
 
-	// Validate transaction fields for basic correctness
+	// Validate transaction fields
 	if tx.Sender == "" || tx.Receiver == "" || tx.Amount.Cmp(big.NewInt(0)) <= 0 {
 		return errors.New("invalid transaction: empty sender/receiver or non-positive amount")
+	}
+
+	// Validate transaction size (NEW)
+	if bc.chainParams != nil {
+		txSize := bc.CalculateTransactionSize(tx)
+		if txSize > bc.chainParams.MaxTransactionSize {
+			return fmt.Errorf("transaction size %d exceeds maximum %d bytes",
+				txSize, bc.chainParams.MaxTransactionSize)
+		}
 	}
 
 	// Perform transaction sanity checks (format, signatures, etc.)
@@ -681,7 +739,6 @@ func (bc *Blockchain) AddTransaction(tx *types.Transaction) error {
 		return fmt.Errorf("transaction failed sanity check: %w", err)
 	}
 
-	// Compute transaction ID if not already set by client
 	// Compute transaction ID if not already set by client
 	if tx.ID == "" {
 		data := fmt.Sprintf("%s%s%s%s%s%v",
@@ -726,15 +783,119 @@ func (bc *Blockchain) AddTransaction(tx *types.Transaction) error {
 		// Continue anyway - transaction is still in pending pool for local node
 	}
 
-	log.Printf("Added transaction: ID=%s, Sender=%s, Receiver=%s, Amount=%s",
-		tx.ID, tx.Sender, tx.Receiver, tx.Amount.String())
+	log.Printf("Added transaction: ID=%s, Sender=%s, Receiver=%s, Amount=%s, Size=%d bytes",
+		tx.ID, tx.Sender, tx.Receiver, tx.Amount.String(), bc.CalculateTransactionSize(tx))
 	return nil
 }
 
-// CreateBlock creates a new block from pending transactions
-// Returns a new block containing all pending transactions
-// Called by consensus leader when it's time to create a new block
-// CreateBlock creates a new block from pending transactions
+// GetBlockSizeStats returns block size statistics
+func (bc *Blockchain) GetBlockSizeStats() map[string]interface{} {
+	stats := make(map[string]interface{})
+
+	if bc.chainParams != nil {
+		stats["max_block_size"] = bc.chainParams.MaxBlockSize
+		stats["target_block_size"] = bc.chainParams.TargetBlockSize
+		stats["max_transaction_size"] = bc.chainParams.MaxTransactionSize
+		stats["block_gas_limit"] = bc.chainParams.BlockGasLimit.String()
+	}
+
+	// Calculate average block size from recent blocks
+	recentBlocks := bc.getRecentBlocks(100) // Last 100 blocks
+	if len(recentBlocks) > 0 {
+		totalSize := uint64(0)
+		maxSize := uint64(0)
+		minSize := ^uint64(0) // Max uint64
+
+		for _, block := range recentBlocks {
+			blockSize := bc.CalculateBlockSize(block)
+			totalSize += blockSize
+
+			if blockSize > maxSize {
+				maxSize = blockSize
+			}
+			if blockSize < minSize {
+				minSize = blockSize
+			}
+		}
+
+		stats["average_block_size"] = totalSize / uint64(len(recentBlocks))
+		stats["max_block_size_observed"] = maxSize
+		stats["min_block_size_observed"] = minSize
+		stats["blocks_analyzed"] = len(recentBlocks)
+		stats["size_utilization_percent"] = float64(stats["average_block_size"].(uint64)) / float64(bc.chainParams.TargetBlockSize) * 100
+	}
+
+	// Current mempool stats
+	bc.lock.RLock()
+	stats["pending_transactions"] = len(bc.pendingTx)
+	stats["mempool_size_bytes"] = bc.calculateMempoolSize()
+	bc.lock.RUnlock()
+
+	return stats
+}
+
+// getRecentBlocks returns recent blocks for analysis
+func (bc *Blockchain) getRecentBlocks(count int) []*types.Block {
+	var blocks []*types.Block
+	latest := bc.GetLatestBlock()
+
+	if latest == nil {
+		return blocks
+	}
+
+	currentHeight := latest.GetHeight()
+	startHeight := uint64(0)
+	if currentHeight > uint64(count) {
+		startHeight = currentHeight - uint64(count)
+	}
+
+	for height := startHeight; height <= currentHeight; height++ {
+		block := bc.GetBlockByNumber(height)
+		if block != nil {
+			blocks = append(blocks, block)
+		}
+	}
+
+	return blocks
+}
+
+// calculateMempoolSize calculates total size of pending transactions
+func (bc *Blockchain) calculateMempoolSize() uint64 {
+	totalSize := uint64(0)
+	for _, tx := range bc.pendingTx {
+		totalSize += bc.CalculateTransactionSize(tx)
+	}
+	return totalSize
+}
+
+// GetBlocksizeInfo returns detailed blocksize information for RPC/API
+func (bc *Blockchain) GetBlocksizeInfo() map[string]interface{} {
+	info := make(map[string]interface{})
+
+	if bc.chainParams != nil {
+		info["limits"] = map[string]interface{}{
+			"max_block_size_bytes":       bc.chainParams.MaxBlockSize,
+			"max_transaction_size_bytes": bc.chainParams.MaxTransactionSize,
+			"target_block_size_bytes":    bc.chainParams.TargetBlockSize,
+			"block_gas_limit":            bc.chainParams.BlockGasLimit.String(),
+		}
+
+		// Convert to human-readable formats
+		info["human_readable"] = map[string]interface{}{
+			"max_block_size":       fmt.Sprintf("%.2f MB", float64(bc.chainParams.MaxBlockSize)/(1024*1024)),
+			"max_transaction_size": fmt.Sprintf("%.2f KB", float64(bc.chainParams.MaxTransactionSize)/1024),
+			"target_block_size":    fmt.Sprintf("%.2f MB", float64(bc.chainParams.TargetBlockSize)/(1024*1024)),
+		}
+	}
+
+	// Add current statistics
+	stats := bc.GetBlockSizeStats()
+	info["current_stats"] = stats
+
+	return info
+}
+
+// CreateBlock creates a new block with size constraints
 func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 	bc.lock.Lock()
 	defer bc.lock.Unlock()
@@ -748,27 +909,26 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 		return nil, errors.New("no pending transactions")
 	}
 
-	// Get the latest block from storage to ensure we have the most recent
+	// Get the latest block
 	prevBlock, err := bc.storage.GetLatestBlock()
 	if err != nil || prevBlock == nil {
 		return nil, fmt.Errorf("no previous block found: %v", err)
 	}
 
-	log.Printf("Creating new block on top of: height=%d, hash=%s",
-		prevBlock.GetHeight(), prevBlock.GetHash())
+	// Select transactions within block size limits
+	selectedTxs, totalSize := bc.selectTransactionsForBlock()
+	if len(selectedTxs) == 0 {
+		return nil, errors.New("no transactions fit within block size limits")
+	}
 
-	// Create a copy of pending transactions to avoid modifying the original slice
-	txsToInclude := make([]*types.Transaction, len(bc.pendingTx))
-	copy(txsToInclude, bc.pendingTx)
+	log.Printf("Creating block with %d transactions, estimated size: %d bytes",
+		len(selectedTxs), totalSize)
 
-	// Calculate transaction root
-	txsRoot := bc.calculateTransactionsRoot(txsToInclude)
-
-	// For now, use a placeholder state root - in production this would come from state machine
+	// Calculate roots
+	txsRoot := bc.calculateTransactionsRoot(selectedTxs)
 	stateRoot := bc.calculateStateRoot()
 
-	// FIX: Convert the previous hash string to bytes correctly
-	// The hash is already a hex string, so we need to decode it to bytes
+	// Convert previous hash
 	prevHashBytes, err := hex.DecodeString(prevBlock.GetHash())
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode previous hash: %w", err)
@@ -776,30 +936,64 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 
 	newHeader := types.NewBlockHeader(
 		prevBlock.GetHeight()+1,
-		prevHashBytes, // Use the decoded bytes, not the string as bytes
+		prevHashBytes,
 		big.NewInt(1),
-		txsRoot,   // Proper transaction root
-		stateRoot, // Proper state root
-		big.NewInt(1000000),
+		txsRoot,
+		stateRoot,
+		bc.chainParams.BlockGasLimit, // Use configured gas limit
 		big.NewInt(0),
-		[]byte{}, // Parent hash (empty for now)
-		[]byte{}, // Uncles hash (empty for now)
+		[]byte{},
+		[]byte{},
 		time.Now().Unix(),
 	)
 
-	newBody := types.NewBlockBody(txsToInclude, []byte{})
+	newBody := types.NewBlockBody(selectedTxs, []byte{})
 	newBlock := types.NewBlock(newHeader, newBody)
 	newBlock.FinalizeHash()
 
-	// Validate the block before returning it
+	// Validate block size
+	if err := bc.ValidateBlockSize(newBlock); err != nil {
+		return nil, fmt.Errorf("created block exceeds size limits: %v", err)
+	}
+
+	// Sanity check
 	if err := newBlock.SanityCheck(); err != nil {
 		return nil, fmt.Errorf("created invalid block: %v", err)
 	}
 
-	log.Printf("Created new block: height=%d, transactions=%d, prevHash=%s, hash=%s",
-		newBlock.GetHeight(), len(txsToInclude), prevBlock.GetHash(), newBlock.GetHash())
+	log.Printf("Created new block: height=%d, transactions=%d, size=%d bytes, hash=%s",
+		newBlock.GetHeight(), len(selectedTxs), totalSize, newBlock.GetHash())
 
 	return newBlock, nil
+}
+
+// selectTransactionsForBlock selects transactions that fit within block size limits
+func (bc *Blockchain) selectTransactionsForBlock() ([]*types.Transaction, uint64) {
+	var selected []*types.Transaction
+	currentSize := uint64(0)
+
+	maxBlockSize := bc.chainParams.MaxBlockSize
+	targetBlockSize := bc.chainParams.TargetBlockSize
+
+	// Sort transactions by fee or priority (simplified - process in order)
+	for _, tx := range bc.pendingTx {
+		txSize := bc.CalculateTransactionSize(tx)
+
+		// Check if transaction fits
+		if currentSize+txSize > maxBlockSize {
+			continue // Skip if it would exceed max size
+		}
+
+		// Optional: stop at target size for optimization
+		if currentSize >= targetBlockSize && len(selected) > 0 {
+			break
+		}
+
+		selected = append(selected, tx)
+		currentSize += txSize
+	}
+
+	return selected, currentSize
 }
 
 // calculateTransactionsRoot calculates the Merkle root of transactions
@@ -1360,6 +1554,7 @@ func (bc *Blockchain) Close() error {
 }
 
 // ValidateBlock validates a block against blockchain rules
+// ValidateBlock validates a block including size checks
 func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 	// Extract the underlying types.Block from adapter
 	var b *types.Block
@@ -1372,7 +1567,6 @@ func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 
 	// 1. Structural sanity
 	if err := b.SanityCheck(); err != nil {
-		// For testing, be more lenient about state root
 		if strings.Contains(err.Error(), "state root is missing") {
 			log.Printf("WARNING: Block validation - state root is empty (allowed in test)")
 		} else if strings.Contains(err.Error(), "transaction root is missing") {
@@ -1382,16 +1576,20 @@ func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 		}
 	}
 
-	// 2. Hash is correct (deterministic)
+	// 2. Block size validation (NEW)
+	if err := bc.ValidateBlockSize(b); err != nil {
+		return fmt.Errorf("block size validation failed: %w", err)
+	}
+
+	// 3. Hash is correct
 	expectedHash := b.GenerateBlockHash()
 	if !bytes.Equal(b.Header.Hash, expectedHash) {
 		return fmt.Errorf("invalid block hash: expected %x, got %x", expectedHash, b.Header.Hash)
 	}
 
-	// 3. Links to previous block
+	// 4. Links to previous block
 	prev := bc.GetLatestBlock()
 	if prev != nil {
-		// FIX: Compare the actual hash bytes, not string representations
 		prevHashBytes, err := hex.DecodeString(prev.GetHash())
 		if err != nil {
 			return fmt.Errorf("failed to decode previous block hash: %w", err)
@@ -1407,6 +1605,7 @@ func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 
 // GetStats returns blockchain statistics for monitoring
 // Returns map containing various blockchain metrics
+// GetStats returns blockchain statistics including blocksize info
 func (bc *Blockchain) GetStats() map[string]interface{} {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
@@ -1419,7 +1618,7 @@ func (bc *Blockchain) GetStats() map[string]interface{} {
 		latestHash = latestBlock.GetHash()
 	}
 
-	return map[string]interface{}{
+	stats := map[string]interface{}{
 		"status":            bc.StatusString(bc.status),
 		"sync_mode":         bc.SyncModeString(bc.syncMode),
 		"block_height":      latestHeight,
@@ -1429,4 +1628,12 @@ func (bc *Blockchain) GetStats() map[string]interface{} {
 		"tx_index_size":     len(bc.txIndex),
 		"total_blocks":      bc.storage.GetTotalBlocks(),
 	}
+
+	// Add blocksize statistics
+	sizeStats := bc.GetBlockSizeStats()
+	for k, v := range sizeStats {
+		stats[k] = v
+	}
+
+	return stats
 }
