@@ -24,6 +24,9 @@
 package common
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 )
 
@@ -45,4 +48,28 @@ func GetLevelDBPath(nodeName string) string {
 // GetBlockchainDataDir returns the standardized blockchain data directory
 func GetBlockchainDataDir(nodeName string) string {
 	return filepath.Join(GetNodeDataDir(nodeName), "blockchain")
+}
+
+// WriteJSONToFile is kept for backward compatibility but only used for chain_identification.json
+func WriteJSONToFile(data interface{}, filename string) error {
+	outputDir := filepath.Join(DataDir, "output")
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	filePath := filepath.Join(outputDir, filename)
+	file, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to create file %s: %w", filePath, err)
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+
+	if err := encoder.Encode(data); err != nil {
+		return fmt.Errorf("failed to encode JSON: %w", err)
+	}
+
+	return nil
 }

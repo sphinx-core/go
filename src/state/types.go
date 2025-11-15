@@ -1,3 +1,26 @@
+// MIT License
+//
+// Copyright (c) 2024 sphinx-core
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+// go/src/state/types.go
 package state
 
 import (
@@ -34,6 +57,31 @@ type StateMachine struct {
 	stateCh   chan *StateSnapshot
 	commitCh  chan *CommitProof
 	timeoutCh chan struct{}
+}
+
+// Add this struct to represent basic chain state
+type BasicChainState struct {
+	BestBlockHash string `json:"best_block_hash"`
+	TotalBlocks   uint64 `json:"total_blocks"`
+	LastUpdated   string `json:"last_updated"`
+}
+
+// Update ChainState to include basic chain state
+type ChainState struct {
+	// Chain identification
+	ChainIdentification *ChainIdentification `json:"chain_identification"`
+
+	// Node information
+	Nodes []*NodeInfo `json:"nodes"`
+
+	// Storage state
+	StorageState *StorageState `json:"storage_state"`
+
+	// Basic chain state (merged from basic_chain_state.json)
+	BasicChainState *BasicChainState `json:"basic_chain_state"`
+
+	// Timestamp
+	Timestamp string `json:"timestamp"`
 }
 
 // Operation represents a state machine operation (block or transaction)
@@ -79,4 +127,54 @@ type CommitProof struct {
 	Signatures map[string][]byte `json:"signatures"` // nodeID -> signature
 	View       uint64            `json:"view"`
 	Quorum     int               `json:"quorum"`
+}
+
+// ChainIdentification represents blockchain identification parameters
+type ChainIdentification struct {
+	Timestamp   string                 `json:"timestamp"`
+	ChainParams map[string]interface{} `json:"chain_parameters"`
+	TokenInfo   map[string]interface{} `json:"token_info"`
+	WalletPaths map[string]string      `json:"wallet_derivation_paths"`
+	NetworkInfo map[string]interface{} `json:"network_info"`
+}
+
+// TestSummary represents test execution results
+type TestSummary struct {
+	TestName      string `json:"test_name"`
+	Timestamp     string `json:"timestamp"`
+	NumNodes      int    `json:"num_nodes"`
+	TestDuration  string `json:"test_duration"`
+	Success       bool   `json:"success"`
+	FinalHeight   uint64 `json:"final_height"`
+	GenesisHash   string `json:"genesis_hash"`
+	ConsensusType string `json:"consensus_type"`
+}
+
+// NodeInfo represents information about a single node
+type NodeInfo struct {
+	NodeID      string                 `json:"node_id"`
+	NodeName    string                 `json:"node_name"`
+	ChainInfo   map[string]interface{} `json:"chain_info"`
+	BlockHeight uint64                 `json:"block_height"`
+	BlockHash   string                 `json:"block_hash"`
+	Timestamp   string                 `json:"timestamp"`
+	FinalState  *FinalStateInfo        `json:"final_state"`
+}
+
+// FinalStateInfo represents the final state of a node
+type FinalStateInfo struct {
+	BlockHeight uint64 `json:"block_height"`
+	BlockHash   string `json:"block_hash"`
+	TotalBlocks uint64 `json:"total_blocks"`
+	Status      string `json:"status"`
+	Timestamp   string `json:"timestamp"`
+}
+
+// StorageState represents the storage layer state
+type StorageState struct {
+	BestBlockHash string `json:"best_block_hash"`
+	TotalBlocks   uint64 `json:"total_blocks"`
+	BlocksDir     string `json:"blocks_dir"`
+	IndexDir      string `json:"index_dir"`
+	StateDir      string `json:"state_dir"`
 }

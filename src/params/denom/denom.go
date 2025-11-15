@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/params/denom/denomination.go
+// go/src/params/denom/denom.go
 package params
 
 // These are the multipliers for SPX denominations, which help to represent

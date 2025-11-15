@@ -27,13 +27,13 @@ import "fmt"
 
 // TokenInfo provides comprehensive information about SPX tokens
 type TokenInfo struct {
-	Name          string
-	Symbol        string
-	Decimals      uint8
-	TotalSupply   uint64
-	Denominations map[string]uint64
-	BIP44CoinType uint32
-	ChainID       uint64
+	Name          string            `json:"name"`
+	Symbol        string            `json:"symbol"`
+	Decimals      uint8             `json:"decimals"`
+	TotalSupply   uint64            `json:"total_supply"`
+	Denominations map[string]uint64 `json:"denominations"`
+	BIP44CoinType uint32            `json:"bip44_coin_type"`
+	ChainID       uint64            `json:"chain_id"`
 }
 
 // GetSPXTokenInfo returns comprehensive SPX token information

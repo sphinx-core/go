@@ -21,7 +21,6 @@
 // SOFTWARE.
 
 // go/src/cli/cli/helper.go
-// go/src/cli/cli/helper.go
 package cli
 
 import (
@@ -43,7 +42,10 @@ import (
 	types "github.com/sphinx-core/go/src/core/transaction"
 	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/network"
+	"github.com/sphinx-core/go/src/params/commit"
+	params "github.com/sphinx-core/go/src/params/denom"
 	"github.com/sphinx-core/go/src/rpc"
+	"github.com/sphinx-core/go/src/state"
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
@@ -71,10 +73,79 @@ func CallConsensus(numNodes int) error {
 		return fmt.Errorf("-test-nodes must be >= 3")
 	}
 
+	startTime := time.Now()
+
+	// ========== VARIABLE DECLARATIONS ==========
+	var firstBlock consensus.Block
+	var firstGenesisHash string
+	// ========== END VARIABLE DECLARATIONS ==========
+
+	// ========== SPHINX BLOCKCHAIN IDENTIFICATION ==========
+	log.Printf("=== SPHINX BLOCKCHAIN IDENTIFICATION ===")
+
+	// Print chain parameters
+	chainParams := commit.SphinxChainParams()
+	log.Printf("Chain: %s", chainParams.ChainName)
+	log.Printf("Chain ID: %d", chainParams.ChainID)
+	log.Printf("Symbol: %s", chainParams.Symbol)
+	log.Printf("Protocol Version: %s", chainParams.Version)
+	log.Printf("Genesis Time: %s", time.Unix(chainParams.GenesisTime, 0).Format(time.RFC1123))
+	log.Printf("Genesis Hash: %s", chainParams.GenesisHash)
+	log.Printf("Magic Number: 0x%x", chainParams.MagicNumber)
+	log.Printf("Default Port: %d", chainParams.DefaultPort)
+	log.Printf("BIP44 Coin Type: %d", chainParams.BIP44CoinType)
+	log.Printf("Ledger Name: %s", chainParams.LedgerName)
+
+	// Print token information
+	tokenInfo := params.GetSPXTokenInfo()
+	log.Printf("Token Name: %s", tokenInfo.Name)
+	log.Printf("Token Symbol: %s", tokenInfo.Symbol)
+	log.Printf("Decimals: %d", tokenInfo.Decimals)
+	log.Printf("Total Supply: %.2f %s", float64(tokenInfo.TotalSupply), tokenInfo.Symbol)
+	log.Printf("Base Unit: nSPX (1e0)")
+	log.Printf("Intermediate Unit: gSPX (1e9)")
+	log.Printf("Main Unit: SPX (1e18)")
+
+	// Print wallet derivation paths
+	walletPaths := map[string]string{
+		"BIP44":  fmt.Sprintf("m/44'/%d'/0'/0/0", chainParams.BIP44CoinType),
+		"BIP49":  fmt.Sprintf("m/49'/%d'/0'/0/0", chainParams.BIP44CoinType),
+		"BIP84":  fmt.Sprintf("m/84'/%d'/0'/0/0", chainParams.BIP44CoinType),
+		"Ledger": fmt.Sprintf("m/44'/%d'/0'", chainParams.BIP44CoinType),
+	}
+	log.Printf("Wallet Derivation Paths:")
+	for name, path := range walletPaths {
+		log.Printf("  %s: %s", name, path)
+	}
+
+	log.Printf("Network: Sphinx Mainnet")
+	log.Printf("Consensus: PBFT")
+	log.Printf("========================================")
+
+	// ========== WRITE CHAIN IDENTIFICATION TO JSON ==========
+	chainIdentification := ChainIdentificationJSON{
+		Timestamp:   time.Now().Format(time.RFC3339),
+		ChainParams: chainParams,
+		TokenInfo:   tokenInfo,
+		WalletPaths: walletPaths,
+		NetworkInfo: map[string]interface{}{
+			"network":        "Sphinx Mainnet",
+			"consensus":      "PBFT",
+			"test_timestamp": startTime.Format(time.RFC3339),
+			"num_test_nodes": numNodes,
+		},
+	}
+
+	if err := common.WriteJSONToFile(chainIdentification, "chain_identification.json"); err != nil {
+		log.Printf("Warning: Failed to write chain identification JSON: %v", err)
+	} else {
+		log.Printf("Chain identification written to: data/output/chain_identification.json")
+	}
+	// ========== END HEADER INFORMATION ==========
+
 	// --------------------------------------------------------------
 	// 0. CLEAN UP OLD TEST DATA FIRST
 	// --------------------------------------------------------------
-	// CHANGED: Use common.TestDataDir instead of hardcoded "testdata"
 	testDataDir := common.DataDir
 	if _, err := os.Stat(testDataDir); err == nil {
 		log.Printf("Cleaning up old test data from previous runs...")
@@ -105,13 +176,13 @@ func CallConsensus(numNodes int) error {
 
 	for i := 0; i < numNodes; i++ {
 		nodeName := fmt.Sprintf("node-%d", i)
-		// CHANGED: Use common.GetNodeDataDir for standardized path
+		// Use common.GetNodeDataDir for standardized path
 		dataDir := common.GetNodeDataDir(nodeName)
 		if err := os.MkdirAll(dataDir, 0755); err != nil {
 			return err
 		}
 
-		// CHANGED: Use common.GetLevelDBPath for standardized LevelDB path
+		// Use common.GetLevelDBPath for standardized LevelDB path
 		db, err := leveldb.OpenFile(common.GetLevelDBPath(nodeName), nil)
 		if err != nil {
 			return err
@@ -131,13 +202,39 @@ func CallConsensus(numNodes int) error {
 		// --------------------------------------------------------------
 		// 2. Create the Blockchain + Consensus engine
 		// --------------------------------------------------------------
-		// CHANGED: Use common.GetBlockchainDataDir for standardized blockchain path
+		// Use common.GetBlockchainDataDir for standardized blockchain path
 		bc, err := core.NewBlockchain(common.GetBlockchainDataDir(nodeName), validatorIDs[i], validatorIDs)
 		if err != nil {
 			return fmt.Errorf("node %d blockchain init: %v", i, err)
 		}
 
-		// ADD THIS: Test storage immediately with better error handling
+		// ========== CAPTURE FIRST BLOCK AND GENESIS HASH ==========
+		if i == 0 { // Capture from first node
+			firstBlock = bc.GetLatestBlock()
+			if firstBlock != nil {
+				firstGenesisHash = firstBlock.GetHash()
+				log.Printf("Captured genesis block: height=%d, hash=%s",
+					firstBlock.GetHeight(), firstGenesisHash)
+			} else {
+				log.Printf("Warning: No genesis block found for node 0")
+				firstGenesisHash = "unknown-genesis-hash"
+			}
+		}
+		// ========== END CAPTURE ==========
+
+		// ========== PRINT BLOCKCHAIN CHAIN INFO ==========
+		chainInfo := bc.GetChainInfo()
+		log.Printf("Node-%d Chain Info:", i)
+		log.Printf("  Chain: %s", chainInfo["chain_name"])
+		log.Printf("  Chain ID: %d", chainInfo["chain_id"])
+		log.Printf("  Symbol: %s", chainInfo["symbol"])
+		log.Printf("  Version: %s", chainInfo["version"])
+		log.Printf("  Magic Number: %s", chainInfo["magic_number"])
+		log.Printf("  BIP44 Coin Type: %d", chainInfo["bip44_coin_type"])
+		log.Printf("  Ledger Name: %s", chainInfo["ledger_name"])
+		// ========== END CHAIN INFO ==========
+
+		// Test storage immediately with better error handling
 		log.Printf("Node-%d: Testing storage layer...", i)
 		if debugErr := bc.DebugStorage(); debugErr != nil {
 			log.Printf("Node-%d storage test warning: %v", i, debugErr)
@@ -185,14 +282,13 @@ func CallConsensus(numNodes int) error {
 		// Add small delay to ensure consensus is fully started
 		time.Sleep(100 * time.Millisecond)
 
-		// ADD THIS: Start leader loop for automatic block proposal
+		// Start leader loop for automatic block proposal
 		bc.StartLeaderLoop(ctx)
 	}
 
 	// ========== ADD GENESIS VERIFICATION HERE ==========
 	// Verify all nodes have genesis block AND same genesis hash
 	log.Printf("=== VERIFYING GENESIS BLOCK CONSISTENCY ===")
-	var firstGenesisHash string
 	for i := 0; i < numNodes; i++ {
 		genesis := blockchains[i].GetLatestBlock()
 		if genesis == nil || genesis.GetHeight() != 0 {
@@ -234,7 +330,7 @@ func CallConsensus(numNodes int) error {
 	// ========== END MESSAGE DELIVERY TEST ==========
 
 	// --------------------------------------------------------------
-	// 4.. START THE JSON-RPC SERVER for every test node
+	// 4. START THE JSON-RPC SERVER for every test node
 	// --------------------------------------------------------------
 	for i := 0; i < numNodes; i++ {
 		msgCh := make(chan *security.Message, 100)
@@ -342,8 +438,6 @@ func CallConsensus(numNodes int) error {
 
 	// Leader should automatically propose block via its leader loop
 	// Wait for block commitment with better timeout handling
-	// Leader should automatically propose block via its leader loop
-	// Wait for block commitment with better timeout handling
 	const timeout = 60 * time.Second // Increased timeout
 	start := time.Now()
 	log.Printf("Waiting for block commitment (timeout: %v)...", timeout)
@@ -355,6 +449,7 @@ func CallConsensus(numNodes int) error {
 	lastProgressLog := time.Now()
 
 	timeoutReached := false
+	consensusOK := false
 
 	// Use range over the ticker channel
 	for range progressTicker.C {
@@ -384,6 +479,7 @@ func CallConsensus(numNodes int) error {
 
 		if allAtHeight1 {
 			log.Printf("SUCCESS: All nodes reached height 1!")
+			consensusOK = true
 			break // This break exits the outer for loop
 		}
 	}
@@ -409,7 +505,7 @@ func CallConsensus(numNodes int) error {
 	}
 
 	// 8. **ASSERT** that every node sees the *same* block hash
-	firstBlock := blockchains[0].GetLatestBlock()
+	firstBlock = blockchains[0].GetLatestBlock()
 	if firstBlock == nil {
 		return fmt.Errorf("node 0 has no block")
 	}
@@ -429,10 +525,135 @@ func CallConsensus(numNodes int) error {
 	// 9. Print the final chain of every node (nice debug output)
 	// --------------------------------------------------------------
 	log.Printf("=== PBFT INTEGRATION TEST PASSED ===")
+
+	// go/src/cli/cli/helper.go
+	// In the final section where you save the chain state:
+
+	// ========== CREATE AND SAVE COMPLETE CHAIN STATE ==========
+	log.Printf("=== SAVING COMPLETE CHAIN STATE ===")
+
+	// Use the first node's storage to save the complete chain state
+	mainStorage := blockchains[0].GetStorage()
+	if mainStorage == nil {
+		return fmt.Errorf("failed to get storage from node 0")
+	}
+
+	// Get chain parameters directly from commit package
+	chainParams = commit.SphinxChainParams()
+	tokenInfo = params.GetSPXTokenInfo()
+
+	// Create chain identification using the actual types from commit package
+	chainIdentificationState := &state.ChainIdentification{
+		Timestamp: time.Now().Format(time.RFC3339),
+		ChainParams: map[string]interface{}{
+			"chain_id":        chainParams.ChainID,
+			"chain_name":      chainParams.ChainName,
+			"symbol":          chainParams.Symbol,
+			"genesis_time":    chainParams.GenesisTime,
+			"genesis_hash":    chainParams.GenesisHash,
+			"version":         chainParams.Version,
+			"magic_number":    chainParams.MagicNumber,
+			"default_port":    chainParams.DefaultPort,
+			"bip44_coin_type": chainParams.BIP44CoinType,
+			"ledger_name":     chainParams.LedgerName,
+		},
+		TokenInfo: map[string]interface{}{
+			"name":            tokenInfo.Name,
+			"symbol":          tokenInfo.Symbol,
+			"decimals":        tokenInfo.Decimals,
+			"total_supply":    tokenInfo.TotalSupply,
+			"denominations":   tokenInfo.Denominations,
+			"bip44_coin_type": tokenInfo.BIP44CoinType,
+			"chain_id":        tokenInfo.ChainID,
+		},
+		WalletPaths: map[string]string{
+			"BIP44":  fmt.Sprintf("m/44'/%d'/0'/0/0", chainParams.BIP44CoinType),
+			"BIP49":  fmt.Sprintf("m/49'/%d'/0'/0/0", chainParams.BIP44CoinType),
+			"BIP84":  fmt.Sprintf("m/84'/%d'/0'/0/0", chainParams.BIP44CoinType),
+			"Ledger": fmt.Sprintf("m/44'/%d'/0'", chainParams.BIP44CoinType),
+		},
+		NetworkInfo: map[string]interface{}{
+			"network":           "Sphinx Mainnet",
+			"consensus":         "PBFT",
+			"test_timestamp":    startTime.Format(time.RFC3339),
+			"num_test_nodes":    numNodes,
+			"protocol_version":  chainParams.Version,
+			"genesis_timestamp": time.Unix(chainParams.GenesisTime, 0).Format(time.RFC3339),
+		},
+	}
+
+	// Create node information
+	nodes := make([]*state.NodeInfo, numNodes)
+	for i := 0; i < numNodes; i++ {
+		nodeName := fmt.Sprintf("node-%d", i)
+		b := blockchains[i].GetLatestBlock()
+		chainInfo := blockchains[i].GetChainInfo()
+
+		finalState := &state.FinalStateInfo{
+			BlockHeight: b.GetHeight(),
+			BlockHash:   b.GetHash(),
+			TotalBlocks: blockchains[i].GetBlockCount(),
+			Status:      "completed",
+			Timestamp:   time.Now().Format(time.RFC3339),
+		}
+
+		nodes[i] = &state.NodeInfo{
+			NodeID:      validatorIDs[i],
+			NodeName:    nodeName,
+			ChainInfo:   chainInfo,
+			BlockHeight: b.GetHeight(),
+			BlockHash:   b.GetHash(),
+			Timestamp:   time.Now().Format(time.RFC3339),
+			FinalState:  finalState,
+		}
+	}
+
+	// Create complete chain state
+	chainState := &state.ChainState{
+		ChainIdentification: chainIdentificationState,
+		Nodes:               nodes,
+		Timestamp:           time.Now().Format(time.RFC3339),
+	}
+
+	// Save complete chain state using storage
+	if err := mainStorage.SaveCompleteChainState(chainState); err != nil {
+		log.Printf("Warning: Failed to save complete chain state: %v", err)
+	} else {
+		chainStatePath := mainStorage.GetChainStatePath()
+		log.Printf("Complete chain state saved to: %s", chainStatePath)
+
+		// Verify the file was created with proper content
+		if savedState, err := mainStorage.LoadCompleteChainState(); err != nil {
+			log.Printf("Warning: Failed to verify saved chain state: %v", err)
+		} else {
+			log.Printf("✅ Chain state verification successful:")
+			log.Printf("   - Chain: %s", savedState.ChainIdentification.ChainParams["chain_name"])
+			log.Printf("   - Chain ID: %d", savedState.ChainIdentification.ChainParams["chain_id"])
+			log.Printf("   - Nodes: %d", len(savedState.Nodes))
+			log.Printf("   - Storage State: bestBlock=%s, totalBlocks=%d",
+				savedState.StorageState.BestBlockHash, savedState.StorageState.TotalBlocks)
+		}
+	}
+
+	// ========== REMOVE OLD SEPARATE FILES ==========
+	// No longer need to write separate files since everything is in chain_state.json
+	log.Printf("All test data consolidated into single chain_state.json file")
+
+	// ========== ADD FINAL CHAIN INFO SUMMARY ==========
+	log.Printf("=== SPHINX CHAIN SUMMARY ===")
 	for i := 0; i < numNodes; i++ {
 		b := blockchains[i].GetLatestBlock()
-		log.Printf("Node-%d  height=%d  hash=%s", i, b.GetHeight(), b.GetHash())
+		chainInfo := blockchains[i].GetChainInfo()
+
+		log.Printf("Node-%d:", i)
+		log.Printf("  Chain: %s", chainInfo["chain_name"])
+		log.Printf("  Chain ID: %d", chainInfo["chain_id"])
+		log.Printf("  Height: %d", b.GetHeight())
+		log.Printf("  Block Hash: %s", b.GetHash())
+		log.Printf("  Symbol: %s", chainInfo["symbol"])
+		log.Printf("  Network: %s", chainInfo["network"])
 	}
+	log.Printf("============================")
 
 	// --------------------------------------------------------------
 	// 10. Clean shutdown
@@ -441,6 +662,18 @@ func CallConsensus(numNodes int) error {
 	wg.Wait()
 	for i := 0; i < numNodes; i++ {
 		_ = dbs[i].Close()
+		_ = blockchains[i].Close()
 	}
+
+	log.Printf("=== TEST COMPLETED SUCCESSFULLY ===")
+	log.Printf("All test data consolidated into single file:")
+	log.Printf("  - data/node-0/blockchain/state/chain_state.json")
+	log.Printf("Chain identification file:")
+	log.Printf("  - data/output/chain_identification.json")
+
+	if !consensusOK {
+		return fmt.Errorf("consensus test failed - nodes did not reach agreement")
+	}
+
 	return nil
 }

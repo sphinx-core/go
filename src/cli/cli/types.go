@@ -23,6 +23,11 @@
 // go/src/cli/cli/types.go
 package cli
 
+import (
+	"github.com/sphinx-core/go/src/params/commit"
+	params "github.com/sphinx-core/go/src/params/denom"
+)
+
 // Config holds CLI configuration parameters.
 type Config struct {
 	configFile string
@@ -40,4 +45,33 @@ type Config struct {
 // TestConfig holds the parameters that the test harness uses.
 type TestConfig struct {
 	NumNodes int // number of validator nodes to spin up (default 3)
+}
+
+// JSONOutput structures
+type ChainIdentificationJSON struct {
+	Timestamp   string                  `json:"timestamp"`
+	ChainParams *commit.ChainParameters `json:"chain_parameters"`
+	TokenInfo   *params.TokenInfo       `json:"token_info"`
+	WalletPaths map[string]string       `json:"wallet_derivation_paths"`
+	NetworkInfo map[string]interface{}  `json:"network_info"`
+}
+
+type NodeChainInfoJSON struct {
+	NodeID      string                 `json:"node_id"`
+	ChainInfo   map[string]interface{} `json:"chain_info"`
+	BlockHeight uint64                 `json:"block_height"`
+	BlockHash   string                 `json:"block_hash"`
+	Timestamp   string                 `json:"timestamp"`
+}
+
+type TestSummaryJSON struct {
+	TestName      string              `json:"test_name"`
+	Timestamp     string              `json:"timestamp"`
+	NumNodes      int                 `json:"num_nodes"`
+	TestDuration  string              `json:"test_duration"`
+	Success       bool                `json:"success"`
+	FinalHeight   uint64              `json:"final_height"`
+	Nodes         []NodeChainInfoJSON `json:"nodes"`
+	GenesisHash   string              `json:"genesis_hash"`
+	ConsensusType string              `json:"consensus_type"`
 }

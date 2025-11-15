@@ -31,6 +31,50 @@ import (
 	"time"
 )
 
+// Add this method to NodeManager for chain recognition
+func (nm *NodeManager) GetChainInfo() map[string]interface{} {
+	return map[string]interface{}{
+		"chain_id":         7331,
+		"chain_name":       "Sphinx",
+		"symbol":           "SPX",
+		"protocol_version": "1.0.0",
+		"network_magic":    "0x53504858", // "SPHX"
+		"default_port":     32307,
+		"bip44_coin_type":  7331,
+	}
+}
+
+// GenerateNodeIdentification generates node identification with chain info
+func (nm *NodeManager) GenerateNodeIdentification(nodeID string) string {
+	chainInfo := nm.GetChainInfo()
+	return fmt.Sprintf(
+		"Sphinx Node: %s\n"+
+			"Network: %s\n"+
+			"Chain ID: %d\n"+
+			"Protocol: %s\n"+
+			"User Agent: SphinxNode/%s",
+		nodeID,
+		chainInfo["chain_name"],
+		chainInfo["chain_id"],
+		chainInfo["protocol_version"],
+		chainInfo["protocol_version"],
+	)
+}
+
+// ValidateChainCompatibility checks if remote node is compatible with Sphinx chain
+func (nm *NodeManager) ValidateChainCompatibility(remoteChainInfo map[string]interface{}) bool {
+	localInfo := nm.GetChainInfo()
+
+	// Check chain ID compatibility
+	remoteChainID, ok := remoteChainInfo["chain_id"].(int)
+	if !ok {
+		return false
+	}
+
+	return remoteChainID == localInfo["chain_id"]
+}
+
+// EXISTING FUNCTIONS CONTINUE UNCHANGED...
 // NewNodeManager creates a new NodeManager with Kademlia buckets and a DHT implementation.
 func NewNodeManager(bucketSize int, dht DHT) *NodeManager {
 	if bucketSize <= 0 {

@@ -30,6 +30,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	types "github.com/sphinx-core/go/src/core/transaction"
 )
@@ -87,6 +88,94 @@ func NewStorage(dataDir string) (*Storage, error) {
 	}
 
 	return storage, nil
+}
+
+// SaveCompleteChainState saves the complete chain state including test results
+func (s *Storage) SaveCompleteChainState(chainState *ChainState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Set timestamp if not provided
+	if chainState.Timestamp == "" {
+		chainState.Timestamp = time.Now().Format(time.RFC3339)
+	}
+
+	// Add storage state information (basic chain state data)
+	chainState.StorageState = &StorageState{
+		BestBlockHash: s.bestBlockHash,
+		TotalBlocks:   s.totalBlocks,
+		BlocksDir:     s.blocksDir,
+		IndexDir:      s.indexDir,
+		StateDir:      s.stateDir,
+	}
+
+	// Add basic chain state directly to the main structure
+	chainState.BasicChainState = &BasicChainState{
+		BestBlockHash: s.bestBlockHash,
+		TotalBlocks:   s.totalBlocks,
+		LastUpdated:   time.Now().Format(time.RFC3339),
+	}
+
+	// Save to chain_state.json in state directory
+	stateFile := filepath.Join(s.stateDir, "chain_state.json")
+	data, err := json.MarshalIndent(chainState, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal chain state: %w", err)
+	}
+
+	// Write with atomic replace
+	tmpFile := stateFile + ".tmp"
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write chain state file: %w", err)
+	}
+
+	if err := os.Rename(tmpFile, stateFile); err != nil {
+		return fmt.Errorf("failed to rename chain state file: %w", err)
+	}
+
+	// Remove basic_chain_state.json if it exists (clean up old file)
+	basicStateFile := filepath.Join(s.stateDir, "basic_chain_state.json")
+	if _, err := os.Stat(basicStateFile); err == nil {
+		if err := os.Remove(basicStateFile); err != nil {
+			log.Printf("Warning: Failed to remove old basic_chain_state.json: %v", err)
+		} else {
+			log.Printf("Removed old basic_chain_state.json file")
+		}
+	}
+
+	log.Printf("Complete chain state saved to: %s", stateFile)
+	return nil
+}
+
+// LoadCompleteChainState loads the complete chain state
+func (s *Storage) LoadCompleteChainState() (*ChainState, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	stateFile := filepath.Join(s.stateDir, "chain_state.json")
+
+	// Check if file exists
+	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
+		return nil, fmt.Errorf("chain state file does not exist: %s", stateFile)
+	}
+
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read chain state file: %w", err)
+	}
+
+	var chainState ChainState
+	if err := json.Unmarshal(data, &chainState); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal chain state: %w", err)
+	}
+
+	log.Printf("Complete chain state loaded from: %s", stateFile)
+	return &chainState, nil
+}
+
+// GetChainStatePath returns the path to the chain state file
+func (s *Storage) GetChainStatePath() string {
+	return filepath.Join(s.stateDir, "chain_state.json")
 }
 
 // StoreBlock stores a block and updates indices
@@ -276,7 +365,6 @@ func (s *Storage) ValidateChain() error {
 }
 
 // Private methods
-
 func (s *Storage) storeBlockToDisk(block *types.Block) error {
 	blockHash := block.GetHash()
 	filename := filepath.Join(s.blocksDir, blockHash+".json")
@@ -414,23 +502,81 @@ func (s *Storage) loadBlockIndex() error {
 	return nil
 }
 
+// saveChainState now saves basic chain state data directly to the main chain_state.json
 func (s *Storage) saveChainState() error {
 	stateFile := filepath.Join(s.stateDir, "chain_state.json")
 
-	state := struct {
-		BestBlockHash string `json:"best_block_hash"`
-		TotalBlocks   uint64 `json:"total_blocks"`
-	}{
-		BestBlockHash: s.bestBlockHash,
-		TotalBlocks:   s.totalBlocks,
+	// Check if complete chain state already exists
+	if _, err := os.Stat(stateFile); err == nil {
+		// Complete chain state exists, update the basic chain state within it
+		return s.updateBasicChainStateInFile(stateFile)
 	}
 
-	data, err := json.MarshalIndent(state, "", "  ")
+	// No complete chain state exists, create a basic one
+	basicState := &BasicChainState{
+		BestBlockHash: s.bestBlockHash,
+		TotalBlocks:   s.totalBlocks,
+		LastUpdated:   time.Now().Format(time.RFC3339),
+	}
+
+	data, err := json.MarshalIndent(basicState, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal chain state: %w", err)
+		return fmt.Errorf("failed to marshal basic chain state: %w", err)
 	}
 
 	return os.WriteFile(stateFile, data, 0644)
+}
+
+// updateBasicChainStateInFile updates only the basic chain state portion of an existing chain_state.json
+func (s *Storage) updateBasicChainStateInFile(stateFile string) error {
+	// Read existing chain state
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		return fmt.Errorf("failed to read chain state file: %w", err)
+	}
+
+	var chainState ChainState
+	if err := json.Unmarshal(data, &chainState); err != nil {
+		// If it's not a ChainState, it might be a basic state file
+		// In that case, we'll upgrade it to a complete chain state
+		var basicState BasicChainState
+		if err := json.Unmarshal(data, &basicState); err == nil {
+			// Upgrade basic state to complete state
+			chainState = ChainState{
+				BasicChainState: &basicState,
+				Timestamp:       time.Now().Format(time.RFC3339),
+			}
+		} else {
+			return fmt.Errorf("failed to unmarshal chain state: %w", err)
+		}
+	}
+
+	// Update basic chain state
+	if chainState.BasicChainState == nil {
+		chainState.BasicChainState = &BasicChainState{}
+	}
+	chainState.BasicChainState.BestBlockHash = s.bestBlockHash
+	chainState.BasicChainState.TotalBlocks = s.totalBlocks
+	chainState.BasicChainState.LastUpdated = time.Now().Format(time.RFC3339)
+
+	// Save updated chain state
+	data, err = json.MarshalIndent(chainState, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated chain state: %w", err)
+	}
+
+	// Write with atomic replace
+	tmpFile := stateFile + ".tmp"
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write updated chain state file: %w", err)
+	}
+
+	if err := os.Rename(tmpFile, stateFile); err != nil {
+		return fmt.Errorf("failed to rename updated chain state file: %w", err)
+	}
+
+	log.Printf("Updated basic chain state in: %s", stateFile)
+	return nil
 }
 
 func (s *Storage) loadChainState() error {
@@ -447,24 +593,32 @@ func (s *Storage) loadChainState() error {
 		return fmt.Errorf("failed to read chain state: %w", err)
 	}
 
-	var state struct {
-		BestBlockHash string `json:"best_block_hash"`
-		TotalBlocks   uint64 `json:"total_blocks"`
+	// Try to load as complete chain state first
+	var chainState ChainState
+	if err := json.Unmarshal(data, &chainState); err == nil && chainState.BasicChainState != nil {
+		// Successfully loaded complete chain state with basic data
+		s.bestBlockHash = chainState.BasicChainState.BestBlockHash
+		s.totalBlocks = chainState.BasicChainState.TotalBlocks
+		log.Printf("Loaded chain state from complete file: bestBlock=%s, totalBlocks=%d", s.bestBlockHash, s.totalBlocks)
+		return nil
 	}
-	if err := json.Unmarshal(data, &state); err != nil {
+
+	// Fall back to basic chain state format
+	var basicState BasicChainState
+	if err := json.Unmarshal(data, &basicState); err != nil {
 		return fmt.Errorf("failed to unmarshal chain state: %w", err)
 	}
 
 	// CRITICAL FIX: Only set state if we have valid data
-	if state.BestBlockHash == "" {
+	if basicState.BestBlockHash == "" {
 		log.Printf("Warning: Chain state has empty bestBlockHash, ignoring corrupted state")
 		return fmt.Errorf("corrupted chain state: empty bestBlockHash")
 	}
 
-	s.bestBlockHash = state.BestBlockHash
-	s.totalBlocks = state.TotalBlocks
+	s.bestBlockHash = basicState.BestBlockHash
+	s.totalBlocks = basicState.TotalBlocks
 
-	log.Printf("Loaded chain state: bestBlock=%s, totalBlocks=%d", s.bestBlockHash, s.totalBlocks)
+	log.Printf("Loaded basic chain state: bestBlock=%s, totalBlocks=%d", s.bestBlockHash, s.totalBlocks)
 	return nil
 }
 
@@ -477,5 +631,14 @@ func (s *Storage) Close() error {
 	if err := s.saveBlockIndex(); err != nil {
 		return fmt.Errorf("failed to save block index on close: %w", err)
 	}
+
+	// Remove old basic_chain_state.json if it exists
+	basicStateFile := filepath.Join(s.stateDir, "basic_chain_state.json")
+	if _, err := os.Stat(basicStateFile); err == nil {
+		if err := os.Remove(basicStateFile); err != nil {
+			log.Printf("Warning: Failed to remove old basic_chain_state.json on close: %v", err)
+		}
+	}
+
 	return nil
 }

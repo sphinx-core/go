@@ -33,6 +33,49 @@ import (
 	sphincsKey "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 )
 
+// Add chain identification constants
+const (
+	SphinxChainID       = 7331
+	SphinxChainName     = "Sphinx"
+	SphinxSymbol        = "SPX"
+	SphinxBIP44CoinType = 7331
+	SphinxMagicNumber   = 0x53504858 // "SPHX"
+	SphinxDefaultPort   = 32307
+)
+
+// Add method to Node for chain identification
+func (n *Node) GetChainInfo() map[string]interface{} {
+	return map[string]interface{}{
+		"chain_id":        SphinxChainID,
+		"chain_name":      SphinxChainName,
+		"symbol":          SphinxSymbol,
+		"bip44_coin_type": SphinxBIP44CoinType,
+		"magic_number":    SphinxMagicNumber,
+		"default_port":    SphinxDefaultPort,
+		"node_id":         n.ID,
+		"node_role":       n.Role,
+	}
+}
+
+// GenerateChainHandshake generates handshake message with chain identification
+func (n *Node) GenerateChainHandshake() string {
+	chainInfo := n.GetChainInfo()
+	return fmt.Sprintf(
+		"SPHINX_HANDSHAKE\n"+
+			"Chain: %s\n"+
+			"Chain ID: %d\n"+
+			"Node: %s\n"+
+			"Role: %s\n"+
+			"Protocol: 1.0.0\n"+
+			"Timestamp: %d",
+		chainInfo["chain_name"],
+		chainInfo["chain_id"],
+		n.ID,
+		n.Role,
+		time.Now().Unix(),
+	)
+}
+
 // Global registry for tracking consensus instances across all nodes
 // This is used for message broadcasting in test environments
 var (

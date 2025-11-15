@@ -55,6 +55,27 @@ var genesisBlockDefinition = &types.BlockHeader{
 	UnclesHash: []byte{},
 }
 
+// GetSphinxChainParams returns the mainnet parameters for Sphinx blockchain
+func GetSphinxChainParams() *SphinxChainParameters {
+	return &SphinxChainParameters{
+		ChainID:       7331, // "SPX" in leet speak
+		ChainName:     "Sphinx",
+		Symbol:        "SPX",
+		GenesisTime:   1731375284,            // Your genesis timestamp
+		GenesisHash:   "sphinx-genesis-2024", // Your genesis hash
+		Version:       "1.0.0",
+		MagicNumber:   0x53504858, // "SPHX" in ASCII
+		DefaultPort:   32307,      // Your default port
+		BIP44CoinType: 7331,       // Same as ChainID for consistency
+		LedgerName:    "Sphinx",
+		Denominations: map[string]*big.Int{
+			"nSPX": big.NewInt(1e0),  // 1 nSPX (nano SPX)
+			"gSPX": big.NewInt(1e9),  // 1 gSPX (giga SPX)
+			"SPX":  big.NewInt(1e18), // 1 SPX
+		},
+	}
+}
+
 // NewBlockchain creates a blockchain with state machine replication
 // dataDir: Directory path for storing blockchain data
 // nodeID: Unique identifier for this node in the network
@@ -78,6 +99,7 @@ func NewBlockchain(dataDir string, nodeID string, validators []string) (*Blockch
 		status:          StatusInitializing,                  // Start in initializing state
 		syncMode:        SyncModeFull,                        // Default to full sync mode
 		consensusEngine: nil,                                 // Will be set later
+		chainParams:     GetSphinxChainParams(),              // ADDED: Chain identification parameters
 	}
 
 	// Load existing chain from storage or create genesis block if new chain
@@ -98,6 +120,146 @@ func NewBlockchain(dataDir string, nodeID string, validators []string) (*Blockch
 		blockchain.SyncModeString(blockchain.syncMode))
 
 	return blockchain, nil
+}
+
+// GetStorage returns the storage instance for external access
+func (bc *Blockchain) GetStorage() *storage.Storage {
+	return bc.storage
+}
+
+// GetChainParams returns the Sphinx blockchain parameters for external recognition
+func (bc *Blockchain) GetChainParams() *SphinxChainParameters {
+	return bc.chainParams
+}
+
+// GetChainInfo returns formatted chain information for external systems
+func (bc *Blockchain) GetChainInfo() map[string]interface{} {
+	params := bc.GetChainParams()
+	latestBlock := bc.GetLatestBlock()
+
+	var blockHeight uint64
+	var blockHash string
+	if latestBlock != nil {
+		blockHeight = latestBlock.GetHeight()
+		blockHash = latestBlock.GetHash()
+	}
+
+	return map[string]interface{}{
+		"chain_id":        params.ChainID,
+		"chain_name":      params.ChainName,
+		"symbol":          params.Symbol,
+		"genesis_time":    params.GenesisTime,
+		"genesis_hash":    params.GenesisHash,
+		"version":         params.Version,
+		"magic_number":    fmt.Sprintf("0x%x", params.MagicNumber),
+		"default_port":    params.DefaultPort,
+		"bip44_coin_type": params.BIP44CoinType,
+		"ledger_name":     params.LedgerName,
+		"current_height":  blockHeight,
+		"latest_block":    blockHash,
+		"network":         "Sphinx Mainnet",
+	}
+}
+
+// GenerateLedgerHeaders generates headers specifically formatted for Ledger hardware
+func (bc *Blockchain) GenerateLedgerHeaders(operation string, amount float64, address string, memo string) string {
+	params := bc.GetChainParams()
+
+	return fmt.Sprintf(
+		"=== SPHINX LEDGER OPERATION ===\n"+
+			"Chain: %s\n"+
+			"Chain ID: %d\n"+
+			"Operation: %s\n"+
+			"Amount: %.6f SPX\n"+
+			"Address: %s\n"+
+			"Memo: %s\n"+
+			"BIP44: 44'/%d'/0'/0/0\n"+
+			"Timestamp: %d\n"+
+			"========================",
+		params.ChainName,
+		params.ChainID,
+		operation,
+		amount,
+		address,
+		memo,
+		params.BIP44CoinType,
+		time.Now().Unix(),
+	)
+}
+
+// ValidateChainID validates if this blockchain matches Sphinx network parameters
+func (bc *Blockchain) ValidateChainID(chainID uint64) bool {
+	params := bc.GetChainParams()
+	return chainID == params.ChainID
+}
+
+// GetWalletDerivationPaths returns standard derivation paths for wallets
+func (bc *Blockchain) GetWalletDerivationPaths() map[string]string {
+	params := bc.GetChainParams()
+	return map[string]string{
+		"BIP44":  fmt.Sprintf("m/44'/%d'/0'/0/0", params.BIP44CoinType),
+		"BIP49":  fmt.Sprintf("m/49'/%d'/0'/0/0", params.BIP44CoinType), // SegWit
+		"BIP84":  fmt.Sprintf("m/84'/%d'/0'/0/0", params.BIP44CoinType), // Native SegWit
+		"Ledger": fmt.Sprintf("m/44'/%d'/0'", params.BIP44CoinType),
+		"Trezor": fmt.Sprintf("m/44'/%d'/0'/0/0", params.BIP44CoinType),
+	}
+}
+
+// ConvertDenomination converts between SPX denominations
+func (bc *Blockchain) ConvertDenomination(amount *big.Int, fromDenom, toDenom string) (*big.Int, error) {
+	params := bc.GetChainParams()
+
+	fromMultiplier, fromExists := params.Denominations[fromDenom]
+	toMultiplier, toExists := params.Denominations[toDenom]
+
+	if !fromExists || !toExists {
+		return nil, fmt.Errorf("unknown denomination: %s or %s", fromDenom, toDenom)
+	}
+
+	// Convert to base units (nSPX) first
+	baseAmount := new(big.Int).Mul(amount, fromMultiplier)
+
+	// Convert to target denomination
+	result := new(big.Int).Div(baseAmount, toMultiplier)
+
+	return result, nil
+}
+
+// IsSphinxChain validates if this blockchain follows Sphinx protocol
+func (bc *Blockchain) IsSphinxChain() bool {
+	if len(bc.chain) == 0 {
+		return false
+	}
+
+	params := bc.GetChainParams()
+	genesis := bc.chain[0]
+	return genesis.GetHash() == params.GenesisHash
+}
+
+// GenerateNetworkInfo returns network information for peer discovery
+func (bc *Blockchain) GenerateNetworkInfo() string {
+	params := bc.GetChainParams()
+	latestBlock := bc.GetLatestBlock()
+
+	var blockHeight uint64
+	if latestBlock != nil {
+		blockHeight = latestBlock.GetHeight()
+	}
+
+	return fmt.Sprintf(
+		"Sphinx Network: %s\n"+
+			"Chain ID: %d\n"+
+			"Protocol Version: %s\n"+
+			"Current Height: %d\n"+
+			"Magic Number: 0x%x\n"+
+			"Default Port: %d",
+		params.ChainName,
+		params.ChainID,
+		params.Version,
+		blockHeight,
+		params.MagicNumber,
+		params.DefaultPort,
+	)
 }
 
 // Add setter

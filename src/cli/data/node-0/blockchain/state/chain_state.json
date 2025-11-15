@@ -1,4 +1,146 @@
 {
-  "best_block_hash": "145367bcdc092af072f93f807045876779afe253a5afaa518cd064e5edc112cd",
-  "total_blocks": 2
+  "chain_identification": {
+    "timestamp": "2025-11-16T01:35:29+07:00",
+    "chain_parameters": {
+      "bip44_coin_type": 7331,
+      "chain_id": 7331,
+      "chain_name": "Sphinx",
+      "default_port": 32307,
+      "genesis_hash": "sphinx-genesis-2024",
+      "genesis_time": 1731375284,
+      "ledger_name": "Sphinx",
+      "magic_number": 1397770328,
+      "symbol": "SPX",
+      "version": "1.0.0"
+    },
+    "token_info": {
+      "bip44_coin_type": 7331,
+      "chain_id": 7331,
+      "decimals": 18,
+      "denominations": {
+        "SPX": 1000000000000000000,
+        "gSPX": 1000000000,
+        "nSPX": 1
+      },
+      "name": "Sphinx",
+      "symbol": "SPX",
+      "total_supply": 5000000000
+    },
+    "wallet_derivation_paths": {
+      "BIP44": "m/44'/7331'/0'/0/0",
+      "BIP49": "m/49'/7331'/0'/0/0",
+      "BIP84": "m/84'/7331'/0'/0/0",
+      "Ledger": "m/44'/7331'/0'"
+    },
+    "network_info": {
+      "consensus": "PBFT",
+      "genesis_timestamp": "2024-11-12T08:34:44+07:00",
+      "network": "Sphinx Mainnet",
+      "num_test_nodes": 3,
+      "protocol_version": "1.0.0",
+      "test_timestamp": "2025-11-16T01:35:17+07:00"
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "validator-0",
+      "node_name": "node-0",
+      "chain_info": {
+        "bip44_coin_type": 7331,
+        "chain_id": 7331,
+        "chain_name": "Sphinx",
+        "current_height": 1,
+        "default_port": 32307,
+        "genesis_hash": "sphinx-genesis-2024",
+        "genesis_time": 1731375284,
+        "latest_block": "c71800047bdbfa43b6c370fd689b464a301f34c98aec2148da6a85b717c9cc52",
+        "ledger_name": "Sphinx",
+        "magic_number": "0x53504858",
+        "network": "Sphinx Mainnet",
+        "symbol": "SPX",
+        "version": "1.0.0"
+      },
+      "block_height": 1,
+      "block_hash": "c71800047bdbfa43b6c370fd689b464a301f34c98aec2148da6a85b717c9cc52",
+      "timestamp": "2025-11-16T01:35:29+07:00",
+      "final_state": {
+        "block_height": 1,
+        "block_hash": "c71800047bdbfa43b6c370fd689b464a301f34c98aec2148da6a85b717c9cc52",
+        "total_blocks": 2,
+        "status": "completed",
+        "timestamp": "2025-11-16T01:35:29+07:00"
+      }
+    },
+    {
+      "node_id": "validator-1",
+      "node_name": "node-1",
+      "chain_info": {
+        "bip44_coin_type": 7331,
+        "chain_id": 7331,
+        "chain_name": "Sphinx",
+        "current_height": 1,
+        "default_port": 32307,
+        "genesis_hash": "sphinx-genesis-2024",
+        "genesis_time": 1731375284,
+        "latest_block": "c71800047bdbfa43b6c370fd689b464a301f34c98aec2148da6a85b717c9cc52",
+        "ledger_name": "Sphinx",
+        "magic_number": "0x53504858",
+        "network": "Sphinx Mainnet",
+        "symbol": "SPX",
+        "version": "1.0.0"
+      },
+      "block_height": 1,
+      "block_hash": "c71800047bdbfa43b6c370fd689b464a301f34c98aec2148da6a85b717c9cc52",
+      "timestamp": "2025-11-16T01:35:29+07:00",
+      "final_state": {
+        "block_height": 1,
+        "block_hash": "c71800047bdbfa43b6c370fd689b464a301f34c98aec2148da6a85b717c9cc52",
+        "total_blocks": 2,
+        "status": "completed",
+        "timestamp": "2025-11-16T01:35:29+07:00"
+      }
+    },
+    {
+      "node_id": "validator-2",
+      "node_name": "node-2",
+      "chain_info": {
+        "bip44_coin_type": 7331,
+        "chain_id": 7331,
+        "chain_name": "Sphinx",
+        "current_height": 1,
+        "default_port": 32307,
+        "genesis_hash": "sphinx-genesis-2024",
+        "genesis_time": 1731375284,
+        "latest_block": "c71800047bdbfa43b6c370fd689b464a301f34c98aec2148da6a85b717c9cc52",
+        "ledger_name": "Sphinx",
+        "magic_number": "0x53504858",
+        "network": "Sphinx Mainnet",
+        "symbol": "SPX",
+        "version": "1.0.0"
+      },
+      "block_height": 1,
+      "block_hash": "c71800047bdbfa43b6c370fd689b464a301f34c98aec2148da6a85b717c9cc52",
+      "timestamp": "2025-11-16T01:35:29+07:00",
+      "final_state": {
+        "block_height": 1,
+        "block_hash": "c71800047bdbfa43b6c370fd689b464a301f34c98aec2148da6a85b717c9cc52",
+        "total_blocks": 2,
+        "status": "completed",
+        "timestamp": "2025-11-16T01:35:29+07:00"
+      }
+    }
+  ],
+  "storage_state": {
+    "best_block_hash": "c71800047bdbfa43b6c370fd689b464a301f34c98aec2148da6a85b717c9cc52",
+    "total_blocks": 2,
+    "blocks_dir": "data/node-0/blockchain/blocks",
+    "index_dir": "data/node-0/blockchain/index",
+    "state_dir": "data/node-0/blockchain/state"
+  },
+  "basic_chain_state": {
+    "best_block_hash": "c71800047bdbfa43b6c370fd689b464a301f34c98aec2148da6a85b717c9cc52",
+    "total_blocks": 2,
+    "last_updated": "2025-11-16T01:35:29+07:00"
+  },
+  "timestamp": "2025-11-16T01:35:29+07:00"
 }
