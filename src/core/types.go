@@ -58,17 +58,17 @@ type Blockchain struct {
 	chainParams     *SphinxChainParameters // Chain identification parameters
 }
 
-// SphinxChainParameters defines the Sphinx blockchain identification parameters
+// SphinxChainParameters defines the blockchain parameters
 type SphinxChainParameters struct {
-	ChainID       uint64              // Unique chain identifier
-	ChainName     string              // Human-readable chain name
-	Symbol        string              // Native token symbol
-	GenesisTime   int64               // Genesis block timestamp
-	GenesisHash   string              // Genesis block hash
-	Version       string              // Protocol version
-	MagicNumber   uint32              // Network magic number for peer identification
-	DefaultPort   uint16              // Default P2P port
-	BIP44CoinType uint32              // BIP44 coin type for wallet derivation
-	LedgerName    string              // Name recognized by Ledger hardware
-	Denominations map[string]*big.Int // SPX denominations
+	ChainID       uint64
+	ChainName     string
+	Symbol        string
+	GenesisTime   int64
+	GenesisHash   string
+	Version       string
+	MagicNumber   uint32
+	DefaultPort   int
+	BIP44CoinType uint64
+	LedgerName    string
+	Denominations map[string]*big.Int
 }

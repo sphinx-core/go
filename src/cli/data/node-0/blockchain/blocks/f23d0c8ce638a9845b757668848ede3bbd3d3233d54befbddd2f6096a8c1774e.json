@@ -1,0 +1,20 @@
+{
+  "header": {
+    "nblock": 0,
+    "timestamp": 1731375284,
+    "prev_hash": "Z2VuZXNpcw==",
+    "hash": "8j0MjOY4qYRbdXZohI7eO709MjPVS++93S9glqjBd04=",
+    "difficulty": 1,
+    "nonce": 0,
+    "txs_root": "",
+    "state_root": "",
+    "gas_limit": 1000000,
+    "gas_used": 0,
+    "parent_hash": "8j0MjOY4qYRbdXZohI7eO709MjPVS++93S9glqjBd04=",
+    "uncles_hash": ""
+  },
+  "body": {
+    "txs_list": [],
+    "uncles_hash": ""
+  }
+}

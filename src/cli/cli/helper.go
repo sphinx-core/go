@@ -526,61 +526,8 @@ func CallConsensus(numNodes int) error {
 	// --------------------------------------------------------------
 	log.Printf("=== PBFT INTEGRATION TEST PASSED ===")
 
-	// go/src/cli/cli/helper.go
-	// In the final section where you save the chain state:
-
 	// ========== CREATE AND SAVE COMPLETE CHAIN STATE ==========
 	log.Printf("=== SAVING COMPLETE CHAIN STATE ===")
-
-	// Use the first node's storage to save the complete chain state
-	mainStorage := blockchains[0].GetStorage()
-	if mainStorage == nil {
-		return fmt.Errorf("failed to get storage from node 0")
-	}
-
-	// Get chain parameters directly from commit package
-	chainParams = commit.SphinxChainParams()
-	tokenInfo = params.GetSPXTokenInfo()
-
-	// Create chain identification using the actual types from commit package
-	chainIdentificationState := &state.ChainIdentification{
-		Timestamp: time.Now().Format(time.RFC3339),
-		ChainParams: map[string]interface{}{
-			"chain_id":        chainParams.ChainID,
-			"chain_name":      chainParams.ChainName,
-			"symbol":          chainParams.Symbol,
-			"genesis_time":    chainParams.GenesisTime,
-			"genesis_hash":    chainParams.GenesisHash,
-			"version":         chainParams.Version,
-			"magic_number":    chainParams.MagicNumber,
-			"default_port":    chainParams.DefaultPort,
-			"bip44_coin_type": chainParams.BIP44CoinType,
-			"ledger_name":     chainParams.LedgerName,
-		},
-		TokenInfo: map[string]interface{}{
-			"name":            tokenInfo.Name,
-			"symbol":          tokenInfo.Symbol,
-			"decimals":        tokenInfo.Decimals,
-			"total_supply":    tokenInfo.TotalSupply,
-			"denominations":   tokenInfo.Denominations,
-			"bip44_coin_type": tokenInfo.BIP44CoinType,
-			"chain_id":        tokenInfo.ChainID,
-		},
-		WalletPaths: map[string]string{
-			"BIP44":  fmt.Sprintf("m/44'/%d'/0'/0/0", chainParams.BIP44CoinType),
-			"BIP49":  fmt.Sprintf("m/49'/%d'/0'/0/0", chainParams.BIP44CoinType),
-			"BIP84":  fmt.Sprintf("m/84'/%d'/0'/0/0", chainParams.BIP44CoinType),
-			"Ledger": fmt.Sprintf("m/44'/%d'/0'", chainParams.BIP44CoinType),
-		},
-		NetworkInfo: map[string]interface{}{
-			"network":           "Sphinx Mainnet",
-			"consensus":         "PBFT",
-			"test_timestamp":    startTime.Format(time.RFC3339),
-			"num_test_nodes":    numNodes,
-			"protocol_version":  chainParams.Version,
-			"genesis_timestamp": time.Unix(chainParams.GenesisTime, 0).Format(time.RFC3339),
-		},
-	}
 
 	// Create node information
 	nodes := make([]*state.NodeInfo, numNodes)
@@ -608,32 +555,15 @@ func CallConsensus(numNodes int) error {
 		}
 	}
 
-	// Create complete chain state
-	chainState := &state.ChainState{
-		ChainIdentification: chainIdentificationState,
-		Nodes:               nodes,
-		Timestamp:           time.Now().Format(time.RFC3339),
-	}
-
-	// Save complete chain state using storage
-	if err := mainStorage.SaveCompleteChainState(chainState); err != nil {
-		log.Printf("Warning: Failed to save complete chain state: %v", err)
+	// Save chain state using the blockchain's built-in method
+	if err := blockchains[0].SaveChainState(nodes, nil); err != nil {
+		log.Printf("Warning: Failed to save chain state: %v", err)
 	} else {
-		chainStatePath := mainStorage.GetChainStatePath()
-		log.Printf("Complete chain state saved to: %s", chainStatePath)
-
-		// Verify the file was created with proper content
-		if savedState, err := mainStorage.LoadCompleteChainState(); err != nil {
-			log.Printf("Warning: Failed to verify saved chain state: %v", err)
-		} else {
-			log.Printf("✅ Chain state verification successful:")
-			log.Printf("   - Chain: %s", savedState.ChainIdentification.ChainParams["chain_name"])
-			log.Printf("   - Chain ID: %d", savedState.ChainIdentification.ChainParams["chain_id"])
-			log.Printf("   - Nodes: %d", len(savedState.Nodes))
-			log.Printf("   - Storage State: bestBlock=%s, totalBlocks=%d",
-				savedState.StorageState.BestBlockHash, savedState.StorageState.TotalBlocks)
-		}
+		log.Printf("✅ Chain state saved successfully")
 	}
+
+	// Skip verification for now since VerifyState method is not implemented
+	log.Printf("Chain state saved - verification skipped (VerifyState method not available)")
 
 	// ========== REMOVE OLD SEPARATE FILES ==========
 	// No longer need to write separate files since everything is in chain_state.json

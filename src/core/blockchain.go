@@ -32,6 +32,8 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -52,18 +54,20 @@ var genesisBlockDefinition = &types.BlockHeader{
 	StateRoot:  []byte{},
 	GasLimit:   big.NewInt(1000000),
 	GasUsed:    big.NewInt(0),
-	ParentHash: []byte("sphinx-genesis-2024"),
+	ParentHash: []byte{}, // Will be set dynamically
 	UnclesHash: []byte{},
 }
 
 // GetSphinxChainParams returns the mainnet parameters for Sphinx blockchain
-func GetSphinxChainParams() *SphinxChainParameters {
+// GetSphinxChainParams returns the mainnet parameters for Sphinx blockchain
+// Now accepts genesisHash as parameter
+func GetSphinxChainParams(genesisHash string) *SphinxChainParameters {
 	return &SphinxChainParameters{
 		ChainID:       7331, // "SPX" in leet speak
 		ChainName:     "Sphinx",
 		Symbol:        "SPX",
-		GenesisTime:   1731375284,            // Your genesis timestamp
-		GenesisHash:   "sphinx-genesis-2024", // Your genesis hash
+		GenesisTime:   1731375284,  // Your genesis timestamp
+		GenesisHash:   genesisHash, // Dynamic genesis hash
 		Version:       "1.0.0",
 		MagicNumber:   0x53504858, // "SPHX" in ASCII
 		DefaultPort:   32307,      // Your default port
@@ -77,11 +81,94 @@ func GetSphinxChainParams() *SphinxChainParameters {
 	}
 }
 
+// SaveChainState saves the chain state with the actual genesis hash
+// This should be called after blockchain initialization to ensure chain_state.json has the correct hash
+func (bc *Blockchain) SaveChainState(nodes []*storage.NodeInfo, testSummary *storage.TestSummary) error {
+	if bc.chainParams == nil {
+		return fmt.Errorf("chain parameters not initialized")
+	}
+
+	// Convert blockchain params to storage.ChainParams
+	chainParams := &storage.ChainParams{
+		ChainID:       bc.chainParams.ChainID,
+		ChainName:     bc.chainParams.ChainName,
+		Symbol:        bc.chainParams.Symbol,
+		GenesisTime:   bc.chainParams.GenesisTime,
+		GenesisHash:   bc.chainParams.GenesisHash, // This now has actual hash
+		Version:       bc.chainParams.Version,
+		MagicNumber:   bc.chainParams.MagicNumber,
+		DefaultPort:   bc.chainParams.DefaultPort,
+		BIP44CoinType: bc.chainParams.BIP44CoinType,
+		LedgerName:    bc.chainParams.LedgerName,
+	}
+
+	walletPaths := bc.GetWalletDerivationPaths()
+
+	// Create chain state
+	chainState := &storage.ChainState{
+		Nodes:     nodes,
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+
+	// If test summary is provided, update it with actual genesis hash
+	if testSummary != nil {
+		testSummary.GenesisHash = bc.chainParams.GenesisHash
+	}
+
+	// Save chain state with actual parameters
+	err := bc.storage.SaveCompleteChainState(chainState, chainParams, walletPaths)
+	if err != nil {
+		return fmt.Errorf("failed to save chain state: %w", err)
+	}
+
+	// Fix any existing hardcoded hashes
+	bc.storage.FixChainStateGenesisHash()
+
+	log.Printf("Chain state saved with genesis hash: %s", bc.chainParams.GenesisHash)
+	return nil
+}
+
+// SaveBasicChainState saves a basic chain state
+func (bc *Blockchain) SaveBasicChainState() error {
+	return bc.SaveChainState(nil, nil)
+}
+
+// VerifyState verifies that chain_state.json has the correct genesis hash
+func (bc *Blockchain) VerifyState() error {
+	if bc.chainParams == nil {
+		return fmt.Errorf("chain parameters not initialized")
+	}
+
+	// Load current chain state
+	chainState, err := bc.storage.LoadCompleteChainState()
+	if err != nil {
+		return fmt.Errorf("failed to load chain state: %w", err)
+	}
+
+	// Check if genesis hash matches
+	if chainState.ChainIdentification != nil &&
+		chainState.ChainIdentification.ChainParams != nil {
+		if genesisHash, exists := chainState.ChainIdentification.ChainParams["genesis_hash"]; exists {
+			if genesisHashStr, ok := genesisHash.(string); ok {
+				if genesisHashStr != bc.chainParams.GenesisHash {
+					return fmt.Errorf("chain state genesis hash mismatch: expected %s, got %s",
+						bc.chainParams.GenesisHash, genesisHashStr)
+				}
+				log.Printf("✓ Chain state verified: genesis hash matches")
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("could not verify chain state: missing genesis hash")
+}
+
 // NewBlockchain creates a blockchain with state machine replication
 // dataDir: Directory path for storing blockchain data
 // nodeID: Unique identifier for this node in the network
 // validators: List of validator node IDs that participate in consensus
 // Returns a new Blockchain instance or error if initialization fails
+// NewBlockchain creates a blockchain with state machine replication
 func NewBlockchain(dataDir string, nodeID string, validators []string) (*Blockchain, error) {
 	// Initialize storage layer for persistent block storage
 	store, err := storage.NewStorage(dataDir)
@@ -92,6 +179,7 @@ func NewBlockchain(dataDir string, nodeID string, validators []string) (*Blockch
 	// Initialize state machine for Byzantine Fault Tolerance replication
 	stateMachine := storage.NewStateMachine(store, nodeID, validators)
 
+	// Create blockchain with empty chain params for now
 	blockchain := &Blockchain{
 		storage:         store,                               // Persistent storage for blocks
 		stateMachine:    stateMachine,                        // State machine for consensus replication
@@ -100,12 +188,31 @@ func NewBlockchain(dataDir string, nodeID string, validators []string) (*Blockch
 		status:          StatusInitializing,                  // Start in initializing state
 		syncMode:        SyncModeFull,                        // Default to full sync mode
 		consensusEngine: nil,                                 // Will be set later
-		chainParams:     GetSphinxChainParams(),              // ADDED: Chain identification parameters
+		chainParams:     nil,                                 // Will be set after genesis creation
 	}
 
 	// Load existing chain from storage or create genesis block if new chain
 	if err := blockchain.initializeChain(); err != nil {
 		return nil, fmt.Errorf("failed to initialize chain: %w", err)
+	}
+
+	// Now that we have the genesis block, set the chain params with actual hash
+	if len(blockchain.chain) > 0 {
+		genesisHash := blockchain.chain[0].GetHash()
+		blockchain.chainParams = GetSphinxChainParams(genesisHash)
+		log.Printf("Chain parameters initialized with actual genesis hash: %s", genesisHash)
+
+		// Verify the genesis hash is properly stored in block_index.json
+		if err := blockchain.verifyGenesisHashInIndex(); err != nil {
+			log.Printf("Warning: Genesis hash verification failed: %v", err)
+		}
+
+		// AUTO-SAVE: Save chain state with actual genesis hash
+		if err := blockchain.SaveBasicChainState(); err != nil {
+			log.Printf("Warning: Failed to auto-save chain state: %v", err)
+		} else {
+			log.Printf("Auto-saved chain state")
+		}
 	}
 
 	// Start state machine replication for Byzantine Fault Tolerance
@@ -116,9 +223,10 @@ func NewBlockchain(dataDir string, nodeID string, validators []string) (*Blockch
 	// Update status to running after successful initialization
 	blockchain.status = StatusRunning
 
-	log.Printf("Blockchain initialized with status: %s, sync mode: %s",
+	log.Printf("Blockchain initialized with status: %s, sync mode: %s, genesis hash: %s",
 		blockchain.StatusString(blockchain.status),
-		blockchain.SyncModeString(blockchain.syncMode))
+		blockchain.SyncModeString(blockchain.syncMode),
+		blockchain.chainParams.GenesisHash)
 
 	return blockchain, nil
 }
@@ -133,7 +241,7 @@ func (bc *Blockchain) GetChainParams() *SphinxChainParameters {
 	return bc.chainParams
 }
 
-// GetChainInfo returns formatted chain information for external systems
+// GetChainInfo returns formatted chain information with actual genesis hash
 func (bc *Blockchain) GetChainInfo() map[string]interface{} {
 	params := bc.GetChainParams()
 	latestBlock := bc.GetLatestBlock()
@@ -150,7 +258,7 @@ func (bc *Blockchain) GetChainInfo() map[string]interface{} {
 		"chain_name":      params.ChainName,
 		"symbol":          params.Symbol,
 		"genesis_time":    params.GenesisTime,
-		"genesis_hash":    params.GenesisHash,
+		"genesis_hash":    params.GenesisHash, // Now contains actual hash
 		"version":         params.Version,
 		"magic_number":    fmt.Sprintf("0x%x", params.MagicNumber),
 		"default_port":    params.DefaultPort,
@@ -160,6 +268,17 @@ func (bc *Blockchain) GetChainInfo() map[string]interface{} {
 		"latest_block":    blockHash,
 		"network":         "Sphinx Mainnet",
 	}
+}
+
+// IsSphinxChain validates if this blockchain follows Sphinx protocol using actual genesis hash
+func (bc *Blockchain) IsSphinxChain() bool {
+	if len(bc.chain) == 0 {
+		return false
+	}
+
+	params := bc.GetChainParams()
+	genesis := bc.chain[0]
+	return genesis.GetHash() == params.GenesisHash
 }
 
 // GenerateLedgerHeaders generates headers specifically formatted for Ledger hardware
@@ -226,17 +345,6 @@ func (bc *Blockchain) ConvertDenomination(amount *big.Int, fromDenom, toDenom st
 	return result, nil
 }
 
-// IsSphinxChain validates if this blockchain follows Sphinx protocol
-func (bc *Blockchain) IsSphinxChain() bool {
-	if len(bc.chain) == 0 {
-		return false
-	}
-
-	params := bc.GetChainParams()
-	genesis := bc.chain[0]
-	return genesis.GetHash() == params.GenesisHash
-}
-
 // GenerateNetworkInfo returns network information for peer discovery
 func (bc *Blockchain) GenerateNetworkInfo() string {
 	params := bc.GetChainParams()
@@ -268,7 +376,6 @@ func (bc *Blockchain) SetConsensusEngine(engine *consensus.Consensus) {
 	bc.consensusEngine = engine
 }
 
-// StartLeaderLoop starts a goroutine that proposes blocks when this node is leader
 // StartLeaderLoop starts a goroutine that proposes blocks when this node is leader
 func (bc *Blockchain) StartLeaderLoop(ctx context.Context) {
 	go func() {
@@ -821,8 +928,8 @@ func (bc *Blockchain) initializeChain() error {
 // createGenesisBlock creates and stores the genesis block
 // Genesis block is the first block in the blockchain with no predecessor
 // Returns error if genesis block storage fails
-// go/src/core/blockchain.go
-
+// createGenesisBlock creates and stores the genesis block with actual hash
+// createGenesisBlock creates and stores the genesis block with actual hash
 func (bc *Blockchain) createGenesisBlock() error {
 	// Create genesis block from the shared definition
 	genesisHeader := &types.BlockHeader{}
@@ -830,12 +937,21 @@ func (bc *Blockchain) createGenesisBlock() error {
 
 	genesisBody := types.NewBlockBody([]*types.Transaction{}, []byte{})
 	genesis := types.NewBlock(genesisHeader, genesisBody)
+
+	// Generate the actual hash for the genesis block
 	genesis.FinalizeHash()
+
+	// Now set the ParentHash to the actual genesis hash
+	genesisHashBytes, err := hex.DecodeString(genesis.GetHash())
+	if err != nil {
+		return fmt.Errorf("failed to decode genesis hash: %w", err)
+	}
+	genesis.Header.ParentHash = genesisHashBytes
 
 	log.Printf("Creating genesis block: Height=%d, Hash=%s",
 		genesis.GetHeight(), genesis.GetHash())
 
-	// Store genesis block
+	// Store genesis block - this will automatically update block_index.json
 	if err := bc.storage.StoreBlock(genesis); err != nil {
 		return fmt.Errorf("failed to store genesis block: %w", err)
 	}
@@ -850,7 +966,100 @@ func (bc *Blockchain) createGenesisBlock() error {
 
 	// Initialize in-memory chain
 	bc.chain = []*types.Block{genesis}
+
 	return nil
+}
+
+// verifyGenesisHashInIndex verifies that the genesis hash in block_index.json matches our actual genesis hash
+func (bc *Blockchain) verifyGenesisHashInIndex() error {
+	if len(bc.chain) == 0 {
+		return fmt.Errorf("no genesis block in chain")
+	}
+
+	actualGenesisHash := bc.chain[0].GetHash()
+
+	// Try to read the block_index.json to verify the hash is there
+	indexFile := filepath.Join(bc.storage.GetIndexDir(), "block_index.json")
+	data, err := os.ReadFile(indexFile)
+	if err != nil {
+		return fmt.Errorf("failed to read block_index.json: %w", err)
+	}
+
+	var index struct {
+		Blocks map[string]uint64 `json:"blocks"`
+	}
+	if err := json.Unmarshal(data, &index); err != nil {
+		return fmt.Errorf("failed to unmarshal block_index.json: %w", err)
+	}
+
+	// Check if our genesis hash exists in the index
+	if height, exists := index.Blocks[actualGenesisHash]; exists {
+		if height == 0 {
+			log.Printf("✓ Genesis hash verified in block_index.json: %s", actualGenesisHash)
+			return nil
+		} else {
+			return fmt.Errorf("genesis block has wrong height in index: expected 0, got %d", height)
+		}
+	} else {
+		return fmt.Errorf("genesis hash not found in block_index.json")
+	}
+}
+
+// GetGenesisHashFromIndex reads the actual genesis hash from block_index.json
+func (bc *Blockchain) GetGenesisHashFromIndex() (string, error) {
+	indexFile := filepath.Join(bc.storage.GetIndexDir(), "block_index.json")
+
+	// Check if file exists
+	if _, err := os.Stat(indexFile); os.IsNotExist(err) {
+		return "", fmt.Errorf("block_index.json does not exist")
+	}
+
+	data, err := os.ReadFile(indexFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to read block_index.json: %w", err)
+	}
+
+	var index struct {
+		Blocks map[string]uint64 `json:"blocks"`
+	}
+	if err := json.Unmarshal(data, &index); err != nil {
+		return "", fmt.Errorf("failed to unmarshal block_index.json: %w", err)
+	}
+
+	// Find the block with height 0 (genesis)
+	for hash, height := range index.Blocks {
+		if height == 0 {
+			return hash, nil
+		}
+	}
+
+	return "", fmt.Errorf("no genesis block found in block_index.json")
+}
+
+// PrintBlockIndex prints the current block_index.json contents
+func (bc *Blockchain) PrintBlockIndex() {
+	indexFile := filepath.Join(bc.storage.GetIndexDir(), "block_index.json")
+
+	data, err := os.ReadFile(indexFile)
+	if err != nil {
+		log.Printf("Error reading block_index.json: %v", err)
+		return
+	}
+
+	var index map[string]interface{}
+	if err := json.Unmarshal(data, &index); err != nil {
+		log.Printf("Error unmarshaling block_index.json: %v", err)
+		return
+	}
+
+	formatted, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		log.Printf("Error formatting block_index.json: %v", err)
+		return
+	}
+
+	log.Printf("Current block_index.json contents:")
+	log.Printf("%s", string(formatted))
 }
 
 // GetTransactionByID retrieves a transaction by its ID

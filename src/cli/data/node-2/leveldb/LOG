@@ -1,0 +1,8 @@
+=============== Nov 16, 2025 (WIB) ===============
+05:08:02.344280 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+05:08:02.374566 db@open opening
+05:08:02.375143 version@stat F·[] S·0B[] Sc·[]
+05:08:02.388297 db@janitor F·2 G·0
+05:08:02.388360 db@open done T·13.750106ms
+05:08:12.891927 db@close closing
+05:08:12.891985 db@close done T·55.959µs

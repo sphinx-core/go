@@ -54,6 +54,20 @@ type Storage struct {
 	totalBlocks   uint64
 }
 
+// ChainParams represents basic chain parameters for storage
+type ChainParams struct {
+	ChainID       uint64
+	ChainName     string
+	Symbol        string
+	GenesisTime   int64
+	GenesisHash   string
+	Version       string
+	MagicNumber   uint32
+	DefaultPort   int
+	BIP44CoinType uint64
+	LedgerName    string
+}
+
 // GetBlockByHeight returns a block by its height
 func (s *Storage) GetBlockByHeight(height uint64) (*types.Block, error) {
 	// Simple implementation - iterate through blocks to find by height
@@ -72,6 +86,11 @@ func (s *Storage) GetBlockByHeight(height uint64) (*types.Block, error) {
 	}
 
 	return nil, fmt.Errorf("block at height %d not found", height)
+}
+
+// GetIndexDir returns the index directory path
+func (s *Storage) GetIndexDir() string {
+	return s.indexDir
 }
 
 // GetTransaction returns a transaction by ID
@@ -137,10 +156,10 @@ func (s *Storage) GetAllBlocks() ([]*types.Block, error) {
 }
 
 // GetTotalBlocks returns the total number of blocks
-func (s *Storage) GetTotalBlocks() uint64 { // Change from int to uint64
+func (s *Storage) GetTotalBlocks() uint64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.totalBlocks // This is already uint64, so it matches perfectly
+	return s.totalBlocks
 }
 
 // NewStorage creates a new storage instance
@@ -153,7 +172,7 @@ func NewStorage(dataDir string) (*Storage, error) {
 		blockIndex:    make(map[string]*types.Block),
 		heightIndex:   make(map[uint64]*types.Block),
 		txIndex:       make(map[string]*types.Transaction),
-		totalBlocks:   0, // This is already uint64
+		totalBlocks:   0,
 		bestBlockHash: "",
 	}
 
@@ -180,7 +199,8 @@ func NewStorage(dataDir string) (*Storage, error) {
 }
 
 // SaveCompleteChainState saves the complete chain state including test results
-func (s *Storage) SaveCompleteChainState(chainState *ChainState) error {
+// Now accepts chainParams to avoid import cycle
+func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *ChainParams, walletPaths map[string]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -205,6 +225,46 @@ func (s *Storage) SaveCompleteChainState(chainState *ChainState) error {
 		LastUpdated:   time.Now().Format(time.RFC3339),
 	}
 
+	// CRITICAL FIX: Update ChainIdentification with actual genesis hash
+	if chainParams != nil {
+		// Update the genesis hash in ChainIdentification to use actual hash
+		if chainState.ChainIdentification == nil {
+			chainState.ChainIdentification = &ChainIdentification{
+				Timestamp: time.Now().Format(time.RFC3339),
+				ChainParams: map[string]interface{}{
+					"chain_id":     chainParams.ChainID,
+					"chain_name":   chainParams.ChainName,
+					"symbol":       chainParams.Symbol,
+					"genesis_time": chainParams.GenesisTime,
+					"genesis_hash": chainParams.GenesisHash, // ACTUAL hash here
+					"version":      chainParams.Version,
+					"magic_number": chainParams.MagicNumber,
+					"default_port": chainParams.DefaultPort,
+					"bip44_type":   chainParams.BIP44CoinType,
+				},
+				TokenInfo: map[string]interface{}{
+					"ledger_name": chainParams.LedgerName,
+				},
+				WalletPaths: walletPaths,
+				NetworkInfo: map[string]interface{}{
+					"network_name": "Sphinx Mainnet",
+					"protocol":     "SPX/1.0.0",
+				},
+			}
+		} else {
+			// Update existing ChainIdentification with actual genesis hash
+			if chainState.ChainIdentification.ChainParams == nil {
+				chainState.ChainIdentification.ChainParams = make(map[string]interface{})
+			}
+			chainState.ChainIdentification.ChainParams["genesis_hash"] = chainParams.GenesisHash
+			chainState.ChainIdentification.ChainParams["chain_id"] = chainParams.ChainID
+			chainState.ChainIdentification.ChainParams["chain_name"] = chainParams.ChainName
+			chainState.ChainIdentification.ChainParams["symbol"] = chainParams.Symbol
+			chainState.ChainIdentification.ChainParams["genesis_time"] = chainParams.GenesisTime
+			chainState.ChainIdentification.ChainParams["version"] = chainParams.Version
+		}
+	}
+
 	// Save to chain_state.json in state directory
 	stateFile := filepath.Join(s.stateDir, "chain_state.json")
 	data, err := json.MarshalIndent(chainState, "", "  ")
@@ -222,17 +282,7 @@ func (s *Storage) SaveCompleteChainState(chainState *ChainState) error {
 		return fmt.Errorf("failed to rename chain state file: %w", err)
 	}
 
-	// Remove basic_chain_state.json if it exists (clean up old file)
-	basicStateFile := filepath.Join(s.stateDir, "basic_chain_state.json")
-	if _, err := os.Stat(basicStateFile); err == nil {
-		if err := os.Remove(basicStateFile); err != nil {
-			log.Printf("Warning: Failed to remove old basic_chain_state.json: %v", err)
-		} else {
-			log.Printf("Removed old basic_chain_state.json file")
-		}
-	}
-
-	log.Printf("Complete chain state saved to: %s", stateFile)
+	log.Printf("Complete chain state saved with actual genesis hash: %s", stateFile)
 	return nil
 }
 
@@ -398,6 +448,88 @@ func (s *Storage) ValidateChain() error {
 		}
 
 		prevBlock = block
+	}
+
+	return nil
+}
+
+// Helper method to get actual genesis hash from block_index.json
+func (s *Storage) GetActualGenesisHash() (string, error) {
+	indexFile := filepath.Join(s.indexDir, "block_index.json")
+
+	data, err := os.ReadFile(indexFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to read block_index.json: %w", err)
+	}
+
+	var index struct {
+		Blocks map[string]uint64 `json:"blocks"`
+	}
+	if err := json.Unmarshal(data, &index); err != nil {
+		return "", fmt.Errorf("failed to unmarshal block_index.json: %w", err)
+	}
+
+	// Find the block with height 0 (genesis)
+	for hash, height := range index.Blocks {
+		if height == 0 {
+			return hash, nil
+		}
+	}
+
+	return "", fmt.Errorf("no genesis block found in block_index.json")
+}
+
+// FixChainStateGenesisHash updates any hardcoded genesis hash in chain_state.json with actual hash
+func (s *Storage) FixChainStateGenesisHash() error {
+	stateFile := filepath.Join(s.stateDir, "chain_state.json")
+
+	// Check if file exists
+	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
+		return nil // No chain state to fix
+	}
+
+	// Read existing chain state
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		return fmt.Errorf("failed to read chain state file: %w", err)
+	}
+
+	var chainState ChainState
+	if err := json.Unmarshal(data, &chainState); err != nil {
+		return fmt.Errorf("failed to unmarshal chain state: %w", err)
+	}
+
+	// Get actual genesis hash
+	actualHash, err := s.GetActualGenesisHash()
+	if err != nil {
+		return fmt.Errorf("failed to get actual genesis hash: %w", err)
+	}
+
+	// Fix hardcoded genesis hash if found
+	if chainState.ChainIdentification != nil && chainState.ChainIdentification.ChainParams != nil {
+		if genesisHash, exists := chainState.ChainIdentification.ChainParams["genesis_hash"]; exists {
+			if genesisHashStr, ok := genesisHash.(string); ok && genesisHashStr == "sphinx-genesis-2024" {
+				chainState.ChainIdentification.ChainParams["genesis_hash"] = actualHash
+				log.Printf("Fixed hardcoded genesis hash in chain_state.json: %s", actualHash)
+
+				// Save the fixed chain state
+				data, err := json.MarshalIndent(chainState, "", "  ")
+				if err != nil {
+					return fmt.Errorf("failed to marshal fixed chain state: %w", err)
+				}
+
+				tmpFile := stateFile + ".tmp"
+				if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+					return fmt.Errorf("failed to write fixed chain state file: %w", err)
+				}
+
+				if err := os.Rename(tmpFile, stateFile); err != nil {
+					return fmt.Errorf("failed to rename fixed chain state file: %w", err)
+				}
+
+				log.Printf("Successfully updated chain_state.json with actual genesis hash")
+			}
+		}
 	}
 
 	return nil
