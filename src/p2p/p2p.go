@@ -36,6 +36,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sphinx-core/go/src/consensus"
 	"github.com/sphinx-core/go/src/core"
 	types "github.com/sphinx-core/go/src/core/transaction"
 	"github.com/sphinx-core/go/src/dht"
@@ -242,7 +243,17 @@ func (s *Server) handleMessages() {
 				log.Printf("Invalid transaction data")
 			}
 		case "block":
-			if block, ok := msg.Data.(types.Block); ok {
+			if block, ok := msg.Data.(*types.Block); ok {
+				// Validate the block first
+				if err := block.Validate(); err != nil {
+					log.Printf("Block validation failed: %v", err)
+					if originID != "" {
+						s.peerManager.UpdatePeerScore(originID, -10)
+					}
+					continue
+				}
+
+				// Add transactions from the block
 				for _, tx := range block.Body.TxsList {
 					if err := s.blockchain.AddTransaction(tx); err != nil {
 						log.Printf("Failed to add block transaction %s: %v", tx.ID, err)
@@ -252,19 +263,44 @@ func (s *Server) handleMessages() {
 						continue
 					}
 				}
-				if err := s.blockchain.AddBlock(); err != nil {
-					log.Printf("Failed to create block: %v", err)
+
+				// Commit the block using the new method
+				if err := s.blockchain.CommitBlock(block); err != nil {
+					log.Printf("Failed to commit block: %v", err)
 					if originID != "" {
 						s.peerManager.UpdatePeerScore(originID, -10)
 					}
 					continue
 				}
+
 				s.peerManager.PropagateMessage(msg, originID)
 				if originID != "" {
 					s.peerManager.UpdatePeerScore(originID, 10)
 				}
 			} else {
 				log.Printf("Invalid block data")
+			}
+		case "proposal": // New case for consensus proposals
+			if proposal, ok := msg.Data.(*consensus.Proposal); ok {
+				// Handle consensus proposal - check if consensus is initialized
+				if s.consensus != nil {
+					if err := s.consensus.HandleProposal(proposal); err != nil {
+						log.Printf("Failed to handle consensus proposal: %v", err)
+					}
+				} else {
+					log.Printf("Consensus not initialized, ignoring proposal")
+				}
+			}
+		case "vote": // New case for consensus votes
+			if vote, ok := msg.Data.(*consensus.Vote); ok {
+				// Handle consensus vote - check if consensus is initialized
+				if s.consensus != nil {
+					if err := s.consensus.HandleVote(vote); err != nil {
+						log.Printf("Failed to handle consensus vote: %v", err)
+					}
+				} else {
+					log.Printf("Consensus not initialized, ignoring vote")
+				}
 			}
 		case "ping":
 			if pingData, ok := msg.Data.(network.PingData); ok {
@@ -390,6 +426,21 @@ func (s *Server) handleMessages() {
 			}
 		}
 	}
+}
+
+// InitializeConsensus initializes the consensus module for this server
+func (s *Server) InitializeConsensus(consensus *consensus.Consensus) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.consensus = consensus
+	log.Printf("Consensus module initialized for node %s", s.localNode.ID)
+}
+
+// GetConsensus returns the consensus instance (if initialized)
+func (s *Server) GetConsensus() *consensus.Consensus {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.consensus
 }
 
 // assignTransactionRoles assigns Sender and Receiver roles based on transaction.

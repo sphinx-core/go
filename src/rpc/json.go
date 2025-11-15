@@ -309,6 +309,7 @@ func (h *JSONRPCHandler) getBestBlockHash(_ interface{}) (interface{}, error) {
 	return fmt.Sprintf("%x", hash), nil
 }
 
+// rpc/json.go – getBlock method
 func (h *JSONRPCHandler) getBlock(params interface{}) (interface{}, error) {
 	var paramsArray []string
 	if err := h.parseParams(params, &paramsArray); err != nil {
@@ -317,14 +318,11 @@ func (h *JSONRPCHandler) getBlock(params interface{}) (interface{}, error) {
 	if len(paramsArray) < 1 {
 		return nil, errors.New("missing block hash parameter")
 	}
-	hashStr := paramsArray[0]
-	hashBytes, err := hex.DecodeString(hashStr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid block hash: %v", err)
-	}
-	block, err := h.server.blockchain.GetBlockByHash(hashBytes)
-	if err != nil {
-		return nil, err
+	hashStr := paramsArray[0] // <-- hex string from JSON-RPC
+	// Use the new string-based GetBlockByHash (no []byte conversion)
+	block := h.server.blockchain.GetBlockByHash(hashStr)
+	if block == nil {
+		return nil, errors.New("block not found")
 	}
 	return block, nil
 }

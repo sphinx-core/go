@@ -64,7 +64,19 @@ func GetServer(name string) *Server {
 
 func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string, db *leveldb.DB, readyCh chan struct{}, role network.NodeRole) *Server {
 	messageCh := make(chan *security.Message, 100)
-	blockchain := core.NewBlockchain()
+
+	// FIX: Pass all required parameters to NewBlockchain
+	dataDir := fmt.Sprintf("data/blockchain-%s", strings.Replace(p2pAddr, ":", "-", -1))
+	nodeID := fmt.Sprintf("node-%s", strings.Replace(p2pAddr, ":", "-", -1))
+
+	// Create a list of validators (in a real scenario, this would come from config)
+	validators := []string{nodeID} // Single validator for now
+
+	blockchain, err := core.NewBlockchain(dataDir, nodeID, validators)
+	if err != nil {
+		log.Fatalf("Failed to create blockchain: %v", err)
+	}
+
 	rpcServer := rpc.NewServer(messageCh, blockchain)
 
 	// Validate p2pAddr format and extract port
@@ -72,13 +84,13 @@ func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string, db *le
 	if len(parts) != 2 {
 		log.Fatalf("Invalid p2pAddr format: %s, expected IP:port", p2pAddr)
 	}
-	udpPort := parts[1] // Extract just the port number
+	udpPort := parts[1]
 
 	// Create NodePortConfig for p2p.NewServer
 	config := network.NodePortConfig{
 		Name:      "Node-" + udpPort,
 		TCPAddr:   tcpAddr,
-		UDPPort:   udpPort, // Use only the port number
+		UDPPort:   udpPort,
 		HTTPPort:  httpAddr,
 		WSPort:    wsAddr,
 		SeedNodes: seeds,

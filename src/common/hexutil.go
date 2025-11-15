@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/common/hexutil.go
 package common
 
 import (
@@ -109,4 +110,14 @@ func ValidateAddress(address string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// Bytes2Hex converts bytes to hexadecimal string
+func Bytes2Hex(b []byte) string {
+	return hex.EncodeToString(b)
+}
+
+// Hex2Bytes converts hexadecimal string to bytes
+func Hex2Bytes(s string) ([]byte, error) {
+	return hex.DecodeString(s)
 }

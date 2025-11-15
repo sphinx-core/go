@@ -36,3 +36,8 @@ type Config struct {
 	dataDir    string
 	nodeIndex  int
 }
+
+// TestConfig holds the parameters that the test harness uses.
+type TestConfig struct {
+	NumNodes int // number of validator nodes to spin up (default 3)
+}

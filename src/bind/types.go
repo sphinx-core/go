@@ -24,6 +24,7 @@
 package bind
 
 import (
+	"github.com/sphinx-core/go/src/consensus"
 	"github.com/sphinx-core/go/src/core"
 	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/http"
@@ -56,12 +57,14 @@ type NodeSetupConfig struct {
 
 // NodeResources holds the initialized resources for a node.
 type NodeResources struct {
-	Blockchain      *core.Blockchain
-	MessageCh       chan *security.Message
-	RPCServer       *rpc.Server
-	P2PServer       *p2p.Server
-	PublicKey       string
-	TCPServer       *transport.TCPServer
-	WebSocketServer *transport.WebSocketServer
-	HTTPServer      *http.Server // Use custom http.Server
+	Blockchain           *core.Blockchain
+	NodeManager          *network.NodeManager
+	ConsensusNodeManager consensus.NodeManager // Add this if needed
+	MessageCh            chan *security.Message
+	RPCServer            *rpc.Server
+	P2PServer            *p2p.Server
+	PublicKey            string
+	TCPServer            *transport.TCPServer
+	WebSocketServer      *transport.WebSocketServer
+	HTTPServer           *http.Server
 }

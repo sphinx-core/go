@@ -30,9 +30,10 @@ import (
 
 // BlockHeader represents the metadata for a block in the blockchain.
 type BlockHeader struct {
-	Block      uint64   `json:"nblock"`      // The position of the block in the blockchain (index)
-	Timestamp  int64    `json:"timestamp"`   // The timestamp when the block is mined
-	PrevHash   []byte   `json:"prev_hash"`   // Hash of the previous block (direct predecessor)
+	Block      uint64   `json:"nblock"`    // The position of the block in the blockchain (index)
+	Timestamp  int64    `json:"timestamp"` // The timestamp when the block is mined
+	PrevHash   []byte   `json:"prev_hash"` // Hash of the previous block (direct predecessor)
+	Hash       []byte   `json:"hash"`
 	Difficulty *big.Int `json:"difficulty"`  // Difficulty level of mining the block
 	Nonce      uint64   `json:"nonce"`       // The nonce used in mining
 	TxsRoot    []byte   `json:"txs_root"`    // Merkle root of the transactions in the block
@@ -121,4 +122,9 @@ type Contract struct {
 type Validator struct {
 	senderAddress    string
 	recipientAddress string
+}
+
+// GetHash returns the transaction ID (hash)
+func (tx *Transaction) GetHash() string {
+	return tx.ID
 }

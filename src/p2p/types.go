@@ -28,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sphinx-core/go/src/consensus"
 	"github.com/sphinx-core/go/src/core"
 	sign "github.com/sphinx-core/go/src/core/sphincs/sign/backend"
 	security "github.com/sphinx-core/go/src/handshake"
@@ -49,6 +50,7 @@ type Server struct {
 	stopCh      chan struct{} // Channel to signal stop
 	udpReadyCh  chan struct{} // Channel to signal UDP readiness
 	dht         network.DHT   // Add DHT field
+	consensus   *consensus.Consensus
 }
 
 func (s *Server) LocalNode() *network.Node {
