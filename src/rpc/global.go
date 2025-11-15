@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2024 sphinx-core
+// # Copyright (c) 2024 sphinx-core
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -20,50 +20,40 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/core/transaction/interface.go
-package types
+// go/src/rpc/global.go
+package rpc
 
-import (
-	"encoding/hex"
-	"errors"
-	"math/big"
+// Standard JSON-RPC error codes.
+const (
+	ErrCodeParseError     = -32700 // Invalid JSON
+	ErrCodeInvalidRequest = -32600 // Not a valid JSON-RPC request
+	ErrCodeMethodNotFound = -32601 // Method does not exist
+	ErrCodeInvalidParams  = -32602 // Invalid parameters
+	ErrCodeInternalError  = -32603 // Internal server error
 )
 
-// Ensure your Block type has these methods to implement consensus.Block
-func (b *Block) GetHeight() uint64 {
-	return b.Header.Block
-}
-
-func (b *Block) GetHash() string {
-	return hex.EncodeToString(b.Header.Hash)
-}
-
-func (b *Block) GetPrevHash() string {
-	return hex.EncodeToString(b.Header.PrevHash)
-}
-
-func (b *Block) GetTimestamp() int64 {
-	return b.Header.Timestamp
-}
-
-func (b *Block) Validate() error {
-	// Your existing block validation logic
-	if b.Header.Block == 0 && len(b.Header.PrevHash) != 0 {
-		return errors.New("genesis block must have empty previous hash")
-	}
-	if b.Header.Block > 0 && len(b.Header.PrevHash) == 0 {
-		return errors.New("non-genesis block must have previous hash")
-	}
-	return nil
-}
-
-func (b *Block) GetDifficulty() *big.Int {
-	if b.Header.Difficulty != nil {
-		return b.Header.Difficulty
-	}
-	return big.NewInt(1)
-}
-
-func (b *Block) GetBody() *BlockBody {
-	return &b.Body
-}
+// RPC message types.
+const (
+	RPCGetBlockCount RPCType = iota
+	RPCGetBestBlockHash
+	RPCGetBlock
+	RPCGetBlocks
+	RPCSendRawTransaction
+	RPCGetTransaction
+	RPCPing
+	RPCJoin
+	RPCFindNode
+	RPCGet
+	RPCStore
+	RPCGetBlockByNumber
+	RPCGetBlockHash
+	RPCGetDifficulty
+	RPCGetChainTip
+	RPCGetNetworkInfo
+	RPCGetMiningInfo
+	RPCEstimateFee
+	RPCGetMemPoolInfo
+	RPCValidateAddress
+	RPCVerifyMessage
+	RPCGetRawTransaction
+)

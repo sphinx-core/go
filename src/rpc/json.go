@@ -30,17 +30,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sphinx-core/go/src/core"
 	types "github.com/sphinx-core/go/src/core/transaction"
 	security "github.com/sphinx-core/go/src/handshake"
-)
-
-// Standard JSON-RPC error codes.
-const (
-	ErrCodeParseError     = -32700 // Invalid JSON
-	ErrCodeInvalidRequest = -32600 // Not a valid JSON-RPC request
-	ErrCodeMethodNotFound = -32601 // Method does not exist
-	ErrCodeInvalidParams  = -32602 // Invalid parameters
-	ErrCodeInternalError  = -32603 // Internal server error
 )
 
 // NewJSONRPCHandler creates a new JSON-RPC handler with registered methods.
@@ -49,12 +41,168 @@ func NewJSONRPCHandler(server *Server) *JSONRPCHandler {
 		server:  server,
 		methods: make(map[string]RPCHandler),
 	}
-	handler.registerMethods()
+	handler.registerMethods() // Register all supported RPC methods
 	return handler
 }
 
-// registerMethods registers supported RPC methods.
+// getBlockByNumber retrieves a block by its height (number)
+func (h *JSONRPCHandler) getBlockByNumber(params interface{}) (interface{}, error) {
+	var paramsArray []interface{}
+	if err := h.parseParams(params, &paramsArray); err != nil {
+		return nil, err // Failed to parse parameters
+	}
+	if len(paramsArray) < 1 {
+		return nil, errors.New("missing block number parameter") // Require at least one parameter
+	}
+
+	height, ok := paramsArray[0].(float64)
+	if !ok {
+		return nil, errors.New("invalid block number parameter") // Height must be numeric
+	}
+
+	// Use the direct method that returns *types.Block (not wrapped)
+	block := h.server.blockchain.GetBlockByNumber(uint64(height))
+	if block == nil {
+		return nil, errors.New("block not found") // Block does not exist at this height
+	}
+	return block, nil
+}
+
+// getBlockHash returns the hash of a block at a given height
+func (h *JSONRPCHandler) getBlockHash(params interface{}) (interface{}, error) {
+	var paramsArray []interface{}
+	if err := h.parseParams(params, &paramsArray); err != nil {
+		return nil, err
+	}
+	if len(paramsArray) < 1 {
+		return nil, errors.New("missing block height parameter")
+	}
+
+	height, ok := paramsArray[0].(float64)
+	if !ok {
+		return nil, errors.New("invalid block height parameter")
+	}
+
+	hash := h.server.blockchain.GetBlockHash(uint64(height))
+	if hash == "" {
+		return nil, errors.New("block not found")
+	}
+	return hash, nil
+}
+
+// getDifficulty returns the current network difficulty as a string
+func (h *JSONRPCHandler) getDifficulty(_ interface{}) (interface{}, error) {
+	return h.server.blockchain.GetDifficulty().String(), nil
+}
+
+// getChainTip returns information about the current chain tip (latest block)
+func (h *JSONRPCHandler) getChainTip(_ interface{}) (interface{}, error) {
+	return h.server.blockchain.GetChainTip(), nil
+}
+
+// getNetworkInfo returns network-related statistics and configuration
+func (h *JSONRPCHandler) getNetworkInfo(_ interface{}) (interface{}, error) {
+	return h.server.blockchain.GetNetworkInfo(), nil
+}
+
+// getMiningInfo returns mining-related statistics
+func (h *JSONRPCHandler) getMiningInfo(_ interface{}) (interface{}, error) {
+	return h.server.blockchain.GetMiningInfo(), nil
+}
+
+// estimateFee estimates the transaction fee per byte for confirmation within N blocks
+func (h *JSONRPCHandler) estimateFee(params interface{}) (interface{}, error) {
+	var paramsArray []interface{}
+	if err := h.parseParams(params, &paramsArray); err != nil {
+		return nil, err
+	}
+
+	blocks := 6 // default
+	if len(paramsArray) > 0 {
+		if blocksParam, ok := paramsArray[0].(float64); ok {
+			blocks = int(blocksParam) // Override default if provided
+		}
+	}
+
+	return h.server.blockchain.EstimateFee(blocks), nil
+}
+
+// getMemPoolInfo returns statistics about the memory pool
+func (h *JSONRPCHandler) getMemPoolInfo(_ interface{}) (interface{}, error) {
+	return h.server.blockchain.GetMemPoolInfo(), nil
+}
+
+// validateAddress checks if a given address is valid according to network rules
+func (h *JSONRPCHandler) validateAddress(params interface{}) (interface{}, error) {
+	var paramsArray []string
+	if err := h.parseParams(params, &paramsArray); err != nil {
+		return nil, err
+	}
+	if len(paramsArray) < 1 {
+		return nil, errors.New("missing address parameter")
+	}
+
+	isValid := h.server.blockchain.ValidateAddress(paramsArray[0])
+	return map[string]interface{}{
+		"isvalid": isValid,
+		"address": paramsArray[0],
+	}, nil
+}
+
+// verifyMessage verifies a cryptographic signature for a message and address
+func (h *JSONRPCHandler) verifyMessage(params interface{}) (interface{}, error) {
+	var paramsStruct struct {
+		Address   string `json:"address"`
+		Signature string `json:"signature"`
+		Message   string `json:"message"`
+	}
+	if err := h.parseParams(params, &paramsStruct); err != nil {
+		return nil, err
+	}
+
+	isValid := h.server.blockchain.VerifyMessage(
+		paramsStruct.Address,
+		paramsStruct.Signature,
+		paramsStruct.Message,
+	)
+
+	return map[string]interface{}{
+		"verified": isValid,
+	}, nil
+}
+
+// getRawTransaction returns raw transaction data, optionally in verbose format
+func (h *JSONRPCHandler) getRawTransaction(params interface{}) (interface{}, error) {
+	var paramsArray []interface{}
+	if err := h.parseParams(params, &paramsArray); err != nil {
+		return nil, err
+	}
+	if len(paramsArray) < 1 {
+		return nil, errors.New("missing transaction ID parameter")
+	}
+
+	txID, ok := paramsArray[0].(string)
+	if !ok {
+		return nil, errors.New("invalid transaction ID parameter")
+	}
+
+	verbose := false
+	if len(paramsArray) > 1 {
+		if verboseParam, ok := paramsArray[1].(bool); ok {
+			verbose = verboseParam // Second param controls verbosity
+		}
+	}
+
+	result := h.server.blockchain.GetRawTransaction(txID, verbose)
+	if result == nil {
+		return nil, errors.New("transaction not found")
+	}
+	return result, nil
+}
+
+// registerMethods registers all supported RPC methods with their handler functions
 func (h *JSONRPCHandler) registerMethods() {
+	// Existing methods
 	h.methods["getblockcount"] = h.getBlockCount
 	h.methods["getbestblockhash"] = h.getBestBlockHash
 	h.methods["getblock"] = h.getBlock
@@ -66,26 +214,40 @@ func (h *JSONRPCHandler) registerMethods() {
 	h.methods["findnode"] = h.findNode
 	h.methods["get"] = h.get
 	h.methods["store"] = h.store
+
+	// New blockchain methods
+	h.methods["getblockbynumber"] = h.getBlockByNumber
+	h.methods["getblockhash"] = h.getBlockHash
+	h.methods["getdifficulty"] = h.getDifficulty
+	h.methods["getchaintip"] = h.getChainTip
+	h.methods["getnetworkinfo"] = h.getNetworkInfo
+	h.methods["getmininginfo"] = h.getMiningInfo
+	h.methods["estimatefee"] = h.estimateFee
+	h.methods["getmempoolinfo"] = h.getMemPoolInfo
+	h.methods["validateaddress"] = h.validateAddress
+	h.methods["verifymessage"] = h.verifyMessage
+	h.methods["getrawtransaction"] = h.getRawTransaction
 }
 
 // ProcessRequest processes a JSON-RPC request or batch of requests.
+// It first attempts to parse as binary Message, then falls back to JSON-RPC.
 func (h *JSONRPCHandler) ProcessRequest(data []byte) ([]byte, error) {
 	// Try to parse as a Message (binary format)
 	var msg Message
 	if err := msg.Unmarshal(data); err == nil {
-		return h.processBinaryMessage(msg)
+		return h.processBinaryMessage(msg) // Handle binary protocol message
 	}
 
 	// Fallback to JSON-RPC
 	var singleReq JSONRPCRequest
 	if err := json.Unmarshal(data, &singleReq); err == nil && singleReq.JSONRPC == "2.0" {
-		return h.processSingleRequest(singleReq)
+		return h.processSingleRequest(singleReq) // Handle single JSON-RPC request
 	}
 
 	// Try to parse as a batch request
 	var batchReq []JSONRPCRequest
 	if err := json.Unmarshal(data, &batchReq); err == nil && len(batchReq) > 0 {
-		return h.processBatchRequest(batchReq)
+		return h.processBatchRequest(batchReq) // Handle batch of JSON-RPC requests
 	}
 
 	return h.errorResponse(nil, ErrCodeParseError, "Parse error: invalid JSON or binary format")
@@ -95,9 +257,9 @@ func (h *JSONRPCHandler) ProcessRequest(data []byte) ([]byte, error) {
 func (h *JSONRPCHandler) processBinaryMessage(msg Message) ([]byte, error) {
 	start := time.Now()
 	method := msg.RPCType.String()
-	h.server.metrics.RequestCount.WithLabelValues(method).Inc()
+	h.server.metrics.RequestCount.WithLabelValues(method).Inc() // Increment request counter
 	defer func() {
-		h.server.metrics.RequestLatency.WithLabelValues(method).Observe(time.Since(start).Seconds())
+		h.server.metrics.RequestLatency.WithLabelValues(method).Observe(time.Since(start).Seconds()) // Record latency
 	}()
 
 	// Validate TTL
@@ -212,7 +374,7 @@ func (h *JSONRPCHandler) processBatchRequest(reqs []JSONRPCRequest) ([]byte, err
 	for _, req := range reqs {
 		respData, err := h.processSingleRequest(req)
 		if err != nil {
-			continue
+			continue // Skip failed requests in batch
 		}
 		var resp JSONRPCResponse
 		if err := json.Unmarshal(respData, &resp); err != nil {
@@ -264,6 +426,28 @@ func (h *JSONRPCHandler) mapRPCTypeToMethod(rpcType RPCType) (string, error) {
 		return "get", nil
 	case RPCStore:
 		return "store", nil
+	case RPCGetBlockByNumber:
+		return "getblockbynumber", nil
+	case RPCGetBlockHash:
+		return "getblockhash", nil
+	case RPCGetDifficulty:
+		return "getdifficulty", nil
+	case RPCGetChainTip:
+		return "getchaintip", nil
+	case RPCGetNetworkInfo:
+		return "getnetworkinfo", nil
+	case RPCGetMiningInfo:
+		return "getmininginfo", nil
+	case RPCEstimateFee:
+		return "estimatefee", nil
+	case RPCGetMemPoolInfo:
+		return "getmempoolinfo", nil
+	case RPCValidateAddress:
+		return "validateaddress", nil
+	case RPCVerifyMessage:
+		return "verifymessage", nil
+	case RPCGetRawTransaction:
+		return "getrawtransaction", nil
 	default:
 		return "", ErrUnsupportedRPCType
 	}
@@ -294,22 +478,47 @@ func (t RPCType) String() string {
 		return "get"
 	case RPCStore:
 		return "store"
+	case RPCGetBlockByNumber:
+		return "getblockbynumber"
+	case RPCGetBlockHash:
+		return "getblockhash"
+	case RPCGetDifficulty:
+		return "getdifficulty"
+	case RPCGetChainTip:
+		return "getchaintip"
+	case RPCGetNetworkInfo:
+		return "getnetworkinfo"
+	case RPCGetMiningInfo:
+		return "getmininginfo"
+	case RPCEstimateFee:
+		return "estimatefee"
+	case RPCGetMemPoolInfo:
+		return "getmempoolinfo"
+	case RPCValidateAddress:
+		return "validateaddress"
+	case RPCVerifyMessage:
+		return "verifymessage"
+	case RPCGetRawTransaction:
+		return "getrawtransaction"
 	default:
 		return "unknown"
 	}
 }
 
 // RPC Method Handlers
+
+// getBlockCount returns the current block height
 func (h *JSONRPCHandler) getBlockCount(_ interface{}) (interface{}, error) {
 	return h.server.blockchain.GetBlockCount(), nil
 }
 
+// getBestBlockHash returns the hash of the best (tip) block
 func (h *JSONRPCHandler) getBestBlockHash(_ interface{}) (interface{}, error) {
 	hash := h.server.blockchain.GetBestBlockHash()
 	return fmt.Sprintf("%x", hash), nil
 }
 
-// rpc/json.go – getBlock method
+// getBlock retrieves a block by its hash
 func (h *JSONRPCHandler) getBlock(params interface{}) (interface{}, error) {
 	var paramsArray []string
 	if err := h.parseParams(params, &paramsArray); err != nil {
@@ -318,19 +527,28 @@ func (h *JSONRPCHandler) getBlock(params interface{}) (interface{}, error) {
 	if len(paramsArray) < 1 {
 		return nil, errors.New("missing block hash parameter")
 	}
-	hashStr := paramsArray[0] // <-- hex string from JSON-RPC
-	// Use the new string-based GetBlockByHash (no []byte conversion)
+	hashStr := paramsArray[0]
+
+	// Get block using the consensus interface
 	block := h.server.blockchain.GetBlockByHash(hashStr)
 	if block == nil {
 		return nil, errors.New("block not found")
 	}
+
+	// Convert back to types.Block for JSON serialization
+	if adapter, ok := block.(*core.BlockHelper); ok {
+		return adapter.GetUnderlyingBlock(), nil
+	}
+
 	return block, nil
 }
 
+// getBlocks returns a list of recent blocks
 func (h *JSONRPCHandler) getBlocks(_ interface{}) (interface{}, error) {
 	return h.server.blockchain.GetBlocks(), nil
 }
 
+// sendRawTransaction broadcasts a signed transaction to the network
 func (h *JSONRPCHandler) sendRawTransaction(params interface{}) (interface{}, error) {
 	var paramsArray []string
 	if err := h.parseParams(params, &paramsArray); err != nil {
@@ -349,15 +567,16 @@ func (h *JSONRPCHandler) sendRawTransaction(params interface{}) (interface{}, er
 		return nil, fmt.Errorf("invalid transaction format: %v", err)
 	}
 	if tx.ID == "" {
-		tx.ID = tx.Hash()
+		tx.ID = tx.Hash() // Compute ID if not present
 	}
 	if err := h.server.blockchain.AddTransaction(&tx); err != nil {
 		return nil, err
 	}
-	h.server.messageCh <- &security.Message{Type: "transaction", Data: &tx}
+	h.server.messageCh <- &security.Message{Type: "transaction", Data: &tx} // Broadcast via network
 	return map[string]string{"txid": tx.ID}, nil
 }
 
+// getTransaction retrieves a transaction by its ID
 func (h *JSONRPCHandler) getTransaction(params interface{}) (interface{}, error) {
 	var paramsArray []string
 	if err := h.parseParams(params, &paramsArray); err != nil {
@@ -367,25 +586,26 @@ func (h *JSONRPCHandler) getTransaction(params interface{}) (interface{}, error)
 		return nil, errors.New("missing transaction ID parameter")
 	}
 	txID := paramsArray[0]
-	txIDBytes, err := hex.DecodeString(txID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid transaction ID: %v", err)
-	}
-	tx, err := h.server.blockchain.GetTransactionByID(txIDBytes)
+
+	// Use the string-based method
+	tx, err := h.server.blockchain.GetTransactionByIDString(txID)
 	if err != nil {
 		return nil, err
 	}
 	return tx, nil
 }
 
+// ping responds to health checks
 func (h *JSONRPCHandler) ping(params interface{}) (interface{}, error) {
 	return map[string]string{"status": "pong"}, nil
 }
 
+// join acknowledges node joining the network
 func (h *JSONRPCHandler) join(params interface{}) (interface{}, error) {
 	return map[string]string{"status": "joined"}, nil
 }
 
+// findNode locates a node by its ID (placeholder implementation)
 func (h *JSONRPCHandler) findNode(params interface{}) (interface{}, error) {
 	var paramsArray []string
 	if err := h.parseParams(params, &paramsArray); err != nil {
@@ -405,6 +625,7 @@ func (h *JSONRPCHandler) findNode(params interface{}) (interface{}, error) {
 	return map[string]string{"nodeID": nodeIDStr}, nil
 }
 
+// get retrieves stored values by key from the DHT
 func (h *JSONRPCHandler) get(params interface{}) (interface{}, error) {
 	var paramsArray []string
 	if err := h.parseParams(params, &paramsArray); err != nil {
@@ -432,6 +653,7 @@ func (h *JSONRPCHandler) get(params interface{}) (interface{}, error) {
 	return map[string]interface{}{"values": hexValues}, nil
 }
 
+// store saves a value under a key with optional TTL
 func (h *JSONRPCHandler) store(params interface{}) (interface{}, error) {
 	var paramsStruct struct {
 		Key   string `json:"key"`
@@ -458,6 +680,7 @@ func (h *JSONRPCHandler) store(params interface{}) (interface{}, error) {
 	return map[string]string{"status": "stored"}, nil
 }
 
+// parseParams safely converts interface{} params into a target struct or slice
 func (h *JSONRPCHandler) parseParams(params interface{}, target interface{}) error {
 	if params == nil {
 		return errors.New("missing parameters")

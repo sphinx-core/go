@@ -59,21 +59,6 @@ func GetRPCID() RPCID {
 // RPCType defines the type of RPC message.
 type RPCType int8
 
-// RPC message types.
-const (
-	RPCGetBlockCount RPCType = iota
-	RPCGetBestBlockHash
-	RPCGetBlock
-	RPCGetBlocks
-	RPCSendRawTransaction
-	RPCGetTransaction
-	RPCPing
-	RPCJoin
-	RPCFindNode
-	RPCGet
-	RPCStore
-)
-
 // Remote represents a remote node's address and ID.
 type Remote struct {
 	NodeID  NodeID

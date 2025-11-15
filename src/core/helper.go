@@ -20,24 +20,57 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/state/interface.go
-package state
+// go/src/core/helper.go
+package core
 
 import (
+	"math/big"
+
+	"github.com/sphinx-core/go/src/consensus"
 	types "github.com/sphinx-core/go/src/core/transaction"
 )
 
-// Ensure Storage implements BlockStorage
-var _ BlockStorage = (*Storage)(nil)
+// BlockAdapter wraps types.Block to implement consensus.Block interface
+type BlockHelper struct {
+	block *types.Block
+}
 
-// BlockStorage defines the interface for block storage operations
-type BlockStorage interface {
-	StoreBlock(block *types.Block) error
-	GetBlockByHash(hash string) (*types.Block, error)
-	GetBlockByHeight(height uint64) (*types.Block, error)
-	GetLatestBlock() (*types.Block, error)
-	GetTransaction(txID string) (*types.Transaction, error)
-	GetTotalBlocks() uint64 // Changed from int to uint64
-	ValidateChain() error
-	Close() error
+// NewBlockAdapter creates a new adapter for types.Block
+func NewBlockHelper(block *types.Block) consensus.Block {
+	return &BlockHelper{block: block}
+}
+
+// GetHeight returns the block height
+func (a *BlockHelper) GetHeight() uint64 {
+	return a.block.GetHeight()
+}
+
+// GetHash returns the block hash
+func (a *BlockHelper) GetHash() string {
+	return a.block.GetHash()
+}
+
+// GetPrevHash returns the previous block hash
+func (a *BlockHelper) GetPrevHash() string {
+	return a.block.GetPrevHash()
+}
+
+// GetTimestamp returns the block timestamp
+func (a *BlockHelper) GetTimestamp() int64 {
+	return a.block.GetTimestamp()
+}
+
+// Validate validates the block
+func (a *BlockHelper) Validate() error {
+	return a.block.Validate()
+}
+
+// GetDifficulty returns the block difficulty
+func (a *BlockHelper) GetDifficulty() *big.Int {
+	return a.block.GetDifficulty()
+}
+
+// GetUnderlyingBlock returns the underlying types.Block
+func (a *BlockHelper) GetUnderlyingBlock() *types.Block {
+	return a.block
 }

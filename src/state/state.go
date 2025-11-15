@@ -54,6 +54,95 @@ type Storage struct {
 	totalBlocks   uint64
 }
 
+// GetBlockByHeight returns a block by its height
+func (s *Storage) GetBlockByHeight(height uint64) (*types.Block, error) {
+	// Simple implementation - iterate through blocks to find by height
+	// In production, you'd maintain a height index
+
+	// Get all blocks (you'll need to implement this)
+	blocks, err := s.GetAllBlocks()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, block := range blocks {
+		if block.GetHeight() == height {
+			return block, nil
+		}
+	}
+
+	return nil, fmt.Errorf("block at height %d not found", height)
+}
+
+// GetTransaction returns a transaction by ID
+func (s *Storage) GetTransaction(txID string) (*types.Transaction, error) {
+	// Search through all blocks for the transaction
+	blocks, err := s.GetAllBlocks()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, block := range blocks {
+		for _, tx := range block.Body.TxsList {
+			if tx.ID == txID {
+				return tx, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("transaction %s not found", txID)
+}
+
+// GetAllBlocks returns all blocks in storage
+func (s *Storage) GetAllBlocks() ([]*types.Block, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var blocks []*types.Block
+
+	if s.totalBlocks == 0 {
+		return blocks, nil // No blocks
+	}
+
+	// Iterate through height index to get all blocks in order
+	for height := uint64(0); height < s.totalBlocks; height++ {
+		block, exists := s.heightIndex[height]
+		if !exists {
+			// Try to load from disk
+			// First, we need to find the hash for this height
+			var blockHash string
+			for hash, b := range s.blockIndex {
+				if b.GetHeight() == height {
+					blockHash = hash
+					break
+				}
+			}
+			if blockHash == "" {
+				log.Printf("Warning: Missing block at height %d", height)
+				continue
+			}
+
+			block, err := s.loadBlockFromDisk(blockHash)
+			if err != nil {
+				log.Printf("Warning: Could not load block at height %d: %v", height, err)
+				continue
+			}
+			blocks = append(blocks, block)
+		} else {
+			blocks = append(blocks, block)
+		}
+	}
+
+	return blocks, nil
+}
+
+// GetTotalBlocks returns the total number of blocks
+func (s *Storage) GetTotalBlocks() uint64 { // Change from int to uint64
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.totalBlocks // This is already uint64, so it matches perfectly
+}
+
 // NewStorage creates a new storage instance
 func NewStorage(dataDir string) (*Storage, error) {
 	storage := &Storage{
@@ -64,7 +153,7 @@ func NewStorage(dataDir string) (*Storage, error) {
 		blockIndex:    make(map[string]*types.Block),
 		heightIndex:   make(map[uint64]*types.Block),
 		txIndex:       make(map[string]*types.Transaction),
-		totalBlocks:   0,
+		totalBlocks:   0, // This is already uint64
 		bestBlockHash: "",
 	}
 
@@ -255,26 +344,6 @@ func (s *Storage) GetBlockByHash(hash string) (*types.Block, error) {
 	return block, nil
 }
 
-// GetBlockByHeight retrieves a block by its height
-func (s *Storage) GetBlockByHeight(height uint64) (*types.Block, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Try in-memory index first
-	if block, exists := s.heightIndex[height]; exists {
-		return block, nil
-	}
-
-	// Need to search by height (this is less efficient)
-	for _, block := range s.blockIndex {
-		if block.GetHeight() == height {
-			return block, nil
-		}
-	}
-
-	return nil, fmt.Errorf("block at height %d not found", height)
-}
-
 // GetLatestBlock returns the latest block in the chain
 func (s *Storage) GetLatestBlock() (*types.Block, error) {
 	s.mu.RLock()
@@ -290,36 +359,6 @@ func (s *Storage) GetLatestBlock() (*types.Block, error) {
 	}
 
 	return block, nil
-}
-
-// GetTransaction retrieves a transaction by ID
-func (s *Storage) GetTransaction(txID string) (*types.Transaction, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Try in-memory index first
-	if tx, exists := s.txIndex[txID]; exists {
-		return tx, nil
-	}
-
-	// Search through blocks (this is expensive, consider maintaining a separate tx index file)
-	for _, block := range s.blockIndex {
-		for _, tx := range block.Body.TxsList {
-			if tx.ID == txID {
-				s.txIndex[txID] = tx // Cache for future
-				return tx, nil
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("transaction %s not found", txID)
-}
-
-// GetTotalBlocks returns the total number of blocks stored
-func (s *Storage) GetTotalBlocks() uint64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.totalBlocks
 }
 
 // GetBestBlockHash returns the hash of the best block

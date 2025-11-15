@@ -27,6 +27,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -268,6 +269,7 @@ func (bc *Blockchain) SetConsensusEngine(engine *consensus.Consensus) {
 }
 
 // StartLeaderLoop starts a goroutine that proposes blocks when this node is leader
+// StartLeaderLoop starts a goroutine that proposes blocks when this node is leader
 func (bc *Blockchain) StartLeaderLoop(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Second) // Increased from 5 to 10 seconds
@@ -313,7 +315,9 @@ func (bc *Blockchain) StartLeaderLoop(ctx context.Context) {
 				log.Printf("Leader %s proposing block at height %d with %d transactions",
 					bc.consensusEngine.GetNodeID(), block.GetHeight(), len(block.Body.TxsList))
 
-				if err := bc.consensusEngine.ProposeBlock(block); err != nil {
+				// Convert to consensus.Block using adapter
+				consensusBlock := NewBlockHelper(block)
+				if err := bc.consensusEngine.ProposeBlock(consensusBlock); err != nil {
 					log.Printf("Leader: failed to propose block: %v", err)
 				} else {
 					log.Printf("Leader: block proposal sent successfully")
@@ -374,8 +378,6 @@ func (bc *Blockchain) SetSyncMode(mode SyncMode) {
 }
 
 // ImportBlock imports a new block into the blockchain with result tracking
-// block: The block to import
-// Returns BlockImportResult indicating the import outcome
 func (bc *Blockchain) ImportBlock(block *types.Block) BlockImportResult {
 	// Check if blockchain is in running state
 	if bc.GetStatus() != StatusRunning {
@@ -398,7 +400,9 @@ func (bc *Blockchain) ImportBlock(block *types.Block) BlockImportResult {
 	}
 
 	// Try to commit the block through state machine replication
-	if err := bc.CommitBlock(block); err != nil {
+	// Convert to consensus.Block using adapter
+	consensusBlock := NewBlockHelper(block)
+	if err := bc.CommitBlock(consensusBlock); err != nil {
 		log.Printf("Block commit failed: %v", err)
 		return ImportError
 	}
@@ -714,15 +718,14 @@ func (bc *Blockchain) calculateStateRoot() []byte {
 }
 
 // CommitBlock commits a block through state machine replication
-// block: The block to commit to the blockchain
-// Returns error if block proposal for replication fails
-// This initiates the consensus process for the block across all validators
-// Update the CommitBlock method to accept consensus.Block instead of *types.Block
 func (bc *Blockchain) CommitBlock(block consensus.Block) error {
-	// Type assertion to convert consensus.Block to *types.Block
-	typeBlock, ok := block.(*types.Block)
-	if !ok {
-		return fmt.Errorf("invalid block type: expected *types.Block, got %T", block)
+	// Extract the underlying types.Block from adapter
+	var typeBlock *types.Block
+	switch b := block.(type) {
+	case *BlockHelper:
+		typeBlock = b.GetUnderlyingBlock()
+	default:
+		return fmt.Errorf("invalid block type: expected *BlockAdapter, got %T", block)
 	}
 
 	// Check if blockchain is in running state
@@ -851,9 +854,6 @@ func (bc *Blockchain) createGenesisBlock() error {
 }
 
 // GetTransactionByID retrieves a transaction by its ID
-// txID: The transaction identifier to look up
-// Returns the transaction if found, error if not found
-// Searches in-memory index first, then falls back to storage
 func (bc *Blockchain) GetTransactionByID(txID []byte) (*types.Transaction, error) {
 	bc.lock.RLock()         // Acquire read lock for thread-safe access
 	defer bc.lock.RUnlock() // Ensure lock is released when function exits
@@ -870,32 +870,227 @@ func (bc *Blockchain) GetTransactionByID(txID []byte) (*types.Transaction, error
 	return tx, nil
 }
 
-// GetLatestBlock returns the head of the chain
-// Returns the most recent block in the blockchain
-// Returns nil if chain is empty (should not happen after genesis)
-// GetLatestBlock satisfies consensus.BlockChain
-// GetLatestBlock satisfies consensus.BlockChain
+// GetTransactionByID retrieves a transaction by its ID (string version)
+func (bc *Blockchain) GetTransactionByIDString(txIDStr string) (*types.Transaction, error) {
+	// Convert string to []byte for the existing method
+	txIDBytes, err := hex.DecodeString(txIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid transaction ID: %v", err)
+	}
+
+	// Call the existing byte-based method
+	return bc.GetTransactionByID(txIDBytes)
+}
+
+// GetLatestBlock returns the head of the chain with adapter
 func (bc *Blockchain) GetLatestBlock() consensus.Block {
 	block, err := bc.storage.GetLatestBlock()
 	if err != nil || block == nil {
 		return nil
 	}
-	return block
+	return NewBlockHelper(block)
 }
 
-// GetBlockByHash returns a block given its hash
-// hash: The block hash to search for
-// Returns the block if found, error if not found
-// Delegates to storage layer which may search disk or cache
-// GetBlockByHash satisfies consensus.BlockChain (hash is a hex string)
-// GetBlockByHash satisfies consensus.BlockChain (hash is a **hex string**)
-func (bc *Blockchain) GetBlockByHash(hash string) consensus.Block {
-	// storage uses hex strings internally
-	block, err := bc.storage.GetBlockByHash(hash)
+// GetBlockByNumber returns a block by its height/number
+func (bc *Blockchain) GetBlockByNumber(height uint64) *types.Block {
+	bc.lock.RLock()
+	defer bc.lock.RUnlock()
+
+	// Search in-memory chain first
+	for _, block := range bc.chain {
+		if block.GetHeight() == height {
+			return block
+		}
+	}
+
+	// Fall back to storage
+	block, err := bc.storage.GetBlockByHeight(height)
 	if err != nil {
+		log.Printf("Error getting block by height %d: %v", height, err)
 		return nil
 	}
 	return block
+}
+
+// GetBlockByHash returns a block by its hash with adapter
+func (bc *Blockchain) GetBlockByHash(hash string) consensus.Block {
+	block, err := bc.storage.GetBlockByHash(hash)
+	if err != nil || block == nil {
+		return nil
+	}
+	return NewBlockHelper(block)
+}
+
+// GetBlockHash returns the block hash for a given height
+func (bc *Blockchain) GetBlockHash(height uint64) string {
+	block := bc.GetBlockByNumber(height)
+	if block == nil {
+		return ""
+	}
+	return block.GetHash()
+}
+
+// GetDifficulty returns the current network difficulty
+func (bc *Blockchain) GetDifficulty() *big.Int {
+	latest := bc.GetLatestBlock()
+	if latest == nil {
+		return big.NewInt(1)
+	}
+	return latest.GetDifficulty()
+}
+
+// GetChainTip returns information about the current chain tip
+func (bc *Blockchain) GetChainTip() map[string]interface{} {
+	latest := bc.GetLatestBlock()
+	if latest == nil {
+		return nil
+	}
+
+	return map[string]interface{}{
+		"height":    latest.GetHeight(),
+		"hash":      latest.GetHash(),
+		"timestamp": latest.GetTimestamp(),
+	}
+}
+
+// ValidateAddress validates if an address is properly formatted
+func (bc *Blockchain) ValidateAddress(address string) bool {
+	// Basic address validation - extend with your specific format
+	if len(address) != 40 { // Adjust based on your address format
+		return false
+	}
+	_, err := hex.DecodeString(address)
+	return err == nil
+}
+
+// GetNetworkInfo returns network information
+func (bc *Blockchain) GetNetworkInfo() map[string]interface{} {
+	params := bc.GetChainParams()
+	latest := bc.GetLatestBlock()
+
+	info := map[string]interface{}{
+		"version":          params.Version,
+		"chain":            params.ChainName,
+		"chain_id":         params.ChainID,
+		"protocol_version": "1.0.0",
+		"symbol":           params.Symbol,
+	}
+
+	if latest != nil {
+		info["blocks"] = latest.GetHeight()
+		info["best_block_hash"] = latest.GetHash()
+		info["difficulty"] = bc.GetDifficulty().String()
+		info["median_time"] = latest.GetTimestamp()
+	}
+
+	return info
+}
+
+// GetMiningInfo returns mining-related information
+func (bc *Blockchain) GetMiningInfo() map[string]interface{} {
+	latest := bc.GetLatestBlock()
+
+	info := map[string]interface{}{
+		"blocks":         0,
+		"current_weight": 0,
+		"difficulty":     bc.GetDifficulty().String(),
+		"network_hashps": big.NewInt(0).String(),
+	}
+
+	if latest != nil {
+		info["blocks"] = latest.GetHeight()
+		info["current_block_weight"] = 0 // Calculate based on block size
+
+		// Use adapter to access body for transaction count
+		if adapter, ok := latest.(*BlockHelper); ok {
+			block := adapter.GetUnderlyingBlock()
+			info["current_block_tx"] = len(block.Body.TxsList)
+		} else {
+			info["current_block_tx"] = 0
+		}
+	}
+
+	return info
+}
+
+// EstimateFee estimates transaction fee (placeholder implementation)
+func (bc *Blockchain) EstimateFee(blocks int) map[string]interface{} {
+	// Basic fee estimation - enhance with mempool analysis
+	baseFee := big.NewInt(1000000) // 0.01 SPX in base units
+
+	return map[string]interface{}{
+		"feerate": baseFee.String(),
+		"blocks":  blocks,
+		"estimates": map[string]interface{}{
+			"conservative": baseFee.String(),
+			"economic":     baseFee.String(),
+		},
+	}
+}
+
+// GetMemPoolInfo returns mempool information
+func (bc *Blockchain) GetMemPoolInfo() map[string]interface{} {
+	bc.lock.RLock()
+	defer bc.lock.RUnlock()
+
+	totalSize := 0
+	for _, tx := range bc.pendingTx {
+		// Estimate transaction size
+		txData, _ := json.Marshal(tx)
+		totalSize += len(txData)
+	}
+
+	return map[string]interface{}{
+		"size":            len(bc.pendingTx),
+		"bytes":           totalSize,
+		"usage":           totalSize * 2, // Rough memory usage estimate
+		"max_mempool":     300000000,     // 300MB default
+		"mempool_min_fee": "0.00001000",  // Minimum fee rate
+	}
+}
+
+// VerifyMessage verifies a signed message (placeholder)
+func (bc *Blockchain) VerifyMessage(address, signature, message string) bool {
+	// Implement message verification logic
+	// This would verify that the signature was created by the address
+	// for the given message
+
+	log.Printf("Message verification requested - address: %s, message: %s", address, message)
+	return true // Placeholder - implement proper crypto verification
+}
+
+// GetRawTransaction returns raw transaction data
+// GetRawTransaction returns raw transaction data
+func (bc *Blockchain) GetRawTransaction(txID string, verbose bool) interface{} {
+	// Use the string-based method, not the byte-based one
+	tx, err := bc.GetTransactionByIDString(txID) // Fixed: use String version
+	if err != nil {
+		return nil
+	}
+
+	if !verbose {
+		// Return hex-encoded raw transaction
+		txData, err := json.Marshal(tx)
+		if err != nil {
+			return nil
+		}
+		return hex.EncodeToString(txData)
+	}
+
+	// Return verbose transaction info
+	return map[string]interface{}{
+		"txid":          tx.ID,
+		"hash":          tx.Hash(),
+		"version":       1,
+		"size":          len(tx.ID) / 2, // Rough size estimate
+		"locktime":      0,
+		"vin":           []interface{}{}, // Inputs - adapt to your transaction format
+		"vout":          []interface{}{}, // Outputs - adapt to your transaction format
+		"blockhash":     "",              // Would need to track which block contains this tx
+		"confirmations": 0,
+		"time":          time.Now().Unix(),
+		"blocktime":     time.Now().Unix(),
+	}
 }
 
 // GetBestBlockHash returns the hash of the active chain's tip
@@ -955,17 +1150,16 @@ func (bc *Blockchain) Close() error {
 	return bc.storage.Close()
 }
 
-// Implement consensus.BlockChain interface
-// ValidateBlock validates a block against blockchain rules
-// block: The block to validate
-// Returns error if block is invalid according to consensus rules
-// This method satisfies the consensus.BlockChain interface requirement
-// ValidateBlock validates a block against blockchain rules
-// go/src/core/blockchain.go
-
 // ValidateBlock validates a block against blockchain rules
 func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
-	b := block.(*types.Block)
+	// Extract the underlying types.Block from adapter
+	var b *types.Block
+	switch blk := block.(type) {
+	case *BlockHelper:
+		b = blk.GetUnderlyingBlock()
+	default:
+		return fmt.Errorf("invalid block type: expected *BlockAdapter, got %T", block)
+	}
 
 	// 1. Structural sanity
 	if err := b.SanityCheck(); err != nil {
