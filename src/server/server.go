@@ -72,7 +72,8 @@ func NewServer(tcpAddr, wsAddr, httpAddr, p2pAddr string, seeds []string, db *le
 	// Create a list of validators (in a real scenario, this would come from config)
 	validators := []string{nodeID} // Single validator for now
 
-	blockchain, err := core.NewBlockchain(dataDir, nodeID, validators)
+	// ADD NETWORK TYPE PARAMETER
+	blockchain, err := core.NewBlockchain(dataDir, nodeID, validators, "devnet")
 	if err != nil {
 		log.Fatalf("Failed to create blockchain: %v", err)
 	}

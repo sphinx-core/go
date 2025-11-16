@@ -30,16 +30,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/sphinx-core/go/src/common"
 	"github.com/sphinx-core/go/src/consensus"
 	types "github.com/sphinx-core/go/src/core/transaction"
+	logger "github.com/sphinx-core/go/src/log"
+	"github.com/sphinx-core/go/src/pool"
 	storage "github.com/sphinx-core/go/src/state"
 )
 
@@ -124,37 +125,7 @@ func (bc *Blockchain) CalculateBlockSize(block *types.Block) uint64 {
 
 	// Transactions size
 	for _, tx := range block.Body.TxsList {
-		size += bc.CalculateTransactionSize(tx)
-	}
-
-	return size
-}
-
-// CalculateTransactionSize calculates the approximate size of a transaction
-func (bc *Blockchain) CalculateTransactionSize(tx *types.Transaction) uint64 {
-	// Basic fields
-	size := uint64(len(tx.Sender) + len(tx.Receiver))
-
-	// Amount size (big.Int)
-	if tx.Amount != nil {
-		size += uint64(len(tx.Amount.Bytes()))
-	}
-
-	// Gas fields
-	if tx.GasLimit != nil {
-		size += uint64(len(tx.GasLimit.Bytes()))
-	}
-	if tx.GasPrice != nil {
-		size += uint64(len(tx.GasPrice.Bytes()))
-	}
-
-	// Nonce and other fields
-	size += 8 // for Nonce (uint64)
-	size += uint64(len(tx.ID))
-
-	// Include signature if it exists
-	if tx.Signature != nil {
-		size += uint64(len(tx.Signature))
+		size += bc.mempool.CalculateTransactionSize(tx)
 	}
 
 	return size
@@ -175,7 +146,7 @@ func (bc *Blockchain) ValidateBlockSize(block *types.Block) error {
 
 	// Also validate individual transactions
 	for i, tx := range block.Body.TxsList {
-		txSize := bc.CalculateTransactionSize(tx)
+		txSize := bc.mempool.CalculateTransactionSize(tx)
 		maxTxSize := bc.chainParams.MaxTransactionSize
 
 		if txSize > maxTxSize {
@@ -187,7 +158,6 @@ func (bc *Blockchain) ValidateBlockSize(block *types.Block) error {
 }
 
 // SaveChainState saves the chain state with the actual genesis hash
-// This should be called after blockchain initialization to ensure chain_state.json has the correct hash
 func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo, testSummary *storage.TestSummary) error {
 	if bc.chainParams == nil {
 		return fmt.Errorf("chain parameters not initialized")
@@ -199,7 +169,7 @@ func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo, testSummary *st
 		ChainName:     bc.chainParams.ChainName,
 		Symbol:        bc.chainParams.Symbol,
 		GenesisTime:   bc.chainParams.GenesisTime,
-		GenesisHash:   bc.chainParams.GenesisHash, // This now has actual hash
+		GenesisHash:   bc.chainParams.GenesisHash,
 		Version:       bc.chainParams.Version,
 		MagicNumber:   bc.chainParams.MagicNumber,
 		DefaultPort:   bc.chainParams.DefaultPort,
@@ -229,7 +199,7 @@ func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo, testSummary *st
 	// Fix any existing hardcoded hashes
 	bc.storage.FixChainStateGenesisHash()
 
-	log.Printf("Chain state saved with genesis hash: %s", bc.chainParams.GenesisHash)
+	logger.Info("Chain state saved with genesis hash: %s", bc.chainParams.GenesisHash)
 	return nil
 }
 
@@ -259,7 +229,7 @@ func (bc *Blockchain) VerifyState() error {
 					return fmt.Errorf("chain state genesis hash mismatch: expected %s, got %s",
 						bc.chainParams.GenesisHash, genesisHashStr)
 				}
-				log.Printf("✓ Chain state verified: genesis hash matches")
+				logger.Info("✓ Chain state verified: genesis hash matches")
 				return nil
 			}
 		}
@@ -269,12 +239,7 @@ func (bc *Blockchain) VerifyState() error {
 }
 
 // NewBlockchain creates a blockchain with state machine replication
-// dataDir: Directory path for storing blockchain data
-// nodeID: Unique identifier for this node in the network
-// validators: List of validator node IDs that participate in consensus
-// Returns a new Blockchain instance or error if initialization fails
-// NewBlockchain creates a blockchain with state machine replication
-func NewBlockchain(dataDir string, nodeID string, validators []string) (*Blockchain, error) {
+func NewBlockchain(dataDir string, nodeID string, validators []string, networkType string) (*Blockchain, error) {
 	// Initialize storage layer for persistent block storage
 	store, err := storage.NewStorage(dataDir)
 	if err != nil {
@@ -284,16 +249,19 @@ func NewBlockchain(dataDir string, nodeID string, validators []string) (*Blockch
 	// Initialize state machine for Byzantine Fault Tolerance replication
 	stateMachine := storage.NewStateMachine(store, nodeID, validators)
 
-	// Create blockchain with empty chain params for now
+	// Create blockchain with mempool (will be configured after chain params are set)
 	blockchain := &Blockchain{
-		storage:         store,                               // Persistent storage for blocks
-		stateMachine:    stateMachine,                        // State machine for consensus replication
-		txIndex:         make(map[string]*types.Transaction), // In-memory transaction index
-		pendingTx:       []*types.Transaction{},              // Pending transactions waiting to be included in blocks
-		status:          StatusInitializing,                  // Start in initializing state
-		syncMode:        SyncModeFull,                        // Default to full sync mode
-		consensusEngine: nil,                                 // Will be set later
-		chainParams:     nil,                                 // Will be set after genesis creation
+		storage:         store,
+		stateMachine:    stateMachine,
+		mempool:         nil, // Will be initialized after chain params
+		chain:           []*types.Block{},
+		txIndex:         make(map[string]*types.Transaction),
+		pendingTx:       []*types.Transaction{},
+		lock:            sync.RWMutex{},
+		status:          StatusInitializing,
+		syncMode:        SyncModeFull,
+		consensusEngine: nil,
+		chainParams:     nil,
 	}
 
 	// Load existing chain from storage or create genesis block if new chain
@@ -304,19 +272,42 @@ func NewBlockchain(dataDir string, nodeID string, validators []string) (*Blockch
 	// Now that we have the genesis block, set the chain params with actual hash
 	if len(blockchain.chain) > 0 {
 		genesisHash := blockchain.chain[0].GetHash()
-		blockchain.chainParams = GetSphinxChainParams(genesisHash)
-		log.Printf("Chain parameters initialized with actual genesis hash: %s", genesisHash)
+
+		// Select network type
+		var chainParams *SphinxChainParameters
+		switch networkType {
+		case "testnet":
+			chainParams = GetTestnetChainParams(genesisHash)
+		case "devnet":
+			chainParams = GetDevnetChainParams(genesisHash)
+		default:
+			chainParams = GetSphinxChainParams(genesisHash)
+		}
+
+		blockchain.chainParams = chainParams
+
+		// Validate chain parameters
+		if err := ValidateChainParams(chainParams); err != nil {
+			return nil, fmt.Errorf("invalid chain parameters: %w", err)
+		}
+
+		// Initialize mempool with configuration from chain params
+		mempoolConfig := GetMempoolConfigFromChainParams(chainParams)
+		blockchain.mempool = pool.NewMempool(mempoolConfig)
+
+		logger.Info("Chain parameters initialized for %s: genesis_hash=%s",
+			chainParams.GetNetworkName(), genesisHash)
 
 		// Verify the genesis hash is properly stored in block_index.json
 		if err := blockchain.verifyGenesisHashInIndex(); err != nil {
-			log.Printf("Warning: Genesis hash verification failed: %v", err)
+			logger.Warn("Warning: Genesis hash verification failed: %v", err)
 		}
 
 		// AUTO-SAVE: Save chain state with actual genesis hash
 		if err := blockchain.SaveBasicChainState(); err != nil {
-			log.Printf("Warning: Failed to auto-save chain state: %v", err)
+			logger.Warn("Warning: Failed to auto-save chain state: %v", err)
 		} else {
-			log.Printf("Auto-saved chain state")
+			logger.Info("Auto-saved chain state")
 		}
 	}
 
@@ -328,9 +319,10 @@ func NewBlockchain(dataDir string, nodeID string, validators []string) (*Blockch
 	// Update status to running after successful initialization
 	blockchain.status = StatusRunning
 
-	log.Printf("Blockchain initialized with status: %s, sync mode: %s, genesis hash: %s",
+	logger.Info("Blockchain initialized with status: %s, sync mode: %s, network: %s, genesis hash: %s",
 		blockchain.StatusString(blockchain.status),
 		blockchain.SyncModeString(blockchain.syncMode),
+		blockchain.chainParams.GetNetworkName(),
 		blockchain.chainParams.GenesisHash)
 
 	return blockchain, nil
@@ -339,6 +331,11 @@ func NewBlockchain(dataDir string, nodeID string, validators []string) (*Blockch
 // GetStorage returns the storage instance for external access
 func (bc *Blockchain) GetStorage() *storage.Storage {
 	return bc.storage
+}
+
+// GetMempool returns the mempool instance
+func (bc *Blockchain) GetMempool() *pool.Mempool {
+	return bc.mempool
 }
 
 // GetChainParams returns the Sphinx blockchain parameters for external recognition
@@ -358,12 +355,15 @@ func (bc *Blockchain) GetChainInfo() map[string]interface{} {
 		blockHash = latestBlock.GetHash()
 	}
 
+	// Use the correct network name based on chain parameters
+	networkName := params.GetNetworkName()
+
 	return map[string]interface{}{
 		"chain_id":        params.ChainID,
 		"chain_name":      params.ChainName,
 		"symbol":          params.Symbol,
 		"genesis_time":    params.GenesisTime,
-		"genesis_hash":    params.GenesisHash, // Now contains actual hash
+		"genesis_hash":    params.GenesisHash,
 		"version":         params.Version,
 		"magic_number":    fmt.Sprintf("0x%x", params.MagicNumber),
 		"default_port":    params.DefaultPort,
@@ -371,7 +371,7 @@ func (bc *Blockchain) GetChainInfo() map[string]interface{} {
 		"ledger_name":     params.LedgerName,
 		"current_height":  blockHeight,
 		"latest_block":    blockHash,
-		"network":         "Sphinx Mainnet",
+		"network":         networkName, // Use the correct network name
 	}
 }
 
@@ -423,8 +423,8 @@ func (bc *Blockchain) GetWalletDerivationPaths() map[string]string {
 	params := bc.GetChainParams()
 	return map[string]string{
 		"BIP44":  fmt.Sprintf("m/44'/%d'/0'/0/0", params.BIP44CoinType),
-		"BIP49":  fmt.Sprintf("m/49'/%d'/0'/0/0", params.BIP44CoinType), // SegWit
-		"BIP84":  fmt.Sprintf("m/84'/%d'/0'/0/0", params.BIP44CoinType), // Native SegWit
+		"BIP49":  fmt.Sprintf("m/49'/%d'/0'/0/0", params.BIP44CoinType),
+		"BIP84":  fmt.Sprintf("m/84'/%d'/0'/0/0", params.BIP44CoinType),
 		"Ledger": fmt.Sprintf("m/44'/%d'/0'", params.BIP44CoinType),
 		"Trezor": fmt.Sprintf("m/44'/%d'/0'/0/0", params.BIP44CoinType),
 	}
@@ -476,7 +476,7 @@ func (bc *Blockchain) GenerateNetworkInfo() string {
 	)
 }
 
-// Add setter
+// SetConsensusEngine sets the consensus engine
 func (bc *Blockchain) SetConsensusEngine(engine *consensus.Consensus) {
 	bc.consensusEngine = engine
 }
@@ -484,7 +484,7 @@ func (bc *Blockchain) SetConsensusEngine(engine *consensus.Consensus) {
 // StartLeaderLoop starts a goroutine that proposes blocks when this node is leader
 func (bc *Blockchain) StartLeaderLoop(ctx context.Context) {
 	go func() {
-		ticker := time.NewTicker(10 * time.Second) // Increased from 5 to 10 seconds
+		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 
 		for {
@@ -501,38 +501,32 @@ func (bc *Blockchain) StartLeaderLoop(ctx context.Context) {
 					continue
 				}
 
-				// Check if we have pending transactions
-				bc.lock.RLock()
-				hasTxs := len(bc.pendingTx) > 0
-				bc.lock.RUnlock()
-
+				// Check if we have transactions in mempool
+				hasTxs := bc.mempool.GetTransactionCount() > 0
 				if !hasTxs {
-					log.Printf("Leader: no pending transactions to propose")
+					logger.Info("Leader: no pending transactions to propose")
 					continue
 				}
 
-				// Check if we're already in the process of proposing
-				// You might need to add an "isProposing" flag to avoid duplicate proposals
-
-				log.Printf("Leader %s: creating block with %d pending transactions",
-					bc.consensusEngine.GetNodeID(), len(bc.pendingTx))
+				logger.Info("Leader %s: creating block with %d pending transactions",
+					bc.consensusEngine.GetNodeID(), bc.mempool.GetTransactionCount())
 
 				// Create and propose block
 				block, err := bc.CreateBlock()
 				if err != nil {
-					log.Printf("Leader: failed to create block: %v", err)
+					logger.Warn("Leader: failed to create block: %v", err)
 					continue
 				}
 
-				log.Printf("Leader %s proposing block at height %d with %d transactions",
+				logger.Info("Leader %s proposing block at height %d with %d transactions",
 					bc.consensusEngine.GetNodeID(), block.GetHeight(), len(block.Body.TxsList))
 
 				// Convert to consensus.Block using adapter
 				consensusBlock := NewBlockHelper(block)
 				if err := bc.consensusEngine.ProposeBlock(consensusBlock); err != nil {
-					log.Printf("Leader: failed to propose block: %v", err)
+					logger.Warn("Leader: failed to propose block: %v", err)
 				} else {
-					log.Printf("Leader: block proposal sent successfully")
+					logger.Info("Leader: block proposal sent successfully")
 				}
 			}
 		}
@@ -540,7 +534,6 @@ func (bc *Blockchain) StartLeaderLoop(ctx context.Context) {
 }
 
 // GetStatus returns the current blockchain status
-// Returns the current BlockchainStatus constant value
 func (bc *Blockchain) GetStatus() BlockchainStatus {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
@@ -548,30 +541,21 @@ func (bc *Blockchain) GetStatus() BlockchainStatus {
 }
 
 // SetStatus updates the blockchain status
-// status: The new BlockchainStatus to set
 func (bc *Blockchain) SetStatus(status BlockchainStatus) {
 	bc.lock.Lock()
 	defer bc.lock.Unlock()
 	oldStatus := bc.status
 	bc.status = status
-	log.Printf("Blockchain status changed from %s to %s",
+	logger.Info("Blockchain status changed from %s to %s",
 		bc.StatusString(oldStatus), bc.StatusString(status))
 }
 
-// HasPendingTx checks if a transaction is in the pending pool
+// HasPendingTx checks if a transaction is in the mempool
 func (bc *Blockchain) HasPendingTx(hash string) bool {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-	for _, tx := range bc.pendingTx {
-		if tx.ID == hash {
-			return true
-		}
-	}
-	return false
+	return bc.mempool.HasTransaction(hash)
 }
 
 // GetSyncMode returns the current synchronization mode
-// Returns the current SyncMode constant value
 func (bc *Blockchain) GetSyncMode() SyncMode {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
@@ -579,13 +563,12 @@ func (bc *Blockchain) GetSyncMode() SyncMode {
 }
 
 // SetSyncMode updates the synchronization mode
-// mode: The new SyncMode to set
 func (bc *Blockchain) SetSyncMode(mode SyncMode) {
 	bc.lock.Lock()
 	defer bc.lock.Unlock()
 	oldMode := bc.syncMode
 	bc.syncMode = mode
-	log.Printf("Blockchain sync mode changed from %s to %s",
+	logger.Info("Blockchain sync mode changed from %s to %s",
 		bc.SyncModeString(oldMode), bc.SyncModeString(mode))
 }
 
@@ -593,40 +576,37 @@ func (bc *Blockchain) SetSyncMode(mode SyncMode) {
 func (bc *Blockchain) ImportBlock(block *types.Block) BlockImportResult {
 	// Check if blockchain is in running state
 	if bc.GetStatus() != StatusRunning {
-		log.Printf("Cannot import block - blockchain status is %s", bc.StatusString(bc.GetStatus()))
+		logger.Info("Cannot import block - blockchain status is %s", bc.StatusString(bc.GetStatus()))
 		return ImportError
 	}
 
 	// Validate the block before import
 	if err := block.Validate(); err != nil {
-		log.Printf("Block validation failed: %v", err)
+		logger.Warn("Block validation failed: %v", err)
 		return ImportInvalid
 	}
 
 	// Verify block links to current chain
 	latestBlock := bc.GetLatestBlock()
 	if latestBlock != nil && block.GetPrevHash() != latestBlock.GetHash() {
-		log.Printf("Block does not extend current chain: expected prevHash=%s, got prevHash=%s",
+		logger.Info("Block does not extend current chain: expected prevHash=%s, got prevHash=%s",
 			latestBlock.GetHash(), block.GetPrevHash())
 		return ImportedSide
 	}
 
 	// Try to commit the block through state machine replication
-	// Convert to consensus.Block using adapter
 	consensusBlock := NewBlockHelper(block)
 	if err := bc.CommitBlock(consensusBlock); err != nil {
-		log.Printf("Block commit failed: %v", err)
+		logger.Warn("Block commit failed: %v", err)
 		return ImportError
 	}
 
-	log.Printf("Block imported successfully: height=%d, hash=%s",
+	logger.Info("Block imported successfully: height=%d, hash=%s",
 		block.GetHeight(), block.GetHash())
 	return ImportedBest
 }
 
 // ClearCache clears specific caches to free memory
-// cacheType: The type of cache to clear (CacheType constant)
-// Returns error if cache clearing fails
 func (bc *Blockchain) ClearCache(cacheType CacheType) error {
 	bc.lock.Lock()
 	defer bc.lock.Unlock()
@@ -638,30 +618,27 @@ func (bc *Blockchain) ClearCache(cacheType CacheType) error {
 			latestBlock := bc.chain[len(bc.chain)-1]
 			bc.chain = []*types.Block{latestBlock}
 		}
-		log.Printf("Block cache cleared, kept %d blocks in memory", len(bc.chain))
+		logger.Info("Block cache cleared, kept %d blocks in memory", len(bc.chain))
 
 	case CacheTypeTransaction:
-		// Clear transaction index (transactions are in blocks anyway)
+		// Clear transaction index
 		before := len(bc.txIndex)
 		bc.txIndex = make(map[string]*types.Transaction)
-		log.Printf("Transaction cache cleared: removed %d entries", before)
+		logger.Info("Transaction cache cleared: removed %d entries", before)
 
 	case CacheTypeReceipt:
-		// Placeholder for receipt cache (if implemented later)
-		log.Printf("Receipt cache cleared (not implemented)")
+		logger.Info("Receipt cache cleared (not implemented)")
 
 	case CacheTypeState:
-		// Placeholder for state cache (if implemented later)
-		log.Printf("State cache cleared (not implemented)")
+		logger.Info("State cache cleared (not implemented)")
 	}
 
 	return nil
 }
 
 // ClearAllCaches clears all caches to free maximum memory
-// Returns error if cache clearing fails
 func (bc *Blockchain) ClearAllCaches() error {
-	log.Printf("Clearing all blockchain caches")
+	logger.Info("Clearing all blockchain caches")
 
 	// Clear block cache
 	if err := bc.ClearCache(CacheTypeBlock); err != nil {
@@ -677,13 +654,11 @@ func (bc *Blockchain) ClearAllCaches() error {
 	bc.ClearCache(CacheTypeReceipt)
 	bc.ClearCache(CacheTypeState)
 
-	log.Printf("All blockchain caches cleared successfully")
+	logger.Info("All blockchain caches cleared successfully")
 	return nil
 }
 
 // StatusString returns a human-readable string for BlockchainStatus
-// status: The BlockchainStatus constant to convert to string
-// Returns descriptive string for the status
 func (bc *Blockchain) StatusString(status BlockchainStatus) string {
 	switch status {
 	case StatusInitializing:
@@ -702,8 +677,6 @@ func (bc *Blockchain) StatusString(status BlockchainStatus) string {
 }
 
 // SyncModeString returns a human-readable string for SyncMode
-// mode: The SyncMode constant to convert to string
-// Returns descriptive string for the sync mode
 func (bc *Blockchain) SyncModeString(mode SyncMode) string {
 	switch mode {
 	case SyncModeFull:
@@ -718,8 +691,6 @@ func (bc *Blockchain) SyncModeString(mode SyncMode) string {
 }
 
 // ImportResultString returns a human-readable string for BlockImportResult
-// result: The BlockImportResult constant to convert to string
-// Returns descriptive string for the import result
 func (bc *Blockchain) ImportResultString(result BlockImportResult) string {
 	switch result {
 	case ImportedBest:
@@ -738,8 +709,6 @@ func (bc *Blockchain) ImportResultString(result BlockImportResult) string {
 }
 
 // CacheTypeString returns a human-readable string for CacheType
-// cacheType: The CacheType constant to convert to string
-// Returns descriptive string for the cache type
 func (bc *Blockchain) CacheTypeString(cacheType CacheType) string {
 	switch cacheType {
 	case CacheTypeBlock:
@@ -756,91 +725,25 @@ func (bc *Blockchain) CacheTypeString(cacheType CacheType) string {
 }
 
 // SetConsensus sets the consensus module for the state machine
-// consensus: The consensus engine instance that will drive block finalization
-// This connects the consensus algorithm with the state machine replication
 func (bc *Blockchain) SetConsensus(consensus *consensus.Consensus) {
 	bc.stateMachine.SetConsensus(consensus)
 }
 
-// AddTransaction adds a transaction with state machine replication
-// tx: The transaction to add to the blockchain
-// Returns error if transaction validation fails or transaction is duplicate
-// Transaction goes through multiple validation steps before being accepted
-// AddTransaction with size validation
+// AddTransaction now uses the comprehensive mempool
 func (bc *Blockchain) AddTransaction(tx *types.Transaction) error {
-	bc.lock.Lock()
-	defer bc.lock.Unlock()
-
 	if bc.status != StatusRunning {
 		return fmt.Errorf("blockchain not ready to accept transactions, status: %s",
 			bc.StatusString(bc.status))
 	}
 
-	// Validate transaction fields
-	if tx.Sender == "" || tx.Receiver == "" || tx.Amount.Cmp(big.NewInt(0)) <= 0 {
-		return errors.New("invalid transaction: empty sender/receiver or non-positive amount")
+	// Use the new BroadcastTransaction method
+	err := bc.mempool.BroadcastTransaction(tx)
+	if err != nil {
+		return err
 	}
 
-	// Validate transaction size (NEW)
-	if bc.chainParams != nil {
-		txSize := bc.CalculateTransactionSize(tx)
-		if txSize > bc.chainParams.MaxTransactionSize {
-			return fmt.Errorf("transaction size %d exceeds maximum %d bytes",
-				txSize, bc.chainParams.MaxTransactionSize)
-		}
-	}
-
-	// Perform transaction sanity checks (format, signatures, etc.)
-	if err := tx.SanityCheck(); err != nil {
-		return fmt.Errorf("transaction failed sanity check: %w", err)
-	}
-
-	// Compute transaction ID if not already set by client
-	if tx.ID == "" {
-		data := fmt.Sprintf("%s%s%s%s%s%v",
-			tx.Sender, tx.Receiver, tx.Amount.String(),
-			tx.GasLimit.String(), tx.GasPrice.String(), tx.Nonce)
-		tx.ID = hex.EncodeToString(common.SpxHash([]byte(data)))
-	}
-
-	// Check for duplicate transaction to prevent double spending
-	if _, exists := bc.txIndex[tx.ID]; exists {
-		return errors.New("duplicate transaction ID")
-	}
-
-	// Create a Note for validation (placeholder for actual validation logic)
-	note := &types.Note{
-		From:      tx.Sender,
-		To:        tx.Receiver,
-		Fee:       0.01,      // Placeholder fee - would be calculated in production
-		Storage:   "tx-data", // Placeholder storage identifier
-		Timestamp: time.Now().Unix(),
-		MAC:       "placeholder-mac", // Placeholder message authentication code
-		Output: &types.Output{
-			Value:   tx.Amount.Uint64(), // Convert big.Int to uint64 for output
-			Address: tx.Receiver,        // Recipient address
-		},
-	}
-
-	// Validate using Validator (placeholder validation logic)
-	validator := types.NewValidator(tx.Sender, tx.Receiver)
-	if err := validator.Validate(note); err != nil {
-		return fmt.Errorf("transaction validation failed: %w", err)
-	}
-
-	// Add to pending transactions waiting for block inclusion
-	bc.pendingTx = append(bc.pendingTx, tx)
-	bc.txIndex[tx.ID] = tx // Index transaction for fast lookup
-
-	// Propose transaction for state machine replication across all nodes
-	// This ensures all validators see the same transaction order
-	if err := bc.stateMachine.ProposeTransaction(tx); err != nil {
-		log.Printf("Failed to propose transaction for replication: %v", err)
-		// Continue anyway - transaction is still in pending pool for local node
-	}
-
-	log.Printf("Added transaction: ID=%s, Sender=%s, Receiver=%s, Amount=%s, Size=%d bytes",
-		tx.ID, tx.Sender, tx.Receiver, tx.Amount.String(), bc.CalculateTransactionSize(tx))
+	logger.Info("Transaction broadcast to mempool: ID=%s, Sender=%s, Receiver=%s, Amount=%s",
+		tx.ID, tx.Sender, tx.Receiver, tx.Amount.String())
 	return nil
 }
 
@@ -856,11 +759,11 @@ func (bc *Blockchain) GetBlockSizeStats() map[string]interface{} {
 	}
 
 	// Calculate average block size from recent blocks
-	recentBlocks := bc.getRecentBlocks(100) // Last 100 blocks
+	recentBlocks := bc.getRecentBlocks(100)
 	if len(recentBlocks) > 0 {
 		totalSize := uint64(0)
 		maxSize := uint64(0)
-		minSize := ^uint64(0) // Max uint64
+		minSize := ^uint64(0)
 
 		for _, block := range recentBlocks {
 			blockSize := bc.CalculateBlockSize(block)
@@ -878,14 +781,16 @@ func (bc *Blockchain) GetBlockSizeStats() map[string]interface{} {
 		stats["max_block_size_observed"] = maxSize
 		stats["min_block_size_observed"] = minSize
 		stats["blocks_analyzed"] = len(recentBlocks)
-		stats["size_utilization_percent"] = float64(stats["average_block_size"].(uint64)) / float64(bc.chainParams.TargetBlockSize) * 100
+		if bc.chainParams.TargetBlockSize > 0 {
+			stats["size_utilization_percent"] = float64(stats["average_block_size"].(uint64)) / float64(bc.chainParams.TargetBlockSize) * 100
+		}
 	}
 
-	// Current mempool stats
-	bc.lock.RLock()
-	stats["pending_transactions"] = len(bc.pendingTx)
-	stats["mempool_size_bytes"] = bc.calculateMempoolSize()
-	bc.lock.RUnlock()
+	// Get mempool stats
+	mempoolStats := bc.mempool.GetStats()
+	for k, v := range mempoolStats {
+		stats[k] = v
+	}
 
 	return stats
 }
@@ -915,15 +820,6 @@ func (bc *Blockchain) getRecentBlocks(count int) []*types.Block {
 	return blocks
 }
 
-// calculateMempoolSize calculates total size of pending transactions
-func (bc *Blockchain) calculateMempoolSize() uint64 {
-	totalSize := uint64(0)
-	for _, tx := range bc.pendingTx {
-		totalSize += bc.CalculateTransactionSize(tx)
-	}
-	return totalSize
-}
-
 // GetBlocksizeInfo returns detailed blocksize information for RPC/API
 func (bc *Blockchain) GetBlocksizeInfo() map[string]interface{} {
 	info := make(map[string]interface{})
@@ -951,7 +847,8 @@ func (bc *Blockchain) GetBlocksizeInfo() map[string]interface{} {
 	return info
 }
 
-// CreateBlock creates a new block with size constraints and ensures TxsRoot = MerkleRoot
+// CreateBlock creates a new block with transactions from mempool
+// CreateBlock creates a new block with transactions from mempool
 func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 	bc.lock.Lock()
 	defer bc.lock.Unlock()
@@ -961,26 +858,26 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 			bc.StatusString(bc.status))
 	}
 
-	if len(bc.pendingTx) == 0 {
-		return nil, errors.New("no pending transactions")
-	}
-
 	// Get the latest block
 	prevBlock, err := bc.storage.GetLatestBlock()
 	if err != nil || prevBlock == nil {
 		return nil, fmt.Errorf("no previous block found: %v", err)
 	}
 
-	// Select transactions within block size limits
-	selectedTxs, totalSize := bc.selectTransactionsForBlock()
+	// Select transactions from mempool within block size limits
+	selectedTxs, totalSize := bc.mempool.SelectTransactionsForBlock(
+		bc.chainParams.MaxBlockSize,
+		bc.chainParams.TargetBlockSize,
+	)
+
 	if len(selectedTxs) == 0 {
 		return nil, errors.New("no transactions fit within block size limits")
 	}
 
-	log.Printf("Creating block with %d transactions, estimated size: %d bytes",
+	logger.Info("Creating block with %d transactions, estimated size: %d bytes",
 		len(selectedTxs), totalSize)
 
-	// Calculate roots - ENSURE TxsRoot is calculated from Merkle tree
+	// Calculate roots
 	txsRoot := bc.calculateTransactionsRoot(selectedTxs)
 	stateRoot := bc.calculateStateRoot()
 
@@ -994,9 +891,9 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 		prevBlock.GetHeight()+1,
 		prevHashBytes,
 		big.NewInt(1),
-		txsRoot, // This is the Merkle root
+		txsRoot,
 		stateRoot,
-		bc.chainParams.BlockGasLimit, // Use configured gas limit
+		bc.chainParams.BlockGasLimit,
 		big.NewInt(0),
 		[]byte{},
 		[]byte{},
@@ -1024,15 +921,9 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 		return nil, fmt.Errorf("created invalid block: %v", err)
 	}
 
-	log.Printf("Created new block: height=%d, transactions=%d, size=%d bytes, hash=%s, TxsRoot=%x",
+	logger.Info("Created new block: height=%d, transactions=%d, size=%d bytes, hash=%s, TxsRoot=%x",
 		newBlock.GetHeight(), len(selectedTxs), totalSize, newBlock.GetHash(), newBlock.Header.TxsRoot)
 	return newBlock, nil
-}
-
-// calculateTransactionsRoot calculates the Merkle root of transactions
-// This ensures we're always using the Merkle tree for TxsRoot
-func (bc *Blockchain) calculateTxRoot(txs []*types.Transaction) []byte {
-	return types.CalculateMerkleRoot(txs)
 }
 
 // VerifyTransactionInBlock verifies if a transaction is included in a block
@@ -1054,47 +945,20 @@ func (bc *Blockchain) GenerateTransactionProof(tx *types.Transaction, blockHash 
 	}
 
 	tree := types.NewMerkleTree(block.Body.TxsList)
-	return tree.GenerateMerkleProof(tx)
-}
-
-// selectTransactionsForBlock selects transactions that fit within block size limits
-func (bc *Blockchain) selectTransactionsForBlock() ([]*types.Transaction, uint64) {
-	var selected []*types.Transaction
-	currentSize := uint64(0)
-
-	maxBlockSize := bc.chainParams.MaxBlockSize
-	targetBlockSize := bc.chainParams.TargetBlockSize
-
-	// Sort transactions by fee or priority (simplified - process in order)
-	for _, tx := range bc.pendingTx {
-		txSize := bc.CalculateTransactionSize(tx)
-
-		// Check if transaction fits
-		if currentSize+txSize > maxBlockSize {
-			continue // Skip if it would exceed max size
-		}
-
-		// Optional: stop at target size for optimization
-		if currentSize >= targetBlockSize && len(selected) > 0 {
-			break
-		}
-
-		selected = append(selected, tx)
-		currentSize += txSize
+	proof, err := tree.GenerateMerkleProof(tx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate merkle proof: %w", err)
 	}
 
-	return selected, currentSize
+	return proof, nil
 }
 
 // calculateTransactionsRoot calculates the Merkle root of transactions
 func (bc *Blockchain) calculateTransactionsRoot(txs []*types.Transaction) []byte {
 	if len(txs) == 0 {
-		// Return hash of empty data for empty transactions
-		return []byte{} // This will be handled by the block's CalculateTxsRoot method
+		return []byte{}
 	}
 
-	// For now, delegate to the block's method
-	// In production, you might want a more sophisticated Merkle tree implementation
 	tempBlock := &types.Block{
 		Body: types.BlockBody{TxsList: txs},
 	}
@@ -1104,7 +968,6 @@ func (bc *Blockchain) calculateTransactionsRoot(txs []*types.Transaction) []byte
 // calculateStateRoot calculates the state root after applying transactions
 func (bc *Blockchain) calculateStateRoot() []byte {
 	// For now, return a placeholder state root
-	// In production, this would be calculated from the state machine after applying transactions
 	return []byte("placeholder-state-root")
 }
 
@@ -1116,7 +979,7 @@ func (bc *Blockchain) CommitBlock(block consensus.Block) error {
 	case *BlockHelper:
 		typeBlock = b.GetUnderlyingBlock()
 	default:
-		return fmt.Errorf("invalid block type: expected *BlockAdapter, got %T", block)
+		return fmt.Errorf("invalid block type: expected *BlockHelper, got %T", block)
 	}
 
 	// Check if blockchain is in running state
@@ -1134,33 +997,31 @@ func (bc *Blockchain) CommitBlock(block consensus.Block) error {
 	bc.lock.Lock()
 	bc.chain = append(bc.chain, typeBlock)
 
-	// Clear pending transactions that were included in this block
-	bc.pendingTx = []*types.Transaction{}
+	// Remove committed transactions from mempool
+	txIDs := make([]string, len(typeBlock.Body.TxsList))
+	for i, tx := range typeBlock.Body.TxsList {
+		txIDs[i] = tx.ID
+	}
+	bc.mempool.RemoveTransactions(txIDs)
 	bc.lock.Unlock()
 
-	log.Printf("Block committed: height=%d, hash=%s",
-		typeBlock.GetHeight(), typeBlock.GetHash())
+	logger.Info("Block committed: height=%d, hash=%s, removed %d transactions from mempool",
+		typeBlock.GetHeight(), typeBlock.GetHash(), len(txIDs))
 	return nil
 }
 
 // VerifyStateConsistency verifies that this node's state matches other nodes
-// otherState: State snapshot from another node to compare against
-// Returns true if states match, false if there's a divergence
-// Used for detecting forks or inconsistent states across the network
 func (bc *Blockchain) VerifyStateConsistency(otherState *storage.StateSnapshot) (bool, error) {
 	return bc.stateMachine.VerifyState(otherState)
 }
 
 // GetCurrentState returns the current state snapshot
-// Returns the latest state of the blockchain including accounts, balances, etc.
-// Used by other nodes to verify consistency or for new nodes to sync
 func (bc *Blockchain) GetCurrentState() *storage.StateSnapshot {
 	return bc.stateMachine.GetCurrentState()
 }
 
-// Add this method to Blockchain
+// DebugStorage tests storage functionality
 func (bc *Blockchain) DebugStorage() error {
-	// Test if we can store and retrieve a block
 	testBlock, err := bc.storage.GetLatestBlock()
 	if err != nil {
 		return fmt.Errorf("GetLatestBlock failed: %w", err)
@@ -1170,22 +1031,20 @@ func (bc *Blockchain) DebugStorage() error {
 		return fmt.Errorf("GetLatestBlock returned nil (no blocks in storage)")
 	}
 
-	log.Printf("DEBUG: Storage test - Latest block: height=%d, hash=%s",
+	logger.Info("DEBUG: Storage test - Latest block: height=%d, hash=%s",
 		testBlock.GetHeight(), testBlock.GetHash())
 	return nil
 }
 
 // initializeChain loads existing chain or creates genesis block
-// Called during blockchain initialization to bootstrap the chain
-// Returns error if chain loading or genesis creation fails
 func (bc *Blockchain) initializeChain() error {
 	// First, try to get the latest block
 	latestBlock, err := bc.storage.GetLatestBlock()
 	if err != nil {
-		log.Printf("Warning: Could not load initial state: %v", err)
+		logger.Warn("Warning: Could not load initial state: %v", err)
 
 		// Create genesis block
-		log.Printf("No existing chain found, creating genesis block")
+		logger.Info("No existing chain found, creating genesis block")
 		if err := bc.createGenesisBlock(); err != nil {
 			return fmt.Errorf("failed to create genesis block: %w", err)
 		}
@@ -1196,28 +1055,24 @@ func (bc *Blockchain) initializeChain() error {
 		}
 
 		latestBlock = bc.chain[0]
-		log.Printf("Using genesis block from memory: height=%d, hash=%s",
+		logger.Info("Using genesis block from memory: height=%d, hash=%s",
 			latestBlock.GetHeight(), latestBlock.GetHash())
 	} else {
 		// Load existing chain
 		bc.chain = []*types.Block{latestBlock}
 	}
 
-	log.Printf("Chain initialized: height=%d, hash=%s, total_blocks=%d",
+	logger.Info("Chain initialized: height=%d, hash=%s, total_blocks=%d",
 		latestBlock.GetHeight(), latestBlock.GetHash(), bc.storage.GetTotalBlocks())
 
 	return nil
 }
 
-// createGenesisBlock creates and stores the genesis block
-// Genesis block is the first block in the blockchain with no predecessor
-// Returns error if genesis block storage fails
-// createGenesisBlock creates and stores the genesis block with actual hash
 // createGenesisBlock creates and stores the genesis block with actual hash
 func (bc *Blockchain) createGenesisBlock() error {
 	// Create genesis block from the shared definition
 	genesisHeader := &types.BlockHeader{}
-	*genesisHeader = *genesisBlockDefinition // Copy the definition
+	*genesisHeader = *genesisBlockDefinition
 
 	genesisBody := types.NewBlockBody([]*types.Transaction{}, []byte{})
 	genesis := types.NewBlock(genesisHeader, genesisBody)
@@ -1232,10 +1087,10 @@ func (bc *Blockchain) createGenesisBlock() error {
 	}
 	genesis.Header.ParentHash = genesisHashBytes
 
-	log.Printf("Creating genesis block: Height=%d, Hash=%s",
+	logger.Info("Creating genesis block: Height=%d, Hash=%s",
 		genesis.GetHeight(), genesis.GetHash())
 
-	// Store genesis block - this will automatically update block_index.json
+	// Store genesis block
 	if err := bc.storage.StoreBlock(genesis); err != nil {
 		return fmt.Errorf("failed to store genesis block: %w", err)
 	}
@@ -1246,7 +1101,7 @@ func (bc *Blockchain) createGenesisBlock() error {
 		return fmt.Errorf("genesis block storage verification failed: %v", err)
 	}
 
-	log.Printf("Genesis block stored and verified: %s", genesis.GetHash())
+	logger.Info("Genesis block stored and verified: %s", genesis.GetHash())
 
 	// Initialize in-memory chain
 	bc.chain = []*types.Block{genesis}
@@ -1279,7 +1134,7 @@ func (bc *Blockchain) verifyGenesisHashInIndex() error {
 	// Check if our genesis hash exists in the index
 	if height, exists := index.Blocks[actualGenesisHash]; exists {
 		if height == 0 {
-			log.Printf("✓ Genesis hash verified in block_index.json: %s", actualGenesisHash)
+			logger.Info("✓ Genesis hash verified in block_index.json: %s", actualGenesisHash)
 			return nil
 		} else {
 			return fmt.Errorf("genesis block has wrong height in index: expected 0, got %d", height)
@@ -1326,30 +1181,30 @@ func (bc *Blockchain) PrintBlockIndex() {
 
 	data, err := os.ReadFile(indexFile)
 	if err != nil {
-		log.Printf("Error reading block_index.json: %v", err)
+		logger.Warn("Error reading block_index.json: %v", err)
 		return
 	}
 
 	var index map[string]interface{}
 	if err := json.Unmarshal(data, &index); err != nil {
-		log.Printf("Error unmarshaling block_index.json: %v", err)
+		logger.Warn("Error unmarshaling block_index.json: %v", err)
 		return
 	}
 
 	formatted, err := json.MarshalIndent(index, "", "  ")
 	if err != nil {
-		log.Printf("Error formatting block_index.json: %v", err)
+		logger.Warn("Error formatting block_index.json: %v", err)
 		return
 	}
 
-	log.Printf("Current block_index.json contents:")
-	log.Printf("%s", string(formatted))
+	logger.Info("Current block_index.json contents:")
+	logger.Info("%s", string(formatted))
 }
 
 // GetTransactionByID retrieves a transaction by its ID
 func (bc *Blockchain) GetTransactionByID(txID []byte) (*types.Transaction, error) {
-	bc.lock.RLock()         // Acquire read lock for thread-safe access
-	defer bc.lock.RUnlock() // Ensure lock is released when function exits
+	bc.lock.RLock()
+	defer bc.lock.RUnlock()
 
 	// Convert byte array to hex string for map lookup
 	txIDStr := hex.EncodeToString(txID)
@@ -1363,7 +1218,7 @@ func (bc *Blockchain) GetTransactionByID(txID []byte) (*types.Transaction, error
 	return tx, nil
 }
 
-// GetTransactionByID retrieves a transaction by its ID (string version)
+// GetTransactionByIDString retrieves a transaction by its ID (string version)
 func (bc *Blockchain) GetTransactionByIDString(txIDStr string) (*types.Transaction, error) {
 	// Convert string to []byte for the existing method
 	txIDBytes, err := hex.DecodeString(txIDStr)
@@ -1399,7 +1254,7 @@ func (bc *Blockchain) GetBlockByNumber(height uint64) *types.Block {
 	// Fall back to storage
 	block, err := bc.storage.GetBlockByHeight(height)
 	if err != nil {
-		log.Printf("Error getting block by height %d: %v", height, err)
+		logger.Warn("Error getting block by height %d: %v", height, err)
 		return nil
 	}
 	return block
@@ -1448,8 +1303,8 @@ func (bc *Blockchain) GetChainTip() map[string]interface{} {
 
 // ValidateAddress validates if an address is properly formatted
 func (bc *Blockchain) ValidateAddress(address string) bool {
-	// Basic address validation - extend with your specific format
-	if len(address) != 40 { // Adjust based on your address format
+	// Basic address validation
+	if len(address) != 40 {
 		return false
 	}
 	_, err := hex.DecodeString(address)
@@ -1492,7 +1347,7 @@ func (bc *Blockchain) GetMiningInfo() map[string]interface{} {
 
 	if latest != nil {
 		info["blocks"] = latest.GetHeight()
-		info["current_block_weight"] = 0 // Calculate based on block size
+		info["current_block_weight"] = 0
 
 		// Use adapter to access body for transaction count
 		if adapter, ok := latest.(*BlockHelper); ok {
@@ -1508,8 +1363,8 @@ func (bc *Blockchain) GetMiningInfo() map[string]interface{} {
 
 // EstimateFee estimates transaction fee (placeholder implementation)
 func (bc *Blockchain) EstimateFee(blocks int) map[string]interface{} {
-	// Basic fee estimation - enhance with mempool analysis
-	baseFee := big.NewInt(1000000) // 0.01 SPX in base units
+	// Basic fee estimation
+	baseFee := big.NewInt(1000000)
 
 	return map[string]interface{}{
 		"feerate": baseFee.String(),
@@ -1523,40 +1378,27 @@ func (bc *Blockchain) EstimateFee(blocks int) map[string]interface{} {
 
 // GetMemPoolInfo returns mempool information
 func (bc *Blockchain) GetMemPoolInfo() map[string]interface{} {
-	bc.lock.RLock()
-	defer bc.lock.RUnlock()
-
-	totalSize := 0
-	for _, tx := range bc.pendingTx {
-		// Estimate transaction size
-		txData, _ := json.Marshal(tx)
-		totalSize += len(txData)
-	}
+	mempoolStats := bc.mempool.GetStats()
 
 	return map[string]interface{}{
-		"size":            len(bc.pendingTx),
-		"bytes":           totalSize,
-		"usage":           totalSize * 2, // Rough memory usage estimate
-		"max_mempool":     300000000,     // 300MB default
-		"mempool_min_fee": "0.00001000",  // Minimum fee rate
+		"size":            mempoolStats["transaction_count"],
+		"bytes":           mempoolStats["mempool_size_bytes"],
+		"usage":           mempoolStats["mempool_size_bytes"].(uint64) * 2,
+		"max_mempool":     300000000,
+		"mempool_min_fee": "0.00001000",
+		"mempool_stats":   mempoolStats,
 	}
 }
 
 // VerifyMessage verifies a signed message (placeholder)
 func (bc *Blockchain) VerifyMessage(address, signature, message string) bool {
-	// Implement message verification logic
-	// This would verify that the signature was created by the address
-	// for the given message
-
-	log.Printf("Message verification requested - address: %s, message: %s", address, message)
-	return true // Placeholder - implement proper crypto verification
+	logger.Info("Message verification requested - address: %s, message: %s", address, message)
+	return true
 }
 
 // GetRawTransaction returns raw transaction data
-// GetRawTransaction returns raw transaction data
 func (bc *Blockchain) GetRawTransaction(txID string, verbose bool) interface{} {
-	// Use the string-based method, not the byte-based one
-	tx, err := bc.GetTransactionByIDString(txID) // Fixed: use String version
+	tx, err := bc.GetTransactionByIDString(txID)
 	if err != nil {
 		return nil
 	}
@@ -1575,11 +1417,11 @@ func (bc *Blockchain) GetRawTransaction(txID string, verbose bool) interface{} {
 		"txid":          tx.ID,
 		"hash":          tx.Hash(),
 		"version":       1,
-		"size":          len(tx.ID) / 2, // Rough size estimate
+		"size":          len(tx.ID) / 2,
 		"locktime":      0,
-		"vin":           []interface{}{}, // Inputs - adapt to your transaction format
-		"vout":          []interface{}{}, // Outputs - adapt to your transaction format
-		"blockhash":     "",              // Would need to track which block contains this tx
+		"vin":           []interface{}{},
+		"vout":          []interface{}{},
+		"blockhash":     "",
 		"confirmations": 0,
 		"time":          time.Now().Unix(),
 		"blocktime":     time.Now().Unix(),
@@ -1587,59 +1429,47 @@ func (bc *Blockchain) GetRawTransaction(txID string, verbose bool) interface{} {
 }
 
 // GetBestBlockHash returns the hash of the active chain's tip
-// Returns the hash of the most recent block in the blockchain
-// Returns empty byte slice if chain is empty
 func (bc *Blockchain) GetBestBlockHash() []byte {
 	latest := bc.GetLatestBlock()
 	if latest == nil {
-		return []byte{} // Return empty if no blocks exist
+		return []byte{}
 	}
-	return []byte(latest.GetHash()) // Return hash of latest block
+	return []byte(latest.GetHash())
 }
 
 // GetBlockCount returns the height of the active chain
-// Returns the total number of blocks in the blockchain
-// Note: Height is zero-based, so count = height + 1
 func (bc *Blockchain) GetBlockCount() uint64 {
 	latest := bc.GetLatestBlock()
 	if latest == nil {
-		return 0 // No blocks in chain
+		return 0
 	}
-	return latest.GetHeight() + 1 // Height is zero-based, count is one-based
+	return latest.GetHeight() + 1
 }
 
 // GetBlocks returns the current in-memory blockchain (limited)
-// Returns slice of blocks currently loaded in memory
-// For efficiency, only recent blocks may be kept in memory
 func (bc *Blockchain) GetBlocks() []*types.Block {
-	bc.lock.RLock()         // Acquire read lock for thread-safe access
-	defer bc.lock.RUnlock() // Ensure lock is released when function exits
-	return bc.chain         // Return in-memory chain slice
+	bc.lock.RLock()
+	defer bc.lock.RUnlock()
+	return bc.chain
 }
 
 // ChainLength returns the current length of the in-memory chain
-// Returns number of blocks currently loaded in memory
-// Useful for monitoring memory usage and cache efficiency
 func (bc *Blockchain) ChainLength() int {
-	bc.lock.RLock()         // Acquire read lock for thread-safe access
-	defer bc.lock.RUnlock() // Ensure lock is released when function exits
-	return len(bc.chain)    // Return length of in-memory chain
+	bc.lock.RLock()
+	defer bc.lock.RUnlock()
+	return len(bc.chain)
 }
 
 // IsValidChain checks the integrity of the full chain
-// Validates blockchain consistency, hashes, and linkages
-// Returns error if any inconsistency is found in the chain
 func (bc *Blockchain) IsValidChain() error {
 	return bc.storage.ValidateChain()
 }
 
 // Close cleans up resources
-// Closes storage connections and cleans up resources
-// Should be called when shutting down the node
 func (bc *Blockchain) Close() error {
 	// Set status to stopped before closing
 	bc.SetStatus(StatusStopped)
-	log.Printf("Blockchain shutting down...")
+	logger.Info("Blockchain shutting down...")
 	return bc.storage.Close()
 }
 
@@ -1662,9 +1492,9 @@ func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 	// 2. Structural sanity
 	if err := b.SanityCheck(); err != nil {
 		if strings.Contains(err.Error(), "state root is missing") {
-			log.Printf("WARNING: Block validation - state root is empty (allowed in test)")
+			logger.Warn("WARNING: Block validation - state root is empty (allowed in test)")
 		} else if strings.Contains(err.Error(), "transaction root is missing") {
-			log.Printf("WARNING: Block validation - transaction root is empty (allowed in test)")
+			logger.Warn("WARNING: Block validation - transaction root is empty (allowed in test)")
 		} else {
 			return fmt.Errorf("block sanity check failed: %w", err)
 		}
@@ -1694,14 +1524,12 @@ func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 		}
 	}
 
-	log.Printf("✓ Block %d validation passed, TxsRoot = MerkleRoot verified: %x",
+	logger.Info("✓ Block %d validation passed, TxsRoot = MerkleRoot verified: %x",
 		b.GetHeight(), b.Header.TxsRoot)
 	return nil
 }
 
 // GetStats returns blockchain statistics for monitoring
-// Returns map containing various blockchain metrics
-// GetStats returns blockchain statistics including blocksize info
 func (bc *Blockchain) GetStats() map[string]interface{} {
 	bc.lock.RLock()
 	defer bc.lock.RUnlock()
@@ -1720,7 +1548,7 @@ func (bc *Blockchain) GetStats() map[string]interface{} {
 		"block_height":      latestHeight,
 		"latest_block_hash": latestHash,
 		"blocks_in_memory":  len(bc.chain),
-		"pending_txs":       len(bc.pendingTx),
+		"pending_txs":       bc.mempool.GetTransactionCount(),
 		"tx_index_size":     len(bc.txIndex),
 		"total_blocks":      bc.storage.GetTotalBlocks(),
 	}

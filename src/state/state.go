@@ -27,12 +27,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
 
 	types "github.com/sphinx-core/go/src/core/transaction"
+	logger "github.com/sphinx-core/go/src/log"
 )
 
 // GetBlockByHeight returns a block by its height
@@ -104,13 +104,13 @@ func (s *Storage) GetAllBlocks() ([]*types.Block, error) {
 				}
 			}
 			if blockHash == "" {
-				log.Printf("Warning: Missing block at height %d", height)
+				logger.Warn("Warning: Missing block at height %d", height)
 				continue
 			}
 
 			block, err := s.loadBlockFromDisk(blockHash)
 			if err != nil {
-				log.Printf("Warning: Could not load block at height %d: %v", height, err)
+				logger.Warn("Warning: Could not load block at height %d: %v", height, err)
 				continue
 			}
 			blocks = append(blocks, block)
@@ -156,10 +156,10 @@ func NewStorage(dataDir string) (*Storage, error) {
 
 	// Load existing data
 	if err := storage.loadChainState(); err != nil {
-		log.Printf("Warning: Could not load chain state: %v", err)
+		logger.Warn("Warning: Could not load chain state: %v", err)
 	}
 	if err := storage.loadBlockIndex(); err != nil {
-		log.Printf("Warning: Could not load block index: %v", err)
+		logger.Warn("Warning: Could not load block index: %v", err)
 	}
 
 	return storage, nil
@@ -249,7 +249,7 @@ func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *Ch
 		return fmt.Errorf("failed to rename chain state file: %w", err)
 	}
 
-	log.Printf("Complete chain state saved with actual genesis hash: %s", stateFile)
+	logger.Info("Complete chain state saved with actual genesis hash: %s", stateFile)
 	return nil
 }
 
@@ -275,7 +275,7 @@ func (s *Storage) LoadCompleteChainState() (*ChainState, error) {
 		return nil, fmt.Errorf("failed to unmarshal chain state: %w", err)
 	}
 
-	log.Printf("Complete chain state loaded from: %s", stateFile)
+	logger.Info("Complete chain state loaded from: %s", stateFile)
 	return &chainState, nil
 }
 
@@ -292,7 +292,7 @@ func (s *Storage) StoreBlock(block *types.Block) error {
 	blockHash := block.GetHash()
 	height := block.GetHeight()
 
-	log.Printf("Storing block: height=%d, hash=%s", height, blockHash)
+	logger.Info("Storing block: height=%d, hash=%s", height, blockHash)
 
 	// Validate TxsRoot = MerkleRoot before storing
 	if err := block.ValidateTxsRoot(); err != nil {
@@ -302,7 +302,7 @@ func (s *Storage) StoreBlock(block *types.Block) error {
 	// Check if block already exists
 	if existing, exists := s.blockIndex[blockHash]; exists {
 		if existing.GetHeight() == height {
-			log.Printf("Block already exists: height=%d, hash=%s", height, blockHash)
+			logger.Info("Block already exists: height=%d, hash=%s", height, blockHash)
 			return nil // Block already stored
 		}
 	}
@@ -327,7 +327,7 @@ func (s *Storage) StoreBlock(block *types.Block) error {
 	if height >= s.totalBlocks {
 		s.bestBlockHash = blockHash
 		s.totalBlocks = height + 1
-		log.Printf("Updated best block: height=%d, hash=%s, total=%d, TxsRoot=%x",
+		logger.Info("Updated best block: height=%d, hash=%s, total=%d, TxsRoot=%x",
 			height, blockHash, s.totalBlocks, block.Header.TxsRoot)
 	}
 
@@ -339,7 +339,7 @@ func (s *Storage) StoreBlock(block *types.Block) error {
 		return fmt.Errorf("failed to save chain state: %w", err)
 	}
 
-	log.Printf("Successfully stored block: height=%d, hash=%s, TxsRoot=%x (verified = MerkleRoot)",
+	logger.Info("Successfully stored block: height=%d, hash=%s, TxsRoot=%x (verified = MerkleRoot)",
 		height, blockHash, block.Header.TxsRoot)
 	return nil
 }
@@ -483,7 +483,7 @@ func (s *Storage) FixChainStateGenesisHash() error {
 		if genesisHash, exists := chainState.ChainIdentification.ChainParams["genesis_hash"]; exists {
 			if genesisHashStr, ok := genesisHash.(string); ok && genesisHashStr == "sphinx-genesis-2024" {
 				chainState.ChainIdentification.ChainParams["genesis_hash"] = actualHash
-				log.Printf("Fixed hardcoded genesis hash in chain_state.json: %s", actualHash)
+				logger.Info("Fixed hardcoded genesis hash in chain_state.json: %s", actualHash)
 
 				// Save the fixed chain state
 				data, err := json.MarshalIndent(chainState, "", "  ")
@@ -500,7 +500,7 @@ func (s *Storage) FixChainStateGenesisHash() error {
 					return fmt.Errorf("failed to rename fixed chain state file: %w", err)
 				}
 
-				log.Printf("Successfully updated chain_state.json with actual genesis hash")
+				logger.Info("Successfully updated chain_state.json with actual genesis hash")
 			}
 		}
 	}
@@ -528,7 +528,7 @@ func (s *Storage) storeBlockToDisk(block *types.Block) error {
 		return fmt.Errorf("failed to rename block file: %w", err)
 	}
 
-	log.Printf("Block written to disk: %s", filename)
+	logger.Info("Block written to disk: %s", filename)
 	return nil
 }
 
@@ -550,7 +550,7 @@ func (s *Storage) loadBlockFromDisk(hash string) (*types.Block, error) {
 		return nil, fmt.Errorf("failed to unmarshal block: %w", err)
 	}
 
-	log.Printf("Block loaded from disk: height=%d, hash=%s", block.GetHeight(), block.GetHash())
+	logger.Info("Block loaded from disk: height=%d, hash=%s", block.GetHeight(), block.GetHash())
 	return &block, nil
 }
 
@@ -581,7 +581,7 @@ func (s *Storage) loadBlockIndex() error {
 
 	// Check if index file exists
 	if _, err := os.Stat(indexFile); os.IsNotExist(err) {
-		log.Printf("No block index file found, starting fresh")
+		logger.Info("No block index file found, starting fresh")
 		return nil // No index file yet
 	}
 
@@ -602,13 +602,13 @@ func (s *Storage) loadBlockIndex() error {
 	for hash, height := range index.Blocks {
 		// Skip invalid entries
 		if hash == "" {
-			log.Printf("Warning: Skipping block with empty hash")
+			logger.Warn("Warning: Skipping block with empty hash")
 			continue
 		}
 
 		block, err := s.loadBlockFromDisk(hash)
 		if err != nil {
-			log.Printf("Warning: Could not load block %s: %v", hash, err)
+			logger.Warn("Warning: Could not load block %s: %v", hash, err)
 			continue
 		}
 		s.blockIndex[hash] = block
@@ -622,7 +622,7 @@ func (s *Storage) loadBlockIndex() error {
 		}
 	}
 
-	log.Printf("Loaded block index: %d blocks (from %d entries)", loadedCount, len(index.Blocks))
+	logger.Info("Loaded block index: %d blocks (from %d entries)", loadedCount, len(index.Blocks))
 
 	// If we loaded blocks but no bestBlockHash was set, set it now
 	if s.bestBlockHash == "" && loadedCount > 0 {
@@ -638,7 +638,7 @@ func (s *Storage) loadBlockIndex() error {
 		if bestHash != "" {
 			s.bestBlockHash = bestHash
 			s.totalBlocks = maxHeight + 1
-			log.Printf("Auto-corrected chain state: bestBlock=%s, totalBlocks=%d",
+			logger.Info("Auto-corrected chain state: bestBlock=%s, totalBlocks=%d",
 				s.bestBlockHash, s.totalBlocks)
 		}
 	}
@@ -735,7 +735,7 @@ func (s *Storage) updateBasicChainStateInFile(stateFile string) error {
 		return fmt.Errorf("failed to rename updated chain state file: %w", err)
 	}
 
-	log.Printf("Updated basic chain state in: %s", stateFile)
+	logger.Info("Updated basic chain state in: %s", stateFile)
 	return nil
 }
 
@@ -744,7 +744,7 @@ func (s *Storage) loadChainState() error {
 
 	// Check if state file exists
 	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
-		log.Printf("No chain state file found, starting fresh")
+		logger.Info("No chain state file found, starting fresh")
 		return nil // No state file yet
 	}
 
@@ -759,7 +759,7 @@ func (s *Storage) loadChainState() error {
 		// Successfully loaded complete chain state with basic data
 		s.bestBlockHash = chainState.BasicChainState.BestBlockHash
 		s.totalBlocks = chainState.BasicChainState.TotalBlocks
-		log.Printf("Loaded chain state from complete file: bestBlock=%s, totalBlocks=%d", s.bestBlockHash, s.totalBlocks)
+		logger.Info("Loaded chain state from complete file: bestBlock=%s, totalBlocks=%d", s.bestBlockHash, s.totalBlocks)
 		return nil
 	}
 
@@ -771,14 +771,14 @@ func (s *Storage) loadChainState() error {
 
 	// CRITICAL FIX: Only set state if we have valid data
 	if basicState.BestBlockHash == "" {
-		log.Printf("Warning: Chain state has empty bestBlockHash, ignoring corrupted state")
+		logger.Warn("Warning: Chain state has empty bestBlockHash, ignoring corrupted state")
 		return fmt.Errorf("corrupted chain state: empty bestBlockHash")
 	}
 
 	s.bestBlockHash = basicState.BestBlockHash
 	s.totalBlocks = basicState.TotalBlocks
 
-	log.Printf("Loaded basic chain state: bestBlock=%s, totalBlocks=%d", s.bestBlockHash, s.totalBlocks)
+	logger.Info("Loaded basic chain state: bestBlock=%s, totalBlocks=%d", s.bestBlockHash, s.totalBlocks)
 	return nil
 }
 
@@ -796,7 +796,7 @@ func (s *Storage) Close() error {
 	basicStateFile := filepath.Join(s.stateDir, "basic_chain_state.json")
 	if _, err := os.Stat(basicStateFile); err == nil {
 		if err := os.Remove(basicStateFile); err != nil {
-			log.Printf("Warning: Failed to remove old basic_chain_state.json on close: %v", err)
+			logger.Warn("Warning: Failed to remove old basic_chain_state.json on close: %v", err)
 		}
 	}
 

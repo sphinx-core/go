@@ -1,14 +1,14 @@
 {
   "header": {
     "nblock": 1,
-    "timestamp": 1763253166,
+    "timestamp": 1763262163,
     "prev_hash": "/3rakI5XuWdTzja4PQcFPvVY95RilGlpUAmbAVxX+8g=",
-    "hash": "2i1dnqpEY+eiUEUsRmDDWzeJsd5soZz/DMNgxMomHRY=",
+    "hash": "beUZhLwakS9hUfnahb5R1f6B5VNOZz3ensh1NirpUeg=",
     "difficulty": 1,
     "nonce": 0,
-    "txs_root": "ww1ncAmQyZ4mV/k3fTZy55nuutUvGdfC+M1Qiic58fo=",
+    "txs_root": "jr3xFiVeYGvtUDUnCzVuqdD1sTQ4KEcupYBohb0w+9s=",
     "state_root": "cGxhY2Vob2xkZXItc3RhdGUtcm9vdA==",
-    "gas_limit": 10000000,
+    "gas_limit": 50000000,
     "gas_used": 0,
     "parent_hash": "",
     "uncles_hash": ""
@@ -16,7 +16,7 @@
   "body": {
     "txs_list": [
       {
-        "id": "c1d3477b8bab29876d62b755955f5f170c3096c776367b40441187398966ee0c",
+        "id": "46cd1d2a584104d74cac46a0b5457d9dfc8e3eeea0e1317d12b68309ff4142e9",
         "sender": "alice",
         "receiver": "bob",
         "amount": 100,

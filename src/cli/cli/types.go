@@ -20,7 +20,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/cli/cli/types.go
 package cli
 
 import (
@@ -47,10 +46,10 @@ type TestConfig struct {
 	NumNodes int // number of validator nodes to spin up (default 3)
 }
 
-// JSONOutput structures
+// Update the ChainIdentificationJSON struct - FIXED THE TYPE ISSUE
 type ChainIdentificationJSON struct {
 	Timestamp   string                  `json:"timestamp"`
-	ChainParams *commit.ChainParameters `json:"chain_parameters"`
+	ChainParams *commit.ChainParameters `json:"chain_parameters"` // Changed from commit.SphinxChainParams to *commit.ChainParameters
 	TokenInfo   *params.TokenInfo       `json:"token_info"`
 	WalletPaths map[string]string       `json:"wallet_derivation_paths"`
 	NetworkInfo map[string]interface{}  `json:"network_info"`

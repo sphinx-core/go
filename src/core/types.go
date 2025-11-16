@@ -26,9 +26,11 @@ package core
 import (
 	"math/big"
 	"sync"
+	"time"
 
 	"github.com/sphinx-core/go/src/consensus"
 	types "github.com/sphinx-core/go/src/core/transaction"
+	"github.com/sphinx-core/go/src/pool"
 	storage "github.com/sphinx-core/go/src/state"
 )
 
@@ -44,22 +46,9 @@ type BlockImportResult int
 // CacheType represents different types of caches used in the blockchain
 type CacheType int
 
-// Blockchain manages the chain of blocks with state machine replication
-type Blockchain struct {
-	storage         *storage.Storage
-	stateMachine    *storage.StateMachine
-	chain           []*types.Block
-	txIndex         map[string]*types.Transaction
-	pendingTx       []*types.Transaction
-	lock            sync.RWMutex
-	status          BlockchainStatus
-	syncMode        SyncMode
-	consensusEngine *consensus.Consensus
-	chainParams     *SphinxChainParameters // Chain identification parameters
-}
-
-// SphinxChainParameters defines the blockchain parameters
+// SphinxChainParameters defines the complete blockchain parameters
 type SphinxChainParameters struct {
+	// Network Identification
 	ChainID       uint64
 	ChainName     string
 	Symbol        string
@@ -72,9 +61,55 @@ type SphinxChainParameters struct {
 	LedgerName    string
 	Denominations map[string]*big.Int
 
-	// Block size configuration (NEW)
-	MaxBlockSize       uint64   // Maximum block size in bytes
-	MaxTransactionSize uint64   // Maximum individual transaction size
-	TargetBlockSize    uint64   // Target/optimal block size
-	BlockGasLimit      *big.Int // Maximum gas per block
+	// Block Configuration
+	MaxBlockSize       uint64
+	MaxTransactionSize uint64
+	TargetBlockSize    uint64
+	BlockGasLimit      *big.Int
+
+	// Mempool Configuration
+	MempoolConfig *pool.MempoolConfig
+
+	// Consensus Configuration
+	ConsensusConfig *ConsensusConfig
+
+	// Performance Configuration
+	PerformanceConfig *PerformanceConfig
+}
+
+// ConsensusConfig defines consensus-related parameters
+type ConsensusConfig struct {
+	BlockTime        time.Duration
+	EpochLength      uint64
+	ValidatorSetSize int
+	MaxValidators    int
+	MinStakeAmount   *big.Int
+	UnbondingPeriod  time.Duration
+	SlashingEnabled  bool
+	DoubleSignSlash  *big.Int // Slashing amount for double signing
+}
+
+// PerformanceConfig defines performance-related parameters
+type PerformanceConfig struct {
+	MaxConcurrentValidations int
+	ValidationTimeout        time.Duration
+	CacheSize                int
+	PruningInterval          time.Duration
+	MaxPeers                 int
+	SyncBatchSize            int
+}
+
+// Blockchain manages the chain of blocks with state machine replication
+type Blockchain struct {
+	storage         *storage.Storage
+	stateMachine    *storage.StateMachine
+	mempool         *pool.Mempool
+	chain           []*types.Block
+	txIndex         map[string]*types.Transaction
+	pendingTx       []*types.Transaction
+	lock            sync.RWMutex
+	status          BlockchainStatus
+	syncMode        SyncMode
+	consensusEngine *consensus.Consensus
+	chainParams     *SphinxChainParameters
 }

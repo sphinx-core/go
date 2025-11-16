@@ -116,14 +116,17 @@ func ValidateChainID(chainID uint64) bool {
 		chainID == regtest.ChainID
 }
 
-// GetNetworkName returns human-readable network name from chain ID
-func GetNetworkName(chainID uint64) string {
-	switch chainID {
-	case SphinxChainParams().ChainID:
+// GetNetworkName returns the human-readable network name
+func (p *ChainParameters) GetNetworkName() string {
+	switch p.ChainID {
+	case 7331:
+		if p.ChainName == "Sphinx Devnet" {
+			return "Sphinx Devnet"
+		}
 		return "Sphinx Mainnet"
-	case TestnetChainParams().ChainID:
+	case 17331:
 		return "Sphinx Testnet"
-	case RegtestChainParams().ChainID:
+	case 27331:
 		return "Sphinx Regtest"
 	default:
 		return "Unknown Network"
