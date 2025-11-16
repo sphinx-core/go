@@ -62,15 +62,3 @@ type NodeChainInfoJSON struct {
 	BlockHash   string                 `json:"block_hash"`
 	Timestamp   string                 `json:"timestamp"`
 }
-
-type TestSummaryJSON struct {
-	TestName      string              `json:"test_name"`
-	Timestamp     string              `json:"timestamp"`
-	NumNodes      int                 `json:"num_nodes"`
-	TestDuration  string              `json:"test_duration"`
-	Success       bool                `json:"success"`
-	FinalHeight   uint64              `json:"final_height"`
-	Nodes         []NodeChainInfoJSON `json:"nodes"`
-	GenesisHash   string              `json:"genesis_hash"`
-	ConsensusType string              `json:"consensus_type"`
-}

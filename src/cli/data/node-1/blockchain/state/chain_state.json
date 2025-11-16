@@ -1,6 +1,6 @@
 {
   "chain_identification": {
-    "timestamp": "2025-11-16T11:21:44+07:00",
+    "timestamp": "2025-11-16T13:33:17+07:00",
     "chain_parameters": {
       "bip44_type": 7331,
       "chain_id": 7331,
@@ -36,9 +36,22 @@
     "state_dir": "data/node-1/blockchain/state"
   },
   "basic_chain_state": {
-    "best_block_hash": "ee78fee6127f583f5d27c1dc66bfa39bb45cc696d7a14c29c84f17628183b76a",
+    "best_block_hash": "90c3a272e2bcf436977d4526d2889e565d91040473cf03f35454d7d485a877e5",
     "total_blocks": 2,
-    "last_updated": "2025-11-16T11:22:01+07:00"
+    "last_updated": "2025-11-16T13:33:40+07:00"
   },
-  "timestamp": "2025-11-16T11:21:44+07:00"
+  "block_size_metrics": {
+    "total_blocks": 1,
+    "average_size_bytes": 377,
+    "min_size_bytes": 377,
+    "max_size_bytes": 377,
+    "total_size_bytes": 377,
+    "size_stats": [],
+    "calculation_time": "2025-11-16T13:33:17+07:00",
+    "average_size_mb": 0.000359,
+    "min_size_mb": 0.000359,
+    "max_size_mb": 0.000359,
+    "total_size_mb": 0.000359
+  },
+  "timestamp": "2025-11-16T13:33:17+07:00"
 }

@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/state/types.go// go/src/state/types.go
+// go/src/state/types.go
 package state
 
 import (
@@ -117,7 +117,34 @@ type BasicChainState struct {
 	LastUpdated   string `json:"last_updated"`
 }
 
-// Update ChainState to include basic chain state
+// Enhanced BlockSizeMetrics with human-readable MB fields
+type BlockSizeMetrics struct {
+	TotalBlocks     uint64          `json:"total_blocks"`
+	AverageSize     uint64          `json:"average_size_bytes"`
+	MinSize         uint64          `json:"min_size_bytes"`
+	MaxSize         uint64          `json:"max_size_bytes"`
+	TotalSize       uint64          `json:"total_size_bytes"`
+	SizeStats       []BlockSizeInfo `json:"size_stats"`
+	CalculationTime string          `json:"calculation_time"`
+
+	// Human-readable MB fields
+	AverageSizeMB float64 `json:"average_size_mb"`
+	MinSizeMB     float64 `json:"min_size_mb"`
+	MaxSizeMB     float64 `json:"max_size_mb"`
+	TotalSizeMB   float64 `json:"total_size_mb"`
+}
+
+// Enhanced BlockSizeInfo with MB field
+type BlockSizeInfo struct {
+	Height    uint64  `json:"height"`
+	Hash      string  `json:"hash"`
+	Size      uint64  `json:"size_bytes"`
+	SizeMB    float64 `json:"size_mb"`
+	TxCount   uint64  `json:"transaction_count"`
+	Timestamp int64   `json:"timestamp"`
+}
+
+// Update ChainState to include block size metrics
 type ChainState struct {
 	// Chain identification
 	ChainIdentification *ChainIdentification `json:"chain_identification"`
@@ -130,6 +157,9 @@ type ChainState struct {
 
 	// Basic chain state (merged from basic_chain_state.json)
 	BasicChainState *BasicChainState `json:"basic_chain_state"`
+
+	// Block size metrics
+	BlockSizeMetrics *BlockSizeMetrics `json:"block_size_metrics"`
 
 	// Timestamp
 	Timestamp string `json:"timestamp"`

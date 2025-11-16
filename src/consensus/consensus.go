@@ -28,14 +28,15 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"sync"
 	"time"
+
+	logger "github.com/sphinx-core/go/src/log"
 )
 
+// Workflow: Prepare Phase → Commit Phase → Block Commitment → View Change → Repeat
+
 // NewConsensus creates a new consensus instance with context
-// nodeID: Unique identifier for this node
-// nodeManager: Interface for network communication and peer management
-// blockchain: Interface for block storage and validation
-// onCommit: Callback function executed when a block is successfully committed
 func NewConsensus(nodeID string, nodeManager NodeManager, blockchain BlockChain, onCommit func(Block) error) *Consensus {
 	// Create cancellable context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -59,6 +60,8 @@ func NewConsensus(nodeID string, nodeManager NodeManager, blockchain BlockChain,
 		onCommit:         onCommit,                          // Callback for committed blocks
 		ctx:              ctx,                               // Context for cancellation
 		cancel:           cancel,                            // Cancel function for shutdown
+		lastViewChange:   time.Now(),                        // Initialize last view change time
+		viewChangeMutex:  sync.Mutex{},                      // Initialize view change mutex
 	}
 }
 
@@ -293,6 +296,35 @@ func (c *Consensus) handleTimeouts() {
 	}
 }
 
+// updateLeaderStatus updates the leader status based on current view and validators
+func (c *Consensus) updateLeaderStatus() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	validators := c.getValidators()
+	if len(validators) == 0 {
+		c.isLeader = false
+		return
+	}
+
+	// Sort validators for deterministic leader selection
+	sort.Strings(validators)
+
+	// Round-robin leader selection based on view number
+	leaderIndex := int(c.currentView) % len(validators)
+	expectedLeader := validators[leaderIndex]
+
+	c.isLeader = (expectedLeader == c.nodeID)
+
+	if c.isLeader {
+		log.Printf("✅ Node %s is leader for view %d (index %d/%d)",
+			c.nodeID, c.currentView, leaderIndex, len(validators))
+	} else {
+		log.Printf("Node %s is NOT leader for view %d (leader is %s)",
+			c.nodeID, c.currentView, expectedLeader)
+	}
+}
+
 // processProposal handles a received block proposal
 // Validates the proposal and progresses consensus state if valid
 // processProposal with better logging
@@ -307,6 +339,15 @@ func (c *Consensus) processProposal(proposal *Proposal) {
 	if proposal.View < c.currentView {
 		log.Printf("Stale proposal for view %d, current view %d", proposal.View, c.currentView)
 		return
+	}
+
+	// Update to new view if proposal is for future view
+	if proposal.View > c.currentView {
+		log.Printf("Advancing view from %d to %d", c.currentView, proposal.View)
+		c.currentView = proposal.View
+		c.resetConsensusState()
+		// UPDATE LEADER STATUS WHEN VIEW CHANGES
+		c.updateLeaderStatus()
 	}
 
 	// Update to new view if proposal is for future view
@@ -393,15 +434,28 @@ func (c *Consensus) processVote(vote *Vote) {
 
 // processTimeout handles a received timeout message
 // Updates to new view if timeout is for a future view
+// Enhanced processTimeout with view change coordination
 func (c *Consensus) processTimeout(timeout *TimeoutMsg) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Only process timeouts for future views
 	if timeout.View > c.currentView {
-		log.Printf("View change requested to view %d", timeout.View)
+		logger.Info("View change requested to view %d by %s", timeout.View, timeout.VoterID)
 		c.currentView = timeout.View
+		c.lastViewChange = time.Now()
 		c.resetConsensusState()
+
+		// Update leader status immediately
+		validators := c.getValidators()
+		c.updateLeaderStatusWithValidators(validators)
+
+		logger.Info("View change completed: node=%s, new_view=%d, leader=%v",
+			c.nodeID, c.currentView, c.isLeader)
+	} else if timeout.View == c.currentView {
+		logger.Debug("Ignoring timeout for current view %d", timeout.View)
+	} else {
+		logger.Debug("Ignoring stale timeout for view %d (current: %d)", timeout.View, c.currentView)
 	}
 }
 
@@ -507,13 +561,6 @@ func (c *Consensus) getTotalNodes() int {
 	return validatorCount
 }
 
-// isValidator checks if this node is a validator
-// Returns true if this node has validator role
-func (c *Consensus) isValidator() bool {
-	self := c.nodeManager.GetNode(c.nodeID)
-	return self != nil && self.GetRole() == RoleValidator
-}
-
 // commitBlock commits a block to the blockchain
 // block: The block to commit
 // Updates consensus state and executes commit callback
@@ -541,20 +588,91 @@ func (c *Consensus) commitBlock(block Block) {
 
 // startViewChange initiates a view change to the next view
 // Called when view timeout occurs or received timeout messages
+// startViewChange initiates a view change to the next view
+// Enhanced startViewChange with proper synchronization
 func (c *Consensus) startViewChange() {
+	// Use dedicated view change mutex to prevent races
+	if !c.tryViewChangeLock() {
+		return // Another view change is already in progress
+	}
+	defer c.viewChangeMutex.Unlock()
+
 	c.mu.Lock()
-	defer c.mu.Unlock()
+
+	// Check if we can change views (prevent rapid view changes)
+	if time.Since(c.lastViewChange) < 2*time.Second {
+		c.mu.Unlock()
+		return
+	}
 
 	newView := c.currentView + 1
-	log.Printf("Node %s starting view change to view %d", c.nodeID, newView)
+	logger.Info("Node %s initiating view change to view %d", c.nodeID, newView)
 
+	// Update state FIRST before broadcasting
+	c.currentView = newView
+	c.lastViewChange = time.Now()
+	c.resetConsensusState()
+
+	// Update leader status immediately
+	validators := c.getValidators()
+	c.updateLeaderStatusWithValidators(validators)
+
+	c.mu.Unlock()
+
+	// Broadcast timeout message
 	timeoutMsg := &TimeoutMsg{
 		View:      newView,
 		VoterID:   c.nodeID,
-		Signature: []byte{}, // Should be properly signed in production
+		Signature: []byte{},
+		Timestamp: time.Now().Unix(),
 	}
 
 	c.broadcastTimeout(timeoutMsg)
+	logger.Info("View change initiated: node=%s, view=%d", c.nodeID, newView)
+}
+
+// Helper method to safely acquire view change lock
+func (c *Consensus) tryViewChangeLock() bool {
+	// Try to acquire the view change mutex without blocking
+	acquired := make(chan bool, 1)
+
+	go func() {
+		c.viewChangeMutex.Lock()
+		acquired <- true
+	}()
+
+	select {
+	case <-acquired:
+		return true
+	case <-time.After(100 * time.Millisecond):
+		return false // Couldn't acquire lock in time
+	}
+}
+
+// Enhanced leader election with consistent validator sets
+func (c *Consensus) updateLeaderStatusWithValidators(validators []string) {
+	if len(validators) == 0 {
+		c.isLeader = false
+		logger.Warn("No validators available for leader election")
+		return
+	}
+
+	// Sort validators for deterministic leader selection
+	sort.Strings(validators)
+
+	// Round-robin leader selection based on view number
+	leaderIndex := int(c.currentView) % len(validators)
+	expectedLeader := validators[leaderIndex]
+
+	c.isLeader = (expectedLeader == c.nodeID)
+
+	if c.isLeader {
+		logger.Info("✅ Node %s elected as leader for view %d (index %d/%d)",
+			c.nodeID, c.currentView, leaderIndex, len(validators))
+	} else {
+		logger.Debug("Node %s is NOT leader for view %d (leader is %s)",
+			c.nodeID, c.currentView, expectedLeader)
+	}
 }
 
 // resetConsensusState resets the consensus state to initial values
@@ -589,41 +707,69 @@ func (c *Consensus) isValidLeader(nodeID string, view uint64) bool {
 	expectedLeader := validators[leaderIndex]
 
 	isValid := expectedLeader == nodeID
-	if !isValid {
-		log.Printf("Invalid leader: expected %s for view %d, got %s",
-			expectedLeader, view, nodeID)
+
+	// Enhanced logging for debugging
+	if isValid {
+		log.Printf("✅ Valid leader: %s for view %d (index %d/%d)",
+			nodeID, view, leaderIndex, len(validators))
+	} else {
+		log.Printf("❌ Invalid leader: expected %s for view %d (index %d/%d), got %s",
+			expectedLeader, view, leaderIndex, len(validators), nodeID)
+		log.Printf("   Validators: %v", validators)
 	}
 
 	return isValid
 }
 
-// getValidators gets the list of active validator node IDs
-// Returns slice of validator node IDs including self if applicable
-// getValidators gets the list of active validator node IDs
+// getValidators gets the list of active validator node IDs without duplicates
+// Enhanced getValidators with better error handling and logging
 func (c *Consensus) getValidators() []string {
 	peers := c.nodeManager.GetPeers()
+	validatorSet := make(map[string]bool)
 	validators := []string{}
 
-	// Collect active validator peers
-	for _, peer := range peers {
-		node := peer.GetNode()
-		if node.GetRole() == RoleValidator && node.GetStatus() == NodeStatusActive {
-			validators = append(validators, node.GetID())
-		}
+	// Always include self if we're a validator
+	if c.isValidator() {
+		validatorSet[c.nodeID] = true
+		validators = append(validators, c.nodeID)
+		logger.Debug("Added self to validators: %s", c.nodeID)
 	}
 
-	// Include self if this node is a validator
-	if c.isValidator() {
-		validators = append(validators, c.nodeID)
+	// Collect validator peers
+	peerCount := 0
+	for _, peer := range peers {
+		node := peer.GetNode()
+		if node != nil && node.GetRole() == RoleValidator && node.GetStatus() == NodeStatusActive {
+			nodeID := node.GetID()
+			if !validatorSet[nodeID] && nodeID != "" {
+				validatorSet[nodeID] = true
+				validators = append(validators, nodeID)
+				peerCount++
+			}
+		}
 	}
 
 	// Sort for deterministic ordering
 	sort.Strings(validators)
+
+	if len(validators) == 0 {
+		logger.Error("CRITICAL: No validators found for consensus!")
+		// Return at least self to prevent complete failure
+		return []string{c.nodeID}
+	}
+
+	logger.Debug("Node %s validator set: %v (total: %d, peers: %d)",
+		c.nodeID, validators, len(validators), peerCount)
 	return validators
 }
 
-// Network communication methods
+// isValidator checks if this node is a validator
+func (c *Consensus) isValidator() bool {
+	self := c.nodeManager.GetNode(c.nodeID)
+	return self != nil && self.GetRole() == RoleValidator
+}
 
+// Network communication methods
 // broadcastProposal broadcasts a block proposal to all peers
 // proposal: The proposal to broadcast
 // Returns error if broadcast fails

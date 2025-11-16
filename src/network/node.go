@@ -26,6 +26,7 @@ package network
 import (
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"time"
 
@@ -115,31 +116,46 @@ func (n *CallNode) GetStatus() consensus.NodeStatus {
 
 // CallNodeManager manages call nodes and provides broadcast functionality
 // This is used in test environments to simulate network communication
+// CallNodeManager manages call nodes and provides broadcast functionality
 type CallNodeManager struct {
-	// peers tracks registered peer nodes by their ID
-	peers map[string]bool
-	// mu ensures thread-safe access to the peers map
-	mu sync.Mutex
+	// Use proper peer storage with node ID as key and CallPeer as value
+	peers map[string]consensus.Peer
+	mu    sync.Mutex
 }
 
 // NewCallNodeManager creates a new call node manager instance
 // Returns a pointer to an initialized CallNodeManager
+// NewCallNodeManager creates a new call node manager instance
 func NewCallNodeManager() *CallNodeManager {
 	return &CallNodeManager{
-		peers: make(map[string]bool),
+		peers: make(map[string]consensus.Peer),
 	}
 }
 
 // GetPeers returns all registered peers as consensus.Peer interfaces
-// This method is thread-safe and used by the consensus engine
 func (m *CallNodeManager) GetPeers() map[string]consensus.Peer {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Return a copy of the peers map
 	peers := make(map[string]consensus.Peer)
-	for id := range m.peers {
-		peers[id] = &CallPeer{id: id}
+	for id, peer := range m.peers {
+		peers[id] = peer
 	}
 	return peers
+}
+
+// GetPeerIDs returns the list of peer IDs for debugging
+func (m *CallNodeManager) GetPeerIDs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	ids := make([]string, 0, len(m.peers))
+	for id := range m.peers {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 // GetNode retrieves a specific node by its ID
@@ -232,22 +248,27 @@ func (m *CallNodeManager) BroadcastMessage(messageType string, data interface{})
 }
 
 // AddPeer registers a new peer node with the call node manager
-// This adds the peer to the internal tracking system
 func (m *CallNodeManager) AddPeer(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.peers == nil {
-		m.peers = make(map[string]bool)
+
+	// Check if peer already exists
+	if _, exists := m.peers[id]; exists {
+		log.Printf("[CALL] Peer %s already exists, skipping duplicate", id)
+		return
 	}
-	m.peers[id] = true
+
+	// Create new peer and add to map
+	m.peers[id] = &CallPeer{id: id}
+	log.Printf("[CALL] Added peer: %s (total peers: %d)", id, len(m.peers))
 }
 
 // RemovePeer unregisters a peer node from the call node manager
-// This removes the peer from the internal tracking system
 func (m *CallNodeManager) RemovePeer(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.peers, id)
+	log.Printf("[CALL] Removed peer: %s", id)
 }
 
 // RegisterConsensus adds a consensus instance to the global registry

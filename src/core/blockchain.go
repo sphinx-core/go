@@ -143,7 +143,8 @@ func (bc *Blockchain) ValidateBlockSize(block *types.Block) error {
 }
 
 // SaveChainState saves the chain state with the actual genesis hash
-func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo, testSummary *storage.TestSummary) error {
+// SaveChainState saves the chain state with the actual genesis hash
+func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo) error {
 	if bc.chainParams == nil {
 		return fmt.Errorf("chain parameters not initialized")
 	}
@@ -170,11 +171,6 @@ func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo, testSummary *st
 		Timestamp: time.Now().Format(time.RFC3339),
 	}
 
-	// If test summary is provided, update it with actual genesis hash
-	if testSummary != nil {
-		testSummary.GenesisHash = bc.chainParams.GenesisHash
-	}
-
 	// Save chain state with actual parameters
 	err := bc.storage.SaveCompleteChainState(chainState, chainParams, walletPaths)
 	if err != nil {
@@ -190,7 +186,7 @@ func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo, testSummary *st
 
 // SaveBasicChainState saves a basic chain state
 func (bc *Blockchain) SaveBasicChainState() error {
-	return bc.StoreChainState(nil, nil)
+	return bc.StoreChainState(nil) // Only one parameter now
 }
 
 // VerifyState verifies that chain_state.json has the correct genesis hash
@@ -466,10 +462,10 @@ func (bc *Blockchain) SetConsensusEngine(engine *consensus.Consensus) {
 	bc.consensusEngine = engine
 }
 
-// StartLeaderLoop starts a goroutine that proposes blocks when this node is leader
+// Enhanced StartLeaderLoop with better leader coordination
 func (bc *Blockchain) StartLeaderLoop(ctx context.Context) {
 	go func() {
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(5 * time.Second) // Reduced from 10s to 5s
 		defer ticker.Stop()
 
 		for {
@@ -489,7 +485,7 @@ func (bc *Blockchain) StartLeaderLoop(ctx context.Context) {
 				// Check if we have transactions in mempool
 				hasTxs := bc.mempool.GetTransactionCount() > 0
 				if !hasTxs {
-					logger.Info("Leader: no pending transactions to propose")
+					logger.Debug("Leader: no pending transactions to propose")
 					continue
 				}
 

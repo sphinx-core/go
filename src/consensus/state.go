@@ -23,6 +23,12 @@
 // go/src/consensus/state.go
 package consensus
 
+import (
+	"time"
+
+	logger "github.com/sphinx-core/go/src/log"
+)
+
 // NewConsensusState creates a new consensus state instance with initial values
 // Initializes the consensus state to starting conditions:
 // - View 0: Starting view number
@@ -35,6 +41,28 @@ func NewConsensusState() *ConsensusState {
 		currentHeight: 0,         // Start at height 0
 		phase:         PhaseIdle, // No active consensus round
 	}
+}
+
+// ResetForNewViewEnhanced provides safer view change with leader election
+func (cs *ConsensusState) ResetForNewViewEnhanced(view uint64, validators []string) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	cs.currentView = view
+	cs.phase = PhaseIdle
+	cs.preparedBlock = nil
+	cs.preparedView = 0
+	cs.lastViewChange = time.Now()
+
+	// Note: lockedBlock is preserved for safety across view changes
+	logger.Info("View change completed: view=%d, validators=%d", view, len(validators))
+}
+
+// CanChangeView checks if enough time has passed since last view change
+func (cs *ConsensusState) CanChangeView() bool {
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
+	return time.Since(cs.lastViewChange) > 2*time.Second
 }
 
 // GetCurrentView returns the current consensus view number

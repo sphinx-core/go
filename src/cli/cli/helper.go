@@ -260,8 +260,18 @@ func CallConsensus(numNodes int) error {
 			return err
 		}
 		sphincsMgrs[i] = sign.NewSphincsManager(db, km, sphincsParams)
+		// ========== NODE MANAGER AND PEER CONNECTIONS ==========
+		// Initialize node manager and establish peer connections
+		nodeMgr := network.NewCallNodeManager()
 
-		// ========== BLOCKCHAIN AND CONSENSUS ENGINE SETUP ==========
+		// Add all validator nodes as peers (including self for PBFT)
+		for _, id := range validatorIDs {
+			nodeMgr.AddPeer(id)
+		}
+
+		logger.Info("Node-%d peer connections: %v", i, nodeMgr.GetPeerIDs())
+
+		// ========== BLOCKCHAIN SETUP ==========
 		bc, err := core.NewBlockchain(common.GetBlockchainDataDir(nodeName), validatorIDs[i], validatorIDs, networkType)
 		if err != nil {
 			return fmt.Errorf("node %d blockchain initialization failed: %v", i, err)
@@ -299,17 +309,11 @@ func CallConsensus(numNodes int) error {
 		blockchains[i] = bc
 
 		// ========== NETWORK AND CONSENSUS CONFIGURATION ==========
-		// Initialize node manager and establish peer connections
-		nodeMgr := network.NewCallNodeManager()
-		for _, id := range validatorIDs {
-			nodeMgr.AddPeer(id)
-		}
-		logger.Info("Node-%d peer connections: %v", i, validatorIDs)
-
+		// Use the SAME nodeMgr instance created earlier
 		// Initialize PBFT consensus engine
 		cons := consensus.NewConsensus(
 			validatorIDs[i],
-			nodeMgr,
+			nodeMgr, // Use the nodeMgr created above
 			bc,
 			bc.CommitBlock,
 		)
@@ -320,14 +324,11 @@ func CallConsensus(numNodes int) error {
 		// Register consensus with network layer
 		network.RegisterConsensus(validatorIDs[i], cons)
 
-		// Configure consensus parameters
+		// Configure consensus parameters (timeout only)
 		cons.SetTimeout(15 * time.Second)
-		if i == 0 {
-			cons.SetLeader(true)
-			logger.Info("Node-0 designated as initial PBFT leader")
-		} else {
-			cons.SetLeader(false)
-		}
+
+		// DO NOT set manual leader - PBFT will handle leader rotation
+		// based on view numbers: view % numValidators determines leader
 
 		// Start consensus engine
 		if err := cons.Start(); err != nil {
@@ -361,24 +362,6 @@ func CallConsensus(numNodes int) error {
 		}
 	}
 	logger.Info("✅ All nodes have consistent genesis blocks")
-
-	// ========== CONSENSUS MESSAGE DELIVERY TEST ==========
-	logger.Info("=== TESTING CONSENSUS MESSAGE DELIVERY ===")
-	testBlock, err := blockchains[0].CreateBlock()
-	if err == nil {
-		testProposal := &consensus.Proposal{
-			Block: testBlock,
-			View:  0,
-		}
-		testNodeMgr := network.NewCallNodeManager()
-		for _, id := range validatorIDs {
-			testNodeMgr.AddPeer(id)
-		}
-		testNodeMgr.BroadcastMessage("proposal", testProposal)
-	} else {
-		logger.Info("Message delivery test skipped: %v", err)
-	}
-	logger.Info("=== MESSAGE DELIVERY TEST COMPLETED ===")
 
 	// ========== JSON-RPC SERVER INITIALIZATION ==========
 	for i := 0; i < numNodes; i++ {
@@ -637,7 +620,7 @@ func CallConsensus(numNodes int) error {
 	}
 
 	// Persist complete chain state to storage
-	if err := blockchains[0].StoreChainState(nodes, nil); err != nil {
+	if err := blockchains[0].StoreChainState(nodes); err != nil {
 		logger.Warn("Chain state persistence failed: %v", err)
 	} else {
 		logger.Info("✅ Chain state successfully persisted with Merkle roots")
@@ -647,22 +630,6 @@ func CallConsensus(numNodes int) error {
 
 	// Consolidate test artifacts
 	logger.Info("Test artifacts consolidated into chain_state.json")
-
-	// ========== TEST SUMMARY AND RESULTS ==========
-	logger.Info("=== SPHINX CHAIN TEST SUMMARY ===")
-	for i := 0; i < numNodes; i++ {
-		b := blockchains[i].GetLatestBlock()
-		chainInfo := blockchains[i].GetChainInfo()
-
-		logger.Info("Node-%d:", i)
-		logger.Info("  Chain: %s", chainInfo["chain_name"])
-		logger.Info("  Chain ID: %d", chainInfo["chain_id"])
-		logger.Info("  Height: %d", b.GetHeight())
-		logger.Info("  Block Hash: %s", b.GetHash())
-		logger.Info("  Symbol: %s", chainInfo["symbol"])
-		logger.Info("  Network: %s", chainInfo["network"])
-	}
-	logger.Info("================================")
 
 	// ========== RESOURCE CLEANUP AND SHUTDOWN ==========
 	cancel()

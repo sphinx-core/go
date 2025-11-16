@@ -68,15 +68,6 @@ type Vote struct {
 	Signature []byte `json:"signature"`  // Cryptographic signature of the voter
 }
 
-// TimeoutMsg represents a view change timeout
-// When consensus cannot progress in the current view, nodes broadcast
-// timeout messages to initiate a view change to the next leader
-type TimeoutMsg struct {
-	View      uint64 `json:"view"`      // The new view number being requested
-	VoterID   string `json:"voter_id"`  // ID of the node requesting view change
-	Signature []byte `json:"signature"` // Cryptographic signature of the requester
-}
-
 // BlockChain interface for block storage and retrieval
 // This interface abstracts the blockchain storage layer from consensus logic
 // allowing different blockchain implementations to work with the consensus engine
@@ -122,9 +113,7 @@ type NodeStatus int
 // PBFT progresses through several phases: idle, pre-prepared, prepared, committed
 type ConsensusPhase int
 
-// Consensus implements a PBFT-style consensus algorithm for dynamic networks
-// This is the main consensus engine that coordinates the Practical Byzantine Fault Tolerance protocol
-// It handles proposal processing, vote collection, view changes, and block commitment
+// Update the Consensus struct to include the missing fields
 type Consensus struct {
 	mu sync.RWMutex // Read-write mutex for thread-safe access to consensus state
 
@@ -161,8 +150,20 @@ type Consensus struct {
 	// Callbacks - functions called at important consensus events
 	onCommit func(Block) error // Callback executed when a block is successfully committed
 
-	ctx    context.Context    // Context for graceful shutdown and cancellation
-	cancel context.CancelFunc // Function to cancel the context and stop consensus
+	ctx            context.Context    // Context for graceful shutdown and cancellation
+	cancel         context.CancelFunc // Function to cancel the context and stop consensus
+	lastViewChange time.Time          // Track last view change time
+
+	// ADD THESE MISSING FIELDS:
+	viewChangeMutex sync.Mutex // Dedicated mutex for view change synchronization
+}
+
+// Update TimeoutMsg to include timestamp
+type TimeoutMsg struct {
+	View      uint64 `json:"view"`      // The new view number being requested
+	VoterID   string `json:"voter_id"`  // ID of the node requesting view change
+	Signature []byte `json:"signature"` // Cryptographic signature of the requester
+	Timestamp int64  `json:"timestamp"` // When this timeout was created
 }
 
 // QuorumVerifier provides mathematical guarantees for BFT safety
@@ -185,12 +186,12 @@ type QuorumCalculator struct {
 // This struct encapsulates all the state variables needed for PBFT consensus
 // and provides thread-safe access through mutex protection
 type ConsensusState struct {
-	mu sync.RWMutex // Read-write mutex for thread-safe state access
-
-	currentView   uint64         // Current consensus view number
-	currentHeight uint64         // Current blockchain height
-	phase         ConsensusPhase // Current phase in PBFT protocol
-	lockedBlock   Block          // Block locked in prepare phase (cannot change)
-	preparedBlock Block          // Block currently in prepare phase
-	preparedView  uint64         // View number when block was prepared
+	mu             sync.RWMutex
+	currentView    uint64
+	currentHeight  uint64
+	phase          ConsensusPhase
+	lockedBlock    Block
+	preparedBlock  Block
+	preparedView   uint64
+	lastViewChange time.Time
 }
