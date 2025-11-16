@@ -20,35 +20,50 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/core/config.go
-package core
+// go/src/core/transaction/helper.go
+package types
 
-// Constants for blockchain status, sync modes, etc.
-const (
-	StatusInitializing BlockchainStatus = iota
-	StatusSyncing
-	StatusRunning
-	StatusStopped
-	StatusForked
+import (
+	"encoding/hex"
+	"errors"
+	"math/big"
 )
 
-const (
-	SyncModeFull SyncMode = iota
-	SyncModeFast
-	SyncModeLight
-)
+// Ensure your Block type has these methods to implement consensus.Block
+func (b *Block) GetHeight() uint64 {
+	return b.Header.Block
+}
 
-const (
-	ImportedBest BlockImportResult = iota
-	ImportedSide
-	ImportedExisting
-	ImportInvalid
-	ImportError
-)
+func (b *Block) GetHash() string {
+	return hex.EncodeToString(b.Header.Hash)
+}
 
-const (
-	CacheTypeBlock CacheType = iota
-	CacheTypeTransaction
-	CacheTypeReceipt
-	CacheTypeState
-)
+func (b *Block) GetPrevHash() string {
+	return hex.EncodeToString(b.Header.PrevHash)
+}
+
+func (b *Block) GetTimestamp() int64 {
+	return b.Header.Timestamp
+}
+
+func (b *Block) Validate() error {
+	// Your existing block validation logic
+	if b.Header.Block == 0 && len(b.Header.PrevHash) != 0 {
+		return errors.New("genesis block must have empty previous hash")
+	}
+	if b.Header.Block > 0 && len(b.Header.PrevHash) == 0 {
+		return errors.New("non-genesis block must have previous hash")
+	}
+	return nil
+}
+
+func (b *Block) GetDifficulty() *big.Int {
+	if b.Header.Difficulty != nil {
+		return b.Header.Difficulty
+	}
+	return big.NewInt(1)
+}
+
+func (b *Block) GetBody() *BlockBody {
+	return &b.Body
+}

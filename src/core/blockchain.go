@@ -44,21 +44,6 @@ import (
 	storage "github.com/sphinx-core/go/src/state"
 )
 
-// Global genesis block definition
-var genesisBlockDefinition = &types.BlockHeader{
-	Block:      0,
-	Timestamp:  int64(1731375284), // Fixed timestamp
-	PrevHash:   []byte("genesis"),
-	Difficulty: big.NewInt(1),
-	Nonce:      uint64(0),
-	TxsRoot:    []byte{},
-	StateRoot:  []byte{},
-	GasLimit:   big.NewInt(1000000),
-	GasUsed:    big.NewInt(0),
-	ParentHash: []byte{}, // Will be set dynamically
-	UnclesHash: []byte{},
-}
-
 // GetMerkleRoot returns the Merkle root of transactions for a specific block
 func (bc *Blockchain) GetMerkleRoot(blockHash string) (string, error) {
 	block, err := bc.storage.GetBlockByHash(blockHash)

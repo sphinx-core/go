@@ -32,20 +32,6 @@ import (
 	"github.com/sphinx-core/go/src/common"
 )
 
-// MerkleTree represents a Merkle tree structure for transactions
-type MerkleTree struct {
-	Root   *MerkleNode
-	Leaves []*MerkleNode
-}
-
-// MerkleNode represents a node in the Merkle tree
-type MerkleNode struct {
-	Left   *MerkleNode
-	Right  *MerkleNode
-	Hash   []byte
-	IsLeaf bool // Helper field to identify leaf nodes
-}
-
 // NewMerkleNode creates a new Merkle node
 func NewMerkleNode(left, right *MerkleNode, data []byte) *MerkleNode {
 	node := &MerkleNode{}

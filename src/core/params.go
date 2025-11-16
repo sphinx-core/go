@@ -31,17 +31,6 @@ import (
 	"github.com/sphinx-core/go/src/pool"
 )
 
-// ChainParamsProvider defines an interface to get chain parameters without import cycle
-type ChainParamsProvider interface {
-	GetChainParams() *SphinxChainParameters
-	GetWalletDerivationPaths() map[string]string
-}
-
-// Mock implementation for storage package to use
-type MockChainParamsProvider struct {
-	params *SphinxChainParameters
-}
-
 func (m *MockChainParamsProvider) GetChainParams() *SphinxChainParameters {
 	return m.params
 }

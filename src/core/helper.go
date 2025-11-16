@@ -30,11 +30,6 @@ import (
 	types "github.com/sphinx-core/go/src/core/transaction"
 )
 
-// BlockAdapter wraps types.Block to implement consensus.Block interface
-type BlockHelper struct {
-	block *types.Block
-}
-
 // NewBlockAdapter creates a new adapter for types.Block
 func NewBlockHelper(block *types.Block) consensus.Block {
 	return &BlockHelper{block: block}

@@ -31,16 +31,16 @@ import (
 // SphinxChainParams returns the mainnet parameters for Sphinx blockchain
 func SphinxChainParams() *ChainParameters {
 	return &ChainParameters{
-		ChainID:       7331, // "SPX" in leet speak
-		ChainName:     "Sphinx",
+		ChainID:       7331,             // "SPX" in leet speak
+		ChainName:     "Sphinx Mainnet", // Changed from "Sphinx" to "Sphinx Mainnet"
 		Symbol:        "SPX",
-		GenesisTime:   1731375284,            // Your genesis timestamp
-		GenesisHash:   "sphinx-genesis-2024", // Your genesis hash
+		GenesisTime:   1731375284,
+		GenesisHash:   "sphinx-genesis-2024",
 		Version:       "1.0.0",
 		MagicNumber:   0x53504858, // "SPHX" in ASCII
-		DefaultPort:   32307,      // Your default port
-		BIP44CoinType: 7331,       // Same as ChainID for consistency
-		LedgerName:    "Sphinx",
+		DefaultPort:   32307,
+		BIP44CoinType: 7331,             // Should be 7331 for mainnet, not 1
+		LedgerName:    "Sphinx Mainnet", // Should match chain_name
 	}
 }
 
@@ -120,10 +120,7 @@ func ValidateChainID(chainID uint64) bool {
 func (p *ChainParameters) GetNetworkName() string {
 	switch p.ChainID {
 	case 7331:
-		if p.ChainName == "Sphinx Devnet" {
-			return "Sphinx Devnet"
-		}
-		return "Sphinx Mainnet"
+		return "Sphinx Mainnet" // Always return "Sphinx Mainnet" for chain ID 7331
 	case 17331:
 		return "Sphinx Testnet"
 	case 27331:

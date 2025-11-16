@@ -23,21 +23,5 @@
 // go/src/state/interface.go
 package state
 
-import (
-	types "github.com/sphinx-core/go/src/core/transaction"
-)
-
 // Ensure Storage implements BlockStorage
 var _ BlockStorage = (*Storage)(nil)
-
-// BlockStorage defines the interface for block storage operations
-type BlockStorage interface {
-	StoreBlock(block *types.Block) error
-	GetBlockByHash(hash string) (*types.Block, error)
-	GetBlockByHeight(height uint64) (*types.Block, error)
-	GetLatestBlock() (*types.Block, error)
-	GetTransaction(txID string) (*types.Transaction, error)
-	GetTotalBlocks() uint64 // Changed from int to uint64
-	ValidateChain() error
-	Close() error
-}

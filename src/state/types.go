@@ -33,6 +33,24 @@ import (
 
 type OperationType int
 
+// NetworkBroadcaster defines methods used by StateMachine to broadcast operations
+type NetworkBroadcaster interface {
+	BroadcastOperation(op *Operation) error
+	BroadcastCommitProof(proof *CommitProof) error
+}
+
+// BlockStorage defines the interface for block storage operations
+type BlockStorage interface {
+	StoreBlock(block *types.Block) error
+	GetBlockByHash(hash string) (*types.Block, error)
+	GetBlockByHeight(height uint64) (*types.Block, error)
+	GetLatestBlock() (*types.Block, error)
+	GetTransaction(txID string) (*types.Transaction, error)
+	GetTotalBlocks() uint64 // Changed from int to uint64
+	ValidateChain() error
+	Close() error
+}
+
 // StateMachine manages state machine replication for blockchain
 type StateMachine struct {
 	mu sync.RWMutex

@@ -46,6 +46,22 @@ type BlockImportResult int
 // CacheType represents different types of caches used in the blockchain
 type CacheType int
 
+// BlockAdapter wraps types.Block to implement consensus.Block interface
+type BlockHelper struct {
+	block *types.Block
+}
+
+// ChainParamsProvider defines an interface to get chain parameters without import cycle
+type ChainParamsProvider interface {
+	GetChainParams() *SphinxChainParameters
+	GetWalletDerivationPaths() map[string]string
+}
+
+// Mock implementation for storage package to use
+type MockChainParamsProvider struct {
+	params *SphinxChainParameters
+}
+
 // SphinxChainParameters defines the complete blockchain parameters
 type SphinxChainParameters struct {
 	// Network Identification
