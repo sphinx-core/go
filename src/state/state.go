@@ -24,6 +24,7 @@
 package state
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -454,7 +455,7 @@ func (s *Storage) ValidateChain() error {
 }
 
 // Helper method to get actual genesis hash from block_index.json
-func (s *Storage) GetActualGenesisHash() (string, error) {
+func (s *Storage) GetGenesisHash() (string, error) {
 	indexFile := filepath.Join(s.indexDir, "block_index.json")
 
 	data, err := os.ReadFile(indexFile)
@@ -500,7 +501,7 @@ func (s *Storage) FixChainStateGenesisHash() error {
 	}
 
 	// Get actual genesis hash
-	actualHash, err := s.GetActualGenesisHash()
+	actualHash, err := s.GetGenesisHash()
 	if err != nil {
 		return fmt.Errorf("failed to get actual genesis hash: %w", err)
 	}
@@ -725,6 +726,22 @@ func (s *Storage) updateBasicChainStateInFile(stateFile string) error {
 	// Update basic chain state
 	if chainState.BasicChainState == nil {
 		chainState.BasicChainState = &BasicChainState{}
+	}
+	// ADD MERKLE ROOT INFORMATION TO NODES
+	for _, node := range chainState.Nodes {
+		if node != nil {
+			// Get the block to calculate Merkle root
+			block, err := s.GetBlockByHash(node.BlockHash)
+			if err == nil && block != nil {
+				merkleRoot := block.CalculateTxsRoot()
+				node.MerkleRoot = hex.EncodeToString(merkleRoot)
+
+				// Also update FinalState
+				if node.FinalState != nil {
+					node.FinalState.MerkleRoot = node.MerkleRoot
+				}
+			}
+		}
 	}
 	chainState.BasicChainState.BestBlockHash = s.bestBlockHash
 	chainState.BasicChainState.TotalBlocks = s.totalBlocks

@@ -27,8 +27,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/sphinx-core/go/src/common"
 )
 
 // NewValidator creates a new Validator instance that holds the sender and recipient addresses.
@@ -60,17 +58,6 @@ func (v *Validator) Validate(note *Note) error {
 		return fmt.Errorf("storage information cannot be empty")
 	}
 	return nil
-}
-
-// CreateAddress generates a unique contract address using sender, recipient, and nonce.
-func (v *Validator) CreateAddress(nonce int64) (string, error) {
-	contractData := fmt.Sprintf("%s-%s-%d", v.senderAddress, v.recipientAddress, nonce)
-	hash := common.SpxHash([]byte(contractData))
-	address, err := common.Address(hash)
-	if err != nil {
-		return "", err
-	}
-	return address, nil
 }
 
 // validateAddress checks if the provided address is valid according to specific rules.

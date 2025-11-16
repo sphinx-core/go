@@ -51,12 +51,13 @@ type BlockBody struct {
 }
 
 // Block represents the entire block structure including the header and body.
+// Block represents a blockchain block
 type Block struct {
-	Header BlockHeader `json:"header"` // Block metadata
-	Body   BlockBody   `json:"body"`   // Block transactions and uncles
+	Header BlockHeader `json:"header"`
+	Body   BlockBody   `json:"body"`
 }
 
-// Transaction represents a single transaction within the block.
+// Transaction represents a blockchain transaction
 type Transaction struct {
 	ID        string   `json:"id"`
 	Sender    string   `json:"sender"`
@@ -64,9 +65,9 @@ type Transaction struct {
 	Amount    *big.Int `json:"amount"`
 	GasLimit  *big.Int `json:"gas_limit"`
 	GasPrice  *big.Int `json:"gas_price"`
-	Timestamp int64    `json:"timestamp"`
 	Nonce     uint64   `json:"nonce"`
-	Signature []byte   `json:"signature"` // ADD THIS FIELD
+	Timestamp int64    `json:"timestamp"`
+	Signature []byte   `json:"signature"`
 }
 
 // Outpoint represents a specific transaction output.

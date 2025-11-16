@@ -105,20 +105,9 @@ func (b *Block) GenerateBlockHash() []byte {
 	return common.SpxHash(headerData)
 }
 
-// CalculateTxsRoot calculates the Merkle root of all transactions in the block
+// CalculateTxsRoot calculates the Merkle root of all transactions in the block using proper Merkle tree
 func (b *Block) CalculateTxsRoot() []byte {
-	if len(b.Body.TxsList) == 0 {
-		return common.SpxHash([]byte{}) // Empty transactions root
-	}
-
-	// Simple implementation - hash all transaction IDs concatenated
-	// In production, you'd want a proper Merkle tree implementation
-	var txData []byte
-	for _, tx := range b.Body.TxsList {
-		txData = append(txData, []byte(tx.ID)...)
-	}
-
-	return common.SpxHash(txData)
+	return CalculateMerkleRoot(b.Body.TxsList)
 }
 
 // MineBlock adjusts the nonce in the BlockHeader until a valid block hash is found.

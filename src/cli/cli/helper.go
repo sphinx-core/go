@@ -25,6 +25,7 @@ package cli
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math/big"
@@ -63,6 +64,38 @@ func inspectConsensusTypes() {
 
 	// Use reflection to see available fields
 	log.Printf("=== END TYPE INSPECTION ===")
+}
+
+// PrintBlockchainData prints comprehensive blockchain data including Merkle root
+func PrintBlockchainData(bc *core.Blockchain, nodeID string) {
+	latestBlock := bc.GetLatestBlock()
+	if latestBlock == nil {
+		log.Printf("Node %s: No blocks available", nodeID)
+		return
+	}
+
+	chainParams := bc.GetChainParams()
+
+	if blockAdapter, ok := latestBlock.(*core.BlockHelper); ok {
+		underlyingBlock := blockAdapter.GetUnderlyingBlock()
+		merkleRoot := hex.EncodeToString(underlyingBlock.CalculateTxsRoot())
+
+		log.Printf("=== NODE %s BLOCKCHAIN DATA ===", nodeID)
+		log.Printf("Block Height: %d", latestBlock.GetHeight())
+		log.Printf("Block Hash: %s", latestBlock.GetHash())
+		log.Printf("Merkle Root: %s", merkleRoot)
+		log.Printf("Magic Number: 0x%x", chainParams.MagicNumber)
+		log.Printf("Previous Hash: %s", hex.EncodeToString(underlyingBlock.Header.PrevHash))
+		log.Printf("Timestamp: %d", underlyingBlock.Header.Timestamp)
+		log.Printf("Difficulty: %s", underlyingBlock.Header.Difficulty.String())
+		log.Printf("Nonce: %d", underlyingBlock.Header.Nonce)
+		log.Printf("Gas Limit: %s", underlyingBlock.Header.GasLimit.String())
+		log.Printf("Gas Used: %s", underlyingBlock.Header.GasUsed.String())
+		log.Printf("Transaction Count: %d", len(underlyingBlock.Body.TxsList))
+		log.Printf("Chain ID: %d", chainParams.ChainID)
+		log.Printf("Chain Name: %s", chainParams.ChainName)
+		log.Printf("=================================")
+	}
 }
 
 // ---------------------------------------------------------------------
@@ -529,16 +562,27 @@ func CallConsensus(numNodes int) error {
 	// ========== CREATE AND SAVE COMPLETE CHAIN STATE ==========
 	log.Printf("=== SAVING COMPLETE CHAIN STATE ===")
 
-	// Create node information
+	// Create node information WITH MERKLE ROOT
 	nodes := make([]*state.NodeInfo, numNodes)
 	for i := 0; i < numNodes; i++ {
 		nodeName := fmt.Sprintf("node-%d", i)
 		b := blockchains[i].GetLatestBlock()
 		chainInfo := blockchains[i].GetChainInfo()
 
+		// Calculate Merkle root for this block
+		var merkleRoot string
+		if blockAdapter, ok := b.(*core.BlockHelper); ok {
+			underlyingBlock := blockAdapter.GetUnderlyingBlock()
+			merkleRootBytes := underlyingBlock.CalculateTxsRoot()
+			merkleRoot = hex.EncodeToString(merkleRootBytes)
+		} else {
+			merkleRoot = "unknown"
+		}
+
 		finalState := &state.FinalStateInfo{
 			BlockHeight: b.GetHeight(),
 			BlockHash:   b.GetHash(),
+			MerkleRoot:  merkleRoot,
 			TotalBlocks: blockchains[i].GetBlockCount(),
 			Status:      "completed",
 			Timestamp:   time.Now().Format(time.RFC3339),
@@ -550,16 +594,47 @@ func CallConsensus(numNodes int) error {
 			ChainInfo:   chainInfo,
 			BlockHeight: b.GetHeight(),
 			BlockHash:   b.GetHash(),
+			MerkleRoot:  merkleRoot,
 			Timestamp:   time.Now().Format(time.RFC3339),
 			FinalState:  finalState,
 		}
+
+		// PRINT MERKLE ROOT TO CONSOLE
+		log.Printf("Node-%d Merkle Root: %s", i, merkleRoot)
+	}
+
+	// Also print detailed block information including Merkle root
+	log.Printf("=== BLOCK INFORMATION WITH MERKLE ROOTS ===")
+	for i := 0; i < numNodes; i++ {
+		latestBlock := blockchains[i].GetLatestBlock()
+		if latestBlock != nil {
+			// Get detailed block info including Merkle root
+			if blockAdapter, ok := latestBlock.(*core.BlockHelper); ok {
+				underlyingBlock := blockAdapter.GetUnderlyingBlock()
+				merkleRoot := hex.EncodeToString(underlyingBlock.CalculateTxsRoot())
+
+				log.Printf("Node-%d Block Details:", i)
+				log.Printf("  Height: %d", latestBlock.GetHeight())
+				log.Printf("  Hash: %s", latestBlock.GetHash())
+				log.Printf("  Merkle Root: %s", merkleRoot)
+				log.Printf("  Magic Number: 0x%x", chainParams.MagicNumber)
+				log.Printf("  Transaction Count: %d", len(underlyingBlock.Body.TxsList))
+				log.Printf("  Timestamp: %d", underlyingBlock.Header.Timestamp)
+			}
+		}
+	}
+
+	// Print comprehensive blockchain data
+	log.Printf("=== FINAL BLOCKCHAIN DATA ===")
+	for i := 0; i < numNodes; i++ {
+		PrintBlockchainData(blockchains[i], validatorIDs[i])
 	}
 
 	// Save chain state using the blockchain's built-in method
 	if err := blockchains[0].StoreChainState(nodes, nil); err != nil {
 		log.Printf("Warning: Failed to save chain state: %v", err)
 	} else {
-		log.Printf("✅ Chain state saved successfully")
+		log.Printf("✅ Chain state saved successfully with Merkle roots")
 	}
 
 	// Skip verification for now since VerifyState method is not implemented

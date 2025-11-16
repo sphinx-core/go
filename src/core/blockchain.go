@@ -58,6 +58,63 @@ var genesisBlockDefinition = &types.BlockHeader{
 	UnclesHash: []byte{},
 }
 
+// GetMerkleRoot returns the Merkle root of transactions for a specific block
+func (bc *Blockchain) GetMerkleRoot(blockHash string) (string, error) {
+	block, err := bc.storage.GetBlockByHash(blockHash)
+	if err != nil {
+		return "", fmt.Errorf("failed to get block: %w", err)
+	}
+
+	// Calculate Merkle root from transactions
+	merkleRoot := block.CalculateTxsRoot()
+	return hex.EncodeToString(merkleRoot), nil
+}
+
+// GetCurrentMerkleRoot returns the Merkle root of the latest block
+func (bc *Blockchain) GetCurrentMerkleRoot() (string, error) {
+	latestBlock := bc.GetLatestBlock()
+	if latestBlock == nil {
+		return "", fmt.Errorf("no blocks available")
+	}
+	return bc.GetMerkleRoot(latestBlock.GetHash())
+}
+
+// GetBlockWithMerkleInfo returns detailed block information including Merkle root
+func (bc *Blockchain) GetBlockWithMerkleInfo(blockHash string) (map[string]interface{}, error) {
+	block, err := bc.storage.GetBlockByHash(blockHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get block: %w", err)
+	}
+
+	// Calculate Merkle root
+	merkleRoot := block.CalculateTxsRoot()
+
+	info := map[string]interface{}{
+		"height":            block.GetHeight(),
+		"hash":              block.GetHash(),
+		"previous_hash":     hex.EncodeToString(block.Header.PrevHash),
+		"merkle_root":       hex.EncodeToString(merkleRoot),
+		"timestamp":         block.Header.Timestamp,
+		"difficulty":        block.Header.Difficulty.String(),
+		"nonce":             block.Header.Nonce,
+		"gas_limit":         block.Header.GasLimit.String(),
+		"gas_used":          block.Header.GasUsed.String(),
+		"transaction_count": len(block.Body.TxsList),
+		"transactions":      bc.getTransactionHashes(block.Body.TxsList),
+	}
+
+	return info, nil
+}
+
+// Helper method to extract transaction hashes
+func (bc *Blockchain) getTransactionHashes(txs []*types.Transaction) []string {
+	var hashes []string
+	for _, tx := range txs {
+		hashes = append(hashes, tx.ID)
+	}
+	return hashes
+}
+
 // CalculateBlockSize calculates the approximate size of a block in bytes
 func (bc *Blockchain) CalculateBlockSize(block *types.Block) uint64 {
 	size := uint64(0)
@@ -73,7 +130,6 @@ func (bc *Blockchain) CalculateBlockSize(block *types.Block) uint64 {
 	return size
 }
 
-// CalculateTransactionSize calculates the approximate size of a transaction
 // CalculateTransactionSize calculates the approximate size of a transaction
 func (bc *Blockchain) CalculateTransactionSize(tx *types.Transaction) uint64 {
 	// Basic fields
@@ -896,6 +952,7 @@ func (bc *Blockchain) GetBlocksizeInfo() map[string]interface{} {
 }
 
 // CreateBlock creates a new block with size constraints
+// CreateBlock creates a new block with size constraints
 func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 	bc.lock.Lock()
 	defer bc.lock.Unlock()
@@ -924,7 +981,7 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 	log.Printf("Creating block with %d transactions, estimated size: %d bytes",
 		len(selectedTxs), totalSize)
 
-	// Calculate roots
+	// Calculate roots - USE THE METHOD HERE
 	txsRoot := bc.calculateTransactionsRoot(selectedTxs)
 	stateRoot := bc.calculateStateRoot()
 
@@ -965,6 +1022,28 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 		newBlock.GetHeight(), len(selectedTxs), totalSize, newBlock.GetHash())
 
 	return newBlock, nil
+}
+
+// VerifyTransactionInBlock verifies if a transaction is included in a block
+func (bc *Blockchain) VerifyTransactionInBlock(tx *types.Transaction, blockHash string) (bool, error) {
+	block, err := bc.storage.GetBlockByHash(blockHash)
+	if err != nil {
+		return false, fmt.Errorf("failed to get block: %w", err)
+	}
+
+	tree := types.NewMerkleTree(block.Body.TxsList)
+	return tree.VerifyTransaction(tx), nil
+}
+
+// GenerateTransactionProof generates a Merkle proof for a transaction
+func (bc *Blockchain) GenerateTransactionProof(tx *types.Transaction, blockHash string) ([][]byte, error) {
+	block, err := bc.storage.GetBlockByHash(blockHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get block: %w", err)
+	}
+
+	tree := types.NewMerkleTree(block.Body.TxsList)
+	return tree.GenerateMerkleProof(tx)
 }
 
 // selectTransactionsForBlock selects transactions that fit within block size limits
@@ -1553,8 +1632,7 @@ func (bc *Blockchain) Close() error {
 	return bc.storage.Close()
 }
 
-// ValidateBlock validates a block against blockchain rules
-// ValidateBlock validates a block including size checks
+// ValidateBlock validates a block including transactions root verification
 func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 	// Extract the underlying types.Block from adapter
 	var b *types.Block
@@ -1562,10 +1640,17 @@ func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 	case *BlockHelper:
 		b = blk.GetUnderlyingBlock()
 	default:
-		return fmt.Errorf("invalid block type: expected *BlockAdapter, got %T", block)
+		return fmt.Errorf("invalid block type")
 	}
 
-	// 1. Structural sanity
+	// 1. Verify transactions root using the method
+	calculatedRoot := bc.calculateTransactionsRoot(b.Body.TxsList)
+	if !bytes.Equal(b.Header.TxsRoot, calculatedRoot) {
+		return fmt.Errorf("invalid transactions root: expected %x, got %x",
+			calculatedRoot, b.Header.TxsRoot)
+	}
+
+	// 2. Structural sanity
 	if err := b.SanityCheck(); err != nil {
 		if strings.Contains(err.Error(), "state root is missing") {
 			log.Printf("WARNING: Block validation - state root is empty (allowed in test)")
@@ -1576,18 +1661,18 @@ func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 		}
 	}
 
-	// 2. Block size validation (NEW)
+	// 3. Block size validation
 	if err := bc.ValidateBlockSize(b); err != nil {
 		return fmt.Errorf("block size validation failed: %w", err)
 	}
 
-	// 3. Hash is correct
+	// 4. Hash is correct
 	expectedHash := b.GenerateBlockHash()
 	if !bytes.Equal(b.Header.Hash, expectedHash) {
 		return fmt.Errorf("invalid block hash: expected %x, got %x", expectedHash, b.Header.Hash)
 	}
 
-	// 4. Links to previous block
+	// 5. Links to previous block
 	prev := bc.GetLatestBlock()
 	if prev != nil {
 		prevHashBytes, err := hex.DecodeString(prev.GetHash())
@@ -1600,6 +1685,7 @@ func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 		}
 	}
 
+	log.Printf("✓ Block %d validation passed, transactions root verified", b.GetHeight())
 	return nil
 }
 

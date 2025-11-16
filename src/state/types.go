@@ -150,24 +150,42 @@ type TestSummary struct {
 	ConsensusType string `json:"consensus_type"`
 }
 
-// NodeInfo represents information about a single node
+// Update NodeInfo to include Merkle root
 type NodeInfo struct {
 	NodeID      string                 `json:"node_id"`
 	NodeName    string                 `json:"node_name"`
 	ChainInfo   map[string]interface{} `json:"chain_info"`
 	BlockHeight uint64                 `json:"block_height"`
 	BlockHash   string                 `json:"block_hash"`
+	MerkleRoot  string                 `json:"merkle_root"` // ADD THIS
 	Timestamp   string                 `json:"timestamp"`
 	FinalState  *FinalStateInfo        `json:"final_state"`
 }
 
-// FinalStateInfo represents the final state of a node
+// Update FinalStateInfo to include Merkle root
 type FinalStateInfo struct {
 	BlockHeight uint64 `json:"block_height"`
 	BlockHash   string `json:"block_hash"`
+	MerkleRoot  string `json:"merkle_root"` // ADD THIS
 	TotalBlocks uint64 `json:"total_blocks"`
 	Status      string `json:"status"`
 	Timestamp   string `json:"timestamp"`
+}
+
+// Add a new structure for detailed block information
+type BlockInfo struct {
+	Height           uint64   `json:"height"`
+	Hash             string   `json:"hash"`
+	PreviousHash     string   `json:"previous_hash"`
+	MerkleRoot       string   `json:"merkle_root"`
+	Timestamp        int64    `json:"timestamp"`
+	Difficulty       string   `json:"difficulty"`
+	Nonce            uint64   `json:"nonce"`
+	GasLimit         string   `json:"gas_limit"`
+	GasUsed          string   `json:"gas_used"`
+	TransactionCount int      `json:"transaction_count"`
+	Transactions     []string `json:"transactions,omitempty"`
+	MagicNumber      uint32   `json:"magic_number"`
 }
 
 // StorageState represents the storage layer state

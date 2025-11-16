@@ -24,7 +24,6 @@
 package types
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -113,9 +112,9 @@ func (n *Note) ToTxs(nonce uint64, gasLimit, gasPrice *big.Int) *Transaction {
 	}
 }
 
-// Hash computes the transaction ID as a SHA-256 hash of its contents.
+// Hash computes the transaction ID using SphinxHash.
 func (tx *Transaction) Hash() string {
-	data, _ := json.Marshal(tx)        // Serialize transaction (excluding ID to avoid circularity)
-	hash := sha256.Sum256(data)        // Compute SHA-256 hash
-	return hex.EncodeToString(hash[:]) // Return hex-encoded hash
+	data, _ := json.Marshal(tx)
+	hash := common.SpxHash(data)
+	return hex.EncodeToString(hash)
 }

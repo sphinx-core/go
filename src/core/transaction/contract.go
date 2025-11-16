@@ -27,6 +27,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+
+	"github.com/sphinx-core/go/src/common"
 )
 
 // CreateContract creates a contract between Alice and Bob based on the validated note.
@@ -86,4 +88,15 @@ func CreateContract(note *Note, amountInSPX float64, set *UTXOSet, txID string, 
 
 	// Returning contract and nil error means successful contract creation
 	return contract, nil
+}
+
+// CreateAddress generates a unique contract address using sender, recipient, and nonce.
+func (v *Validator) CreateAddress(nonce int64) (string, error) {
+	contractData := fmt.Sprintf("%s-%s-%d", v.senderAddress, v.recipientAddress, nonce)
+	hash := common.SpxHash([]byte(contractData))
+	address, err := common.Address(hash)
+	if err != nil {
+		return "", err
+	}
+	return address, nil
 }
