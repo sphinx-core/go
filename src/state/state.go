@@ -30,44 +30,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	types "github.com/sphinx-core/go/src/core/transaction"
 )
-
-// Storage manages blockchain data persistence
-type Storage struct {
-	mu sync.RWMutex
-
-	dataDir   string
-	blocksDir string
-	indexDir  string
-	stateDir  string
-
-	// In-memory indices for fast access
-	blockIndex  map[string]*types.Block       // hash -> block
-	heightIndex map[uint64]*types.Block       // height -> block
-	txIndex     map[string]*types.Transaction // txID -> transaction
-
-	// Chain state
-	bestBlockHash string
-	totalBlocks   uint64
-}
-
-// ChainParams represents basic chain parameters for storage
-type ChainParams struct {
-	ChainID       uint64
-	ChainName     string
-	Symbol        string
-	GenesisTime   int64
-	GenesisHash   string
-	Version       string
-	MagicNumber   uint32
-	DefaultPort   int
-	BIP44CoinType uint64
-	LedgerName    string
-}
 
 // GetBlockByHeight returns a block by its height
 func (s *Storage) GetBlockByHeight(height uint64) (*types.Block, error) {
@@ -318,7 +284,7 @@ func (s *Storage) GetChainStatePath() string {
 	return filepath.Join(s.stateDir, "chain_state.json")
 }
 
-// StoreBlock stores a block and updates indices
+// StoreBlock stores a block and updates indices with TxsRoot validation
 func (s *Storage) StoreBlock(block *types.Block) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -327,6 +293,11 @@ func (s *Storage) StoreBlock(block *types.Block) error {
 	height := block.GetHeight()
 
 	log.Printf("Storing block: height=%d, hash=%s", height, blockHash)
+
+	// Validate TxsRoot = MerkleRoot before storing
+	if err := block.ValidateTxsRoot(); err != nil {
+		return fmt.Errorf("block TxsRoot validation failed before storage: %w", err)
+	}
 
 	// Check if block already exists
 	if existing, exists := s.blockIndex[blockHash]; exists {
@@ -356,8 +327,8 @@ func (s *Storage) StoreBlock(block *types.Block) error {
 	if height >= s.totalBlocks {
 		s.bestBlockHash = blockHash
 		s.totalBlocks = height + 1
-		log.Printf("Updated best block: height=%d, hash=%s, total=%d",
-			height, blockHash, s.totalBlocks)
+		log.Printf("Updated best block: height=%d, hash=%s, total=%d, TxsRoot=%x",
+			height, blockHash, s.totalBlocks, block.Header.TxsRoot)
 	}
 
 	// Persist updated indices
@@ -368,7 +339,8 @@ func (s *Storage) StoreBlock(block *types.Block) error {
 		return fmt.Errorf("failed to save chain state: %w", err)
 	}
 
-	log.Printf("Successfully stored block: height=%d, hash=%s", height, blockHash)
+	log.Printf("Successfully stored block: height=%d, hash=%s, TxsRoot=%x (verified = MerkleRoot)",
+		height, blockHash, block.Header.TxsRoot)
 	return nil
 }
 

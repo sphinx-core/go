@@ -59,6 +59,39 @@ type StateMachine struct {
 	timeoutCh chan struct{}
 }
 
+// Storage manages blockchain data persistence
+type Storage struct {
+	mu sync.RWMutex
+
+	dataDir   string
+	blocksDir string
+	indexDir  string
+	stateDir  string
+
+	// In-memory indices for fast access
+	blockIndex  map[string]*types.Block       // hash -> block
+	heightIndex map[uint64]*types.Block       // height -> block
+	txIndex     map[string]*types.Transaction // txID -> transaction
+
+	// Chain state
+	bestBlockHash string
+	totalBlocks   uint64
+}
+
+// ChainParams represents basic chain parameters for storage
+type ChainParams struct {
+	ChainID       uint64
+	ChainName     string
+	Symbol        string
+	GenesisTime   int64
+	GenesisHash   string
+	Version       string
+	MagicNumber   uint32
+	DefaultPort   int
+	BIP44CoinType uint64
+	LedgerName    string
+}
+
 // Add this struct to represent basic chain state
 type BasicChainState struct {
 	BestBlockHash string `json:"best_block_hash"`

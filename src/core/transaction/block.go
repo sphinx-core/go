@@ -24,8 +24,10 @@
 package types
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"math/big"
 	"time"
 
@@ -79,11 +81,27 @@ func (b *Block) GenerateBlockHash() []byte {
 	nonceBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(nonceBytes, b.Header.Nonce)
 
+	// ENSURE TxsRoot is always calculated from Merkle tree before hash generation
+	if len(b.Body.TxsList) > 0 {
+		// Always recalculate TxsRoot to ensure it matches MerkleRoot
+		calculatedMerkleRoot := b.CalculateTxsRoot()
+		if !bytes.Equal(b.Header.TxsRoot, calculatedMerkleRoot) {
+			log.Printf("WARNING: TxsRoot doesn't match calculated Merkle root, updating TxsRoot")
+			b.Header.TxsRoot = calculatedMerkleRoot
+		}
+	} else {
+		// For empty blocks, ensure TxsRoot is the hash of empty data
+		emptyHash := common.SpxHash([]byte{})
+		if len(b.Header.TxsRoot) == 0 || !bytes.Equal(b.Header.TxsRoot, emptyHash) {
+			b.Header.TxsRoot = emptyHash
+		}
+	}
+
 	// Include ALL important header fields in the hash calculation
 	headerData := blockNumBytes                                     // Block number/height
 	headerData = append(headerData, timestampBytes...)              // Timestamp
 	headerData = append(headerData, b.Header.PrevHash...)           // Previous block hash
-	headerData = append(headerData, b.Header.TxsRoot...)            // Transactions Merkle root
+	headerData = append(headerData, b.Header.TxsRoot...)            // Transactions Merkle root (now guaranteed to be correct)
 	headerData = append(headerData, b.Header.StateRoot...)          // State Merkle root
 	headerData = append(headerData, nonceBytes...)                  // Nonce
 	headerData = append(headerData, b.Header.Difficulty.Bytes()...) // Difficulty
@@ -92,28 +110,31 @@ func (b *Block) GenerateBlockHash() []byte {
 	headerData = append(headerData, b.Header.ParentHash...)         // Parent hash
 	headerData = append(headerData, b.Header.UnclesHash...)         // Uncles hash
 
-	// Include transaction data in the hash (via the transactions root)
-	// The TxsRoot should already represent all transactions, but we can double-check
-	if len(b.Body.TxsList) > 0 {
-		// If TxsRoot is empty, calculate it from transactions
-		if len(b.Header.TxsRoot) == 0 {
-			b.Header.TxsRoot = b.CalculateTxsRoot()
-		}
-	}
-
 	// Use common.SpxHash to hash the concatenated data
 	return common.SpxHash(headerData)
 }
 
 // CalculateTxsRoot calculates the Merkle root of all transactions in the block using proper Merkle tree
+// This ensures TxsRoot = MerkleRoot
 func (b *Block) CalculateTxsRoot() []byte {
 	return CalculateMerkleRoot(b.Body.TxsList)
 }
 
-// MineBlock adjusts the nonce in the BlockHeader until a valid block hash is found.
-// Replace MineBlock with simple hash calculation
+// FinalizeHash ensures TxsRoot is properly set before finalizing the block hash
 func (b *Block) FinalizeHash() {
-	b.Header.Hash = b.GenerateBlockHash() // Just compute once
+	// Ensure TxsRoot is calculated before generating the final hash
+	b.Header.TxsRoot = b.CalculateTxsRoot()
+	b.Header.Hash = b.GenerateBlockHash()
+}
+
+// ValidateTxsRoot validates that TxsRoot matches the calculated Merkle root
+func (b *Block) ValidateTxsRoot() error {
+	calculatedMerkleRoot := b.CalculateTxsRoot()
+	if !bytes.Equal(b.Header.TxsRoot, calculatedMerkleRoot) {
+		return fmt.Errorf("TxsRoot validation failed: expected %x, got %x",
+			calculatedMerkleRoot, b.Header.TxsRoot)
+	}
+	return nil
 }
 
 // AddTxs adds a transaction to the block's body.
@@ -138,10 +159,7 @@ func NewTxs(to, from string, fee float64, storage string, nonce uint64, gasLimit
 	return nil
 }
 
-// SanityCheck verifies the validity and integrity of the block's header and body.
-// go/src/core/transaction/block.go
-
-// SanityCheck verifies the validity and integrity of the block's header and body.
+// Enhanced SanityCheck that validates TxsRoot = MerkleRoot
 func (b *Block) SanityCheck() error {
 	// Check if the timestamp is valid (not in the future)
 	if b.Header.Timestamp > time.Now().Unix()+300 { // Allow 5 minutes in future for clock skew
@@ -158,16 +176,10 @@ func (b *Block) SanityCheck() error {
 		return fmt.Errorf("invalid difficulty: %s", b.Header.Difficulty.String())
 	}
 
-	// For testing, be more lenient about roots - comment these out for now
-	/*
-	   // Ensure TxRoot and StateRoot are not empty
-	   if len(b.Header.TxsRoot) == 0 {
-	       return fmt.Errorf("transaction root is missing")
-	   }
-	   if len(b.Header.StateRoot) == 0 {
-	       return fmt.Errorf("state root is missing")
-	   }
-	*/
+	// VALIDATE THAT TxsRoot = MerkleRoot
+	if err := b.ValidateTxsRoot(); err != nil {
+		return fmt.Errorf("transaction root validation failed: %w", err)
+	}
 
 	// Check GasUsed does not exceed GasLimit
 	if b.Header.GasUsed.Cmp(b.Header.GasLimit) > 0 {
@@ -186,6 +198,8 @@ func (b *Block) SanityCheck() error {
 		}
 	}
 
+	log.Printf("✓ Block %d TxsRoot validated: TxsRoot = MerkleRoot = %x",
+		b.Header.Block, b.Header.TxsRoot)
 	return nil
 }
 

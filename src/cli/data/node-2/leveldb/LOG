@@ -1,8 +1,8 @@
 =============== Nov 16, 2025 (WIB) ===============
-07:19:11.677840 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
-07:19:11.700833 db@open opening
-07:19:11.701594 version@stat F·[] S·0B[] Sc·[]
-07:19:11.714622 db@janitor F·2 G·0
-07:19:11.714687 db@open done T·13.791428ms
-07:19:27.142959 db@close closing
-07:19:27.143003 db@close done T·43.547µs
+07:32:36.944142 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+07:32:36.976383 db@open opening
+07:32:36.976925 version@stat F·[] S·0B[] Sc·[]
+07:32:36.995602 db@janitor F·2 G·0
+07:32:36.995681 db@open done T·19.244521ms
+07:32:54.207445 db@close closing
+07:32:54.207544 db@close done T·96.939µs

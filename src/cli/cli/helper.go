@@ -66,7 +66,7 @@ func inspectConsensusTypes() {
 	log.Printf("=== END TYPE INSPECTION ===")
 }
 
-// PrintBlockchainData prints comprehensive blockchain data including Merkle root
+// PrintBlockchainData prints comprehensive blockchain data showing TxsRoot = MerkleRoot
 func PrintBlockchainData(bc *core.Blockchain, nodeID string) {
 	latestBlock := bc.GetLatestBlock()
 	if latestBlock == nil {
@@ -78,12 +78,20 @@ func PrintBlockchainData(bc *core.Blockchain, nodeID string) {
 
 	if blockAdapter, ok := latestBlock.(*core.BlockHelper); ok {
 		underlyingBlock := blockAdapter.GetUnderlyingBlock()
-		merkleRoot := hex.EncodeToString(underlyingBlock.CalculateTxsRoot())
+
+		// Calculate both values to show they're equal
+		txsRoot := hex.EncodeToString(underlyingBlock.Header.TxsRoot)
+		calculatedMerkleRoot := hex.EncodeToString(underlyingBlock.CalculateTxsRoot())
+
+		// Verify they match
+		rootsMatch := txsRoot == calculatedMerkleRoot
 
 		log.Printf("=== NODE %s BLOCKCHAIN DATA ===", nodeID)
 		log.Printf("Block Height: %d", latestBlock.GetHeight())
 		log.Printf("Block Hash: %s", latestBlock.GetHash())
-		log.Printf("Merkle Root: %s", merkleRoot)
+		log.Printf("TxsRoot (from header): %s", txsRoot)
+		log.Printf("MerkleRoot (calculated): %s", calculatedMerkleRoot)
+		log.Printf("TxsRoot = MerkleRoot: %v", rootsMatch)
 		log.Printf("Magic Number: 0x%x", chainParams.MagicNumber)
 		log.Printf("Previous Hash: %s", hex.EncodeToString(underlyingBlock.Header.PrevHash))
 		log.Printf("Timestamp: %d", underlyingBlock.Header.Timestamp)
@@ -95,6 +103,10 @@ func PrintBlockchainData(bc *core.Blockchain, nodeID string) {
 		log.Printf("Chain ID: %d", chainParams.ChainID)
 		log.Printf("Chain Name: %s", chainParams.ChainName)
 		log.Printf("=================================")
+
+		if !rootsMatch {
+			log.Printf("❌ WARNING: TxsRoot does not match MerkleRoot!")
+		}
 	}
 }
 

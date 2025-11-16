@@ -3,14 +3,14 @@
     "nblock": 0,
     "timestamp": 1731375284,
     "prev_hash": "Z2VuZXNpcw==",
-    "hash": "8j0MjOY4qYRbdXZohI7eO709MjPVS++93S9glqjBd04=",
+    "hash": "/3rakI5XuWdTzja4PQcFPvVY95RilGlpUAmbAVxX+8g=",
     "difficulty": 1,
     "nonce": 0,
-    "txs_root": "",
+    "txs_root": "wg9LwUJnqtaTviu26XmWdexMSUxlSmrSdbMSSuMYJ4I=",
     "state_root": "",
     "gas_limit": 1000000,
     "gas_used": 0,
-    "parent_hash": "8j0MjOY4qYRbdXZohI7eO709MjPVS++93S9glqjBd04=",
+    "parent_hash": "/3rakI5XuWdTzja4PQcFPvVY95RilGlpUAmbAVxX+8g=",
     "uncles_hash": ""
   },
   "body": {

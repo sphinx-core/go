@@ -951,8 +951,7 @@ func (bc *Blockchain) GetBlocksizeInfo() map[string]interface{} {
 	return info
 }
 
-// CreateBlock creates a new block with size constraints
-// CreateBlock creates a new block with size constraints
+// CreateBlock creates a new block with size constraints and ensures TxsRoot = MerkleRoot
 func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 	bc.lock.Lock()
 	defer bc.lock.Unlock()
@@ -981,7 +980,7 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 	log.Printf("Creating block with %d transactions, estimated size: %d bytes",
 		len(selectedTxs), totalSize)
 
-	// Calculate roots - USE THE METHOD HERE
+	// Calculate roots - ENSURE TxsRoot is calculated from Merkle tree
 	txsRoot := bc.calculateTransactionsRoot(selectedTxs)
 	stateRoot := bc.calculateStateRoot()
 
@@ -995,7 +994,7 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 		prevBlock.GetHeight()+1,
 		prevHashBytes,
 		big.NewInt(1),
-		txsRoot,
+		txsRoot, // This is the Merkle root
 		stateRoot,
 		bc.chainParams.BlockGasLimit, // Use configured gas limit
 		big.NewInt(0),
@@ -1006,22 +1005,34 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 
 	newBody := types.NewBlockBody(selectedTxs, []byte{})
 	newBlock := types.NewBlock(newHeader, newBody)
+
+	// Finalize hash ensures TxsRoot is properly set
 	newBlock.FinalizeHash()
+
+	// Validate that TxsRoot = MerkleRoot
+	if err := newBlock.ValidateTxsRoot(); err != nil {
+		return nil, fmt.Errorf("created block has inconsistent TxsRoot: %v", err)
+	}
 
 	// Validate block size
 	if err := bc.ValidateBlockSize(newBlock); err != nil {
 		return nil, fmt.Errorf("created block exceeds size limits: %v", err)
 	}
 
-	// Sanity check
+	// Sanity check (includes TxsRoot validation)
 	if err := newBlock.SanityCheck(); err != nil {
 		return nil, fmt.Errorf("created invalid block: %v", err)
 	}
 
-	log.Printf("Created new block: height=%d, transactions=%d, size=%d bytes, hash=%s",
-		newBlock.GetHeight(), len(selectedTxs), totalSize, newBlock.GetHash())
-
+	log.Printf("Created new block: height=%d, transactions=%d, size=%d bytes, hash=%s, TxsRoot=%x",
+		newBlock.GetHeight(), len(selectedTxs), totalSize, newBlock.GetHash(), newBlock.Header.TxsRoot)
 	return newBlock, nil
+}
+
+// calculateTransactionsRoot calculates the Merkle root of transactions
+// This ensures we're always using the Merkle tree for TxsRoot
+func (bc *Blockchain) calculateTxRoot(txs []*types.Transaction) []byte {
+	return types.CalculateMerkleRoot(txs)
 }
 
 // VerifyTransactionInBlock verifies if a transaction is included in a block
@@ -1632,7 +1643,7 @@ func (bc *Blockchain) Close() error {
 	return bc.storage.Close()
 }
 
-// ValidateBlock validates a block including transactions root verification
+// ValidateBlock validates a block including TxsRoot = MerkleRoot verification
 func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 	// Extract the underlying types.Block from adapter
 	var b *types.Block
@@ -1643,11 +1654,9 @@ func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 		return fmt.Errorf("invalid block type")
 	}
 
-	// 1. Verify transactions root using the method
-	calculatedRoot := bc.calculateTransactionsRoot(b.Body.TxsList)
-	if !bytes.Equal(b.Header.TxsRoot, calculatedRoot) {
-		return fmt.Errorf("invalid transactions root: expected %x, got %x",
-			calculatedRoot, b.Header.TxsRoot)
+	// 1. Verify TxsRoot = MerkleRoot
+	if err := b.ValidateTxsRoot(); err != nil {
+		return fmt.Errorf("TxsRoot validation failed: %w", err)
 	}
 
 	// 2. Structural sanity
@@ -1685,7 +1694,8 @@ func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 		}
 	}
 
-	log.Printf("✓ Block %d validation passed, transactions root verified", b.GetHeight())
+	log.Printf("✓ Block %d validation passed, TxsRoot = MerkleRoot verified: %x",
+		b.GetHeight(), b.Header.TxsRoot)
 	return nil
 }
 
