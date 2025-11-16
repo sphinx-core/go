@@ -158,16 +158,22 @@ func CallConsensus(numNodes int) error {
 		logger.Info("  %s: %s", name, path)
 	}
 
-	// Determine network configuration based on chain parameters
+	// Determine network configuration based on chain parameters using tagged switch
 	networkType := "mainnet"
 	networkDisplayName := "Sphinx Mainnet"
 
-	if chainParams.ChainName == "Sphinx Devnet" {
+	switch chainName := chainParams.ChainName; chainName {
+	case "Sphinx Devnet":
 		networkType = "devnet"
 		networkDisplayName = "Sphinx Devnet"
-	} else if chainParams.ChainName == "Sphinx Testnet" {
+	case "Sphinx Testnet":
 		networkType = "testnet"
 		networkDisplayName = "Sphinx Testnet"
+	// Add more cases as needed for other network types
+	default:
+		// Default to mainnet for "Sphinx Mainnet" or any unrecognized name
+		networkType = "mainnet"
+		networkDisplayName = "Sphinx Mainnet"
 	}
 
 	logger.Info("Network: %s", networkDisplayName)

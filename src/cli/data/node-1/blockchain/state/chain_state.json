@@ -1,6 +1,6 @@
 {
   "chain_identification": {
-    "timestamp": "2025-11-16T10:37:25+07:00",
+    "timestamp": "2025-11-16T11:21:44+07:00",
     "chain_parameters": {
       "bip44_type": 7331,
       "chain_id": 7331,
@@ -36,9 +36,9 @@
     "state_dir": "data/node-1/blockchain/state"
   },
   "basic_chain_state": {
-    "best_block_hash": "22873d02e1d87e451ac0cea93e8bde3aed8ceb9017e8cc591bef02f50da8ec6c",
+    "best_block_hash": "ee78fee6127f583f5d27c1dc66bfa39bb45cc696d7a14c29c84f17628183b76a",
     "total_blocks": 2,
-    "last_updated": "2025-11-16T10:37:42+07:00"
+    "last_updated": "2025-11-16T11:22:01+07:00"
   },
-  "timestamp": "2025-11-16T10:37:25+07:00"
+  "timestamp": "2025-11-16T11:21:44+07:00"
 }
