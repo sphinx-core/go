@@ -58,6 +58,8 @@ func NewStateMachine(storage *Storage, nodeID string, validators []string) *Stat
 		stateCh:      make(chan *StateSnapshot, 100),
 		commitCh:     make(chan *CommitProof, 100),
 		timeoutCh:    make(chan struct{}, 10),
+		// ADD: Initialize the new fields
+		finalStates: make([]*FinalStateInfo, 0),
 	}
 
 	// Load initial state
@@ -109,25 +111,91 @@ func (sm *StateMachine) ProposeBlock(block *types.Block) error {
 		return fmt.Errorf("block validation failed: %w", err)
 	}
 
-	// Create operation
+	// Get final states that were already created in consensus layer
+	finalStates := sm.getFinalStatesForBlock(block.GetHash())
+
+	// Create operation with existing final states
 	op := &Operation{
-		Type:      OpBlock,
-		Block:     block,
-		View:      sm.currentView,
-		Sequence:  sm.currentState.Height + 1,
-		Proposer:  sm.nodeID,
-		Signature: []byte{}, // Should be properly signed
+		Type:        OpBlock,
+		Block:       block,
+		View:        sm.currentView,
+		Sequence:    sm.currentState.Height + 1,
+		Proposer:    sm.nodeID,
+		Signature:   []byte{},    // Empty - we use final states instead
+		FinalStates: finalStates, // Use the real final states
 	}
 
 	// Send to operation channel
 	select {
 	case sm.opCh <- op:
-		log.Printf("Proposed block for state machine replication: height=%d, hash=%s",
-			block.GetHeight(), block.GetHash())
+		log.Printf("Proposed block for state machine replication: height=%d, hash=%s, final_states=%d",
+			block.GetHeight(), block.GetHash(), len(finalStates))
 		return nil
 	default:
 		return fmt.Errorf("operation channel full")
 	}
+}
+
+// getFinalStatesForBlock retrieves final states for a block
+func (sm *StateMachine) getFinalStatesForBlock(blockHash string) []*FinalStateInfo {
+	sm.stateMutex.RLock()
+	defer sm.stateMutex.RUnlock()
+
+	var states []*FinalStateInfo
+	for _, state := range sm.finalStates {
+		if state.BlockHash == blockHash && state.Valid {
+			states = append(states, state)
+		}
+	}
+	return states
+}
+
+// mapMessageTypeToStatus converts message type to status string
+func mapMessageTypeToStatus(messageType string) string {
+	switch messageType {
+	case "proposal":
+		return "proposed"
+	case "prepare":
+		return "prepared"
+	case "commit":
+		return "committed"
+	case "timeout":
+		return "timeout"
+	default:
+		return "unknown"
+	}
+}
+
+// syncFinalStates syncs with the consensus engine to get final states
+// syncFinalStates syncs with the consensus engine to get final states
+func (sm *StateMachine) syncFinalStates() {
+	if sm.consensus == nil {
+		return
+	}
+
+	// Get final states from consensus
+	rawSignatures := sm.consensus.GetConsensusSignatures()
+
+	sm.stateMutex.Lock()
+	defer sm.stateMutex.Unlock()
+
+	// Convert to new FinalStateInfo format
+	sm.finalStates = make([]*FinalStateInfo, len(rawSignatures))
+	for i, rawSig := range rawSignatures {
+		sm.finalStates[i] = &FinalStateInfo{
+			BlockHash:    rawSig.BlockHash,
+			BlockHeight:  rawSig.BlockHeight,
+			SignerNodeID: rawSig.SignerNodeID,
+			Signature:    rawSig.Signature,
+			MessageType:  rawSig.MessageType,
+			View:         rawSig.View,
+			Timestamp:    rawSig.Timestamp,
+			Valid:        rawSig.Valid,
+			Status:       mapMessageTypeToStatus(rawSig.MessageType),
+		}
+	}
+
+	log.Printf("SMR: Synced %d final states from consensus layer", len(rawSignatures))
 }
 
 // ProposeTransaction proposes a transaction for state machine replication
@@ -245,12 +313,16 @@ func (sm *StateMachine) VerifyState(snapshot *StateSnapshot) (bool, error) {
 
 func (sm *StateMachine) replicationLoop() {
 	ticker := time.NewTicker(1 * time.Second)
+	syncTicker := time.NewTicker(10 * time.Second) // Sync with consensus periodically
 	defer ticker.Stop()
+	defer syncTicker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
 			sm.checkProgress()
+		case <-syncTicker.C:
+			sm.syncFinalStates() // Sync with consensus layer
 		case <-sm.timeoutCh:
 			sm.handleTimeout()
 		}
@@ -446,6 +518,7 @@ func (sm *StateMachine) calculateStateRoot(block *types.Block) string {
 	return fmt.Sprintf("%x", []byte(data)) // Simple hash
 }
 
+// validateOperation validates operation using final states
 func (sm *StateMachine) validateOperation(op *Operation) error {
 	// Check proposer is a validator
 	if !sm.validators[op.Proposer] {
@@ -471,6 +544,11 @@ func (sm *StateMachine) validateOperation(op *Operation) error {
 		if err := op.Block.Validate(); err != nil {
 			return fmt.Errorf("invalid block: %w", err)
 		}
+
+		// VALIDATE USING FINAL STATES INSTEAD OF OPERATION SIGNATURE
+		if err := sm.validateOperationWithFinalStates(op); err != nil {
+			return fmt.Errorf("final state validation failed: %w", err)
+		}
 	case OpTransaction:
 		if op.Transaction == nil {
 			return fmt.Errorf("transaction operation missing transaction")
@@ -480,6 +558,34 @@ func (sm *StateMachine) validateOperation(op *Operation) error {
 		}
 	}
 
+	return nil
+}
+
+// validateOperationWithFinalStates validates using existing final states
+func (sm *StateMachine) validateOperationWithFinalStates(op *Operation) error {
+	if len(op.FinalStates) == 0 {
+		return fmt.Errorf("no final states provided")
+	}
+
+	// Count valid signatures from different validators
+	validatorsSigned := make(map[string]bool)
+	validCount := 0
+
+	for _, state := range op.FinalStates {
+		if state.Valid && sm.validators[state.SignerNodeID] {
+			validatorsSigned[state.SignerNodeID] = true
+			validCount++
+		}
+	}
+
+	// Check if we have quorum of valid signatures
+	if len(validatorsSigned) < sm.quorumSize {
+		return fmt.Errorf("insufficient final states: %d < %d (quorum)",
+			len(validatorsSigned), sm.quorumSize)
+	}
+
+	log.Printf("Operation validated with %d final states from %d validators",
+		validCount, len(validatorsSigned))
 	return nil
 }
 

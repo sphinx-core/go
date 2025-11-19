@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/holiman/uint256"
+	database "github.com/sphinx-core/go/src/core/state"
 )
 
 // NodeStatus represents the operational state of a node in the network.
@@ -83,6 +84,7 @@ type NodeManager struct {
 	ResponseCh  chan []*Peer
 	PingTimeout time.Duration
 	DHT         DHT // Add DHT interface field
+	db          *database.DB
 }
 
 // Node represents a participant in the blockchain or P2P network.
@@ -99,6 +101,13 @@ type Node struct {
 	IsLocal    bool
 	PublicKey  []byte
 	PrivateKey []byte
+	db         *database.DB // Add database reference
+}
+
+// NetworkKeyManager manages cryptographic keys for nodes
+type NetworkKeyManager struct {
+	db         *database.DB
+	keyManager interface{} // Using interface{} since sphincsKey might not be available
 }
 
 // Peer represents a directly connected node in the network.

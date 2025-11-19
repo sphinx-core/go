@@ -38,6 +38,7 @@ import (
 
 	"github.com/sphinx-core/go/src/consensus"
 	"github.com/sphinx-core/go/src/core"
+	database "github.com/sphinx-core/go/src/core/state"
 	types "github.com/sphinx-core/go/src/core/transaction"
 	"github.com/sphinx-core/go/src/dht"
 	security "github.com/sphinx-core/go/src/handshake"
@@ -58,7 +59,14 @@ func NewServer(config network.NodePortConfig, blockchain *core.Blockchain, db *l
 	if err != nil {
 		log.Fatalf("Invalid UDPPort format: %s, %v", config.UDPPort, err)
 	}
-	localNode := network.NewNode(config.TCPAddr, parts[0], parts[1], config.UDPPort, true, config.Role)
+
+	// Convert leveldb.DB to database.DB
+	nodeDB := &database.DB{} // You'll need to adapt this based on your database interface
+	// If your database.DB wraps leveldb.DB, you might need something like:
+	// nodeDB := database.NewDBFromLevelDB(db)
+
+	// FIX: Add the database parameter
+	localNode := network.NewNode(config.TCPAddr, parts[0], parts[1], config.UDPPort, true, config.Role, nodeDB)
 
 	// Initialize logger for DHT
 	logger, err := zap.NewProduction()
@@ -121,7 +129,9 @@ func NewServer(config network.NodePortConfig, blockchain *core.Blockchain, db *l
 		log.Fatalf("Failed to initialize DHT: %v", err)
 	}
 
-	nodeManager := network.NewNodeManager(bucketSize, dhtInstance)
+	// FIX: Add the database parameter
+	nodeManager := network.NewNodeManager(bucketSize, dhtInstance, nodeDB)
+
 	return &Server{
 		localNode:   localNode,
 		nodeManager: nodeManager,
@@ -332,7 +342,8 @@ func (s *Server) handleMessages() {
 			}
 		case "peer_info":
 			if peerInfo, ok := msg.Data.(network.PeerInfo); ok {
-				node := network.NewNode(peerInfo.Address, peerInfo.IP, peerInfo.Port, peerInfo.UDPPort, false, peerInfo.Role)
+				// FIX: Add the database parameter (use nil or the actual database instance)
+				node := network.NewNode(peerInfo.Address, peerInfo.IP, peerInfo.Port, peerInfo.UDPPort, false, peerInfo.Role, nil)
 				node.KademliaID = peerInfo.KademliaID
 				node.UpdateStatus(peerInfo.Status)
 				s.nodeManager.AddNode(node)

@@ -29,6 +29,10 @@ import (
 	"net"
 	"strings"
 	"time"
+
+	"github.com/sphinx-core/go/src/common"
+	sphincsKey "github.com/sphinx-core/go/src/core/sphincs/key/backend"
+	database "github.com/sphinx-core/go/src/core/state"
 )
 
 // Add this method to NodeManager for chain recognition
@@ -76,9 +80,10 @@ func (nm *NodeManager) ValidateChainCompatibility(remoteChainInfo map[string]int
 
 // EXISTING FUNCTIONS CONTINUE UNCHANGED...
 // NewNodeManager creates a new NodeManager with Kademlia buckets and a DHT implementation.
-func NewNodeManager(bucketSize int, dht DHT) *NodeManager {
+// Update NodeManager constructor
+func NewNodeManager(bucketSize int, dht DHT, db *database.DB) *NodeManager {
 	if bucketSize <= 0 {
-		bucketSize = 16 // Standard default size for Kademlia k=16
+		bucketSize = 16
 	}
 	return &NodeManager{
 		nodes:       make(map[string]*Node),
@@ -86,10 +91,253 @@ func NewNodeManager(bucketSize int, dht DHT) *NodeManager {
 		seenMsgs:    make(map[string]bool),
 		kBuckets:    [256][]*KBucket{},
 		K:           bucketSize,
-		PingTimeout: 10 * time.Second, // Increased from 5s to 10s
+		PingTimeout: 10 * time.Second,
 		ResponseCh:  make(chan []*Peer, 100),
 		DHT:         dht,
+		db:          db, // Add database reference
 	}
+}
+
+// Add method to create local node with database
+func (nm *NodeManager) CreateLocalNode(address, ip, port, udpPort string, role NodeRole) error {
+	localNode := NewNode(address, ip, port, udpPort, true, role, nm.db)
+	if localNode == nil {
+		return fmt.Errorf("failed to create local node")
+	}
+
+	nm.LocalNodeID = localNode.KademliaID
+	nm.AddNode(localNode)
+
+	log.Printf("Created local node: ID=%s, Role=%s, Keys stored in database", localNode.ID, role)
+	return nil
+}
+
+// Update BackupNodeInfo to use config directory
+func (nm *NodeManager) BackupNodeInfo(node *Node) error {
+	nodeData := map[string]interface{}{
+		"id":          node.ID,
+		"address":     node.Address,
+		"ip":          node.IP,
+		"port":        node.Port,
+		"udp_port":    node.UDPPort,
+		"kademlia_id": node.KademliaID[:],
+		"role":        string(node.Role),
+		"status":      string(node.Status),
+		"last_seen":   node.LastSeen.Format(time.RFC3339),
+		"public_key":  node.PublicKey,
+	}
+
+	// Store in config directory
+	if err := common.WriteNodeInfo(node.ID, nodeData); err != nil {
+		return fmt.Errorf("failed to backup node info to config directory: %w", err)
+	}
+
+	// Also store in database for backward compatibility
+	data, err := serializeNodeData(nodeData)
+	if err != nil {
+		return fmt.Errorf("failed to serialize node data: %w", err)
+	}
+
+	key := fmt.Sprintf("node_info:%s", node.ID)
+	if err := nm.db.Put(key, data); err != nil {
+		return fmt.Errorf("failed to backup node info to database: %w", err)
+	}
+
+	return nil
+}
+
+// Update RestoreNodeFromDB to also check config directory
+func (nm *NodeManager) RestoreNodeFromDB(nodeID string) (*Node, error) {
+	// First try to restore from config directory
+	node, err := nm.restoreNodeFromConfig(nodeID)
+	if err == nil {
+		log.Printf("Restored node %s from config directory", nodeID)
+		return node, nil
+	}
+
+	log.Printf("Failed to restore node %s from config directory: %v, trying database", nodeID, err)
+
+	// Fall back to database
+	key := fmt.Sprintf("node_info:%s", nodeID)
+	data, err := nm.db.Get(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load node info from database: %w", err)
+	}
+
+	nodeData, err := deserializeNodeData(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deserialize node data: %w", err)
+	}
+
+	// Load keys from config directory first, then database
+	privateKey, publicKey, err := loadNodeKeysFromConfig(nodeID)
+	if err != nil {
+		log.Printf("Failed to load keys from config directory: %v, trying database", err)
+		privateKey, publicKey, err = loadNodeKeys(nm.db, nodeID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load node keys: %w", err)
+		}
+	}
+
+	// Reconstruct node
+	node = &Node{
+		ID:         nodeData["id"].(string),
+		Address:    nodeData["address"].(string),
+		IP:         nodeData["ip"].(string),
+		Port:       nodeData["port"].(string),
+		UDPPort:    nodeData["udp_port"].(string),
+		PrivateKey: privateKey,
+		PublicKey:  publicKey,
+		IsLocal:    false, // Restored nodes are not local
+		Role:       NodeRole(nodeData["role"].(string)),
+		Status:     NodeStatusActive, // Start as active
+		db:         nm.db,
+	}
+
+	// Restore Kademlia ID
+	if kademliaID, ok := nodeData["kademlia_id"].([]byte); ok {
+		copy(node.KademliaID[:], kademliaID)
+	}
+
+	// Restore last seen
+	if lastSeenStr, ok := nodeData["last_seen"].(string); ok {
+		if lastSeen, err := time.Parse(time.RFC3339, lastSeenStr); err == nil {
+			node.LastSeen = lastSeen
+		}
+	}
+
+	return node, nil
+}
+
+// New method to restore node from config directory
+func (nm *NodeManager) restoreNodeFromConfig(nodeID string) (*Node, error) {
+	nodeInfo, err := common.ReadNodeInfo(nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read node info from config: %w", err)
+	}
+
+	privateKey, publicKey, err := loadNodeKeysFromConfig(nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load keys from config: %w", err)
+	}
+
+	// Reconstruct node from config data
+	node := &Node{
+		ID:         nodeInfo["id"].(string),
+		Address:    nodeInfo["address"].(string),
+		IP:         nodeInfo["ip"].(string),
+		Port:       nodeInfo["port"].(string),
+		UDPPort:    nodeInfo["udp_port"].(string),
+		PrivateKey: privateKey,
+		PublicKey:  publicKey,
+		IsLocal:    nodeInfo["is_local"].(bool),
+		Role:       NodeRole(nodeInfo["role"].(string)),
+		Status:     NodeStatusActive,
+		db:         nm.db,
+	}
+
+	// Restore Kademlia ID if available
+	if kademliaID, ok := nodeInfo["kademlia_id"].([]byte); ok {
+		copy(node.KademliaID[:], kademliaID)
+	} else {
+		// Generate from address if not stored
+		node.KademliaID = GenerateKademliaID(node.Address)
+	}
+
+	// Restore creation time if available
+	if createdAtStr, ok := nodeInfo["created_at"].(string); ok {
+		if createdAt, err := time.Parse(time.RFC3339, createdAtStr); err == nil {
+			node.LastSeen = createdAt
+		}
+	}
+
+	return node, nil
+}
+
+// Update RotateNodeKeys to use simple key generation
+func (nkm *NetworkKeyManager) RotateNodeKeys(nodeID string) error {
+	// Generate new key pair using simple method
+	privateKey, publicKey, err := nkm.GenerateSimpleKeys()
+	if err != nil {
+		return fmt.Errorf("failed to generate new key pair: %w", err)
+	}
+
+	// Serialize keys
+	privateKey, publicKey, err = nkm.SerializeSimpleKeys(privateKey, publicKey)
+	if err != nil {
+		return fmt.Errorf("failed to serialize new key pair: %w", err)
+	}
+
+	// Store new keys with versioning (existing implementation)
+	timestamp := time.Now().Unix()
+	privateKeyKey := fmt.Sprintf("node:%s:private_key:%d", nodeID, timestamp)
+	publicKeyKey := fmt.Sprintf("node:%s:public_key:%d", nodeID, timestamp)
+	currentPrivateKey := fmt.Sprintf("node:%s:private_key:current", nodeID)
+	currentPublicKey := fmt.Sprintf("node:%s:public_key:current", nodeID)
+
+	// Store versioned keys
+	if err := nkm.db.Put(privateKeyKey, privateKey); err != nil {
+		return fmt.Errorf("failed to store versioned private key: %w", err)
+	}
+	if err := nkm.db.Put(publicKeyKey, publicKey); err != nil {
+		return fmt.Errorf("failed to store versioned public key: %w", err)
+	}
+
+	// Update current key references
+	if err := nkm.db.Put(currentPrivateKey, []byte(privateKeyKey)); err != nil {
+		return fmt.Errorf("failed to update current private key reference: %w", err)
+	}
+	if err := nkm.db.Put(currentPublicKey, []byte(publicKeyKey)); err != nil {
+		return fmt.Errorf("failed to update current public key reference: %w", err)
+	}
+
+	// Archive old keys
+	if err := nkm.cleanupOldKeys(nodeID); err != nil {
+		log.Printf("Warning: failed to cleanup old keys: %v", err)
+	}
+
+	log.Printf("Successfully rotated keys for node %s", nodeID)
+	return nil
+}
+
+func NewNetworkKeyManager(db *database.DB) (*NetworkKeyManager, error) {
+	km, err := sphincsKey.NewKeyManager()
+	if err != nil {
+		return nil, err
+	}
+
+	return &NetworkKeyManager{
+		db:         db,
+		keyManager: km,
+	}, nil
+}
+
+// GetCurrentKeys retrieves the current active keys for a node
+func (nkm *NetworkKeyManager) GetCurrentKeys(nodeID string) ([]byte, []byte, error) {
+	// Get current key references
+	currentPrivateKey := fmt.Sprintf("node:%s:private_key:current", nodeID)
+	currentPublicKey := fmt.Sprintf("node:%s:public_key:current", nodeID)
+
+	privateKeyRef, err := nkm.db.Get(currentPrivateKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get current private key reference: %w", err)
+	}
+	publicKeyRef, err := nkm.db.Get(currentPublicKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get current public key reference: %w", err)
+	}
+
+	// Get actual keys using references
+	privateKey, err := nkm.db.Get(string(privateKeyRef))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get current private key: %w", err)
+	}
+	publicKey, err := nkm.db.Get(string(publicKeyRef))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get current public key: %w", err)
+	}
+
+	return privateKey, publicKey, nil
 }
 
 // AddNode adds a new node to the manager and updates k-buckets.

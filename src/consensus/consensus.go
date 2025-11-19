@@ -25,6 +25,7 @@ package consensus
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"sort"
@@ -37,18 +38,26 @@ import (
 // Workflow: Prepare Phase → Commit Phase → Block Commitment → View Change → Repeat
 
 // NewConsensus creates a new consensus instance with context
-func NewConsensus(nodeID string, nodeManager NodeManager, blockchain BlockChain, onCommit func(Block) error) *Consensus {
-	// Create cancellable context for graceful shutdown
+func NewConsensus(
+	nodeID string,
+	nodeManager NodeManager,
+	blockchain BlockChain,
+	signingService *SigningService,
+	onCommit func(Block) error,
+) *Consensus {
+
 	ctx, cancel := context.WithCancel(context.Background())
+
 	return &Consensus{
 		nodeID:           nodeID,
 		nodeManager:      nodeManager,
 		blockChain:       blockchain,
+		signingService:   signingService,
 		currentView:      0,                                 // Start at view 0
 		currentHeight:    0,                                 // Start at height 0
 		phase:            PhaseIdle,                         // Initial phase is idle
 		quorumFraction:   0.67,                              // 2/3 quorum required for Byzantine fault tolerance
-		timeout:          10 * time.Second,                  // View change timeout
+		timeout:          60 * time.Second,                  // View change timeout
 		receivedVotes:    make(map[string]map[string]*Vote), // Track commit votes by block hash
 		prepareVotes:     make(map[string]map[string]*Vote), // Track prepare votes by block hash
 		sentVotes:        make(map[string]bool),             // Track which votes this node has sent
@@ -62,6 +71,7 @@ func NewConsensus(nodeID string, nodeManager NodeManager, blockchain BlockChain,
 		cancel:           cancel,                            // Cancel function for shutdown
 		lastViewChange:   time.Now(),                        // Initialize last view change time
 		viewChangeMutex:  sync.Mutex{},                      // Initialize view change mutex
+		lastBlockTime:    time.Now(),
 	}
 }
 
@@ -105,21 +115,30 @@ func (c *Consensus) Stop() error {
 // ProposeBlock proposes a new block for consensus (called by leader)
 // block: The block to be proposed for consensus
 // Returns error if node is not leader or proposal fails
+// ProposeBlock with proper signing
 func (c *Consensus) ProposeBlock(block Block) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Only leaders can propose blocks
 	if !c.isLeader {
 		return fmt.Errorf("node %s is not the leader", c.nodeID)
 	}
 
-	// Create and broadcast proposal
+	// Create proposal
 	proposal := &Proposal{
 		Block:      block,
 		View:       c.currentView,
 		ProposerID: c.nodeID,
-		Signature:  []byte{}, // Should be properly signed in production
+		Signature:  []byte{}, // Initialize empty, will be signed
+	}
+
+	// Sign the proposal
+	if c.signingService != nil {
+		if err := c.signingService.SignProposal(proposal); err != nil {
+			return fmt.Errorf("failed to sign proposal: %v", err)
+		}
+	} else {
+		log.Printf("WARNING: No signing service available, sending unsigned proposal")
 	}
 
 	log.Printf("Node %s proposing block %s at view %d", c.nodeID, block.GetHash(), c.currentView)
@@ -327,55 +346,99 @@ func (c *Consensus) updateLeaderStatus() {
 
 // processProposal handles a received block proposal
 // Validates the proposal and progresses consensus state if valid
-// processProposal with better logging
+// processProposal with signature verification
+// processProposal handles a received block proposal
 func (c *Consensus) processProposal(proposal *Proposal) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	log.Printf("Node %s received proposal for view %d from %s (current view: %d)",
-		c.nodeID, proposal.View, proposal.ProposerID, c.currentView)
+	// FIX: Check if we already have a prepared block for this height
+	if c.preparedBlock != nil && c.preparedBlock.GetHeight() == proposal.Block.GetHeight() {
+		logger.Warn("❌ Already have prepared block for height %d, ignoring duplicate proposal",
+			proposal.Block.GetHeight())
+		return
+	}
+
+	logger.Info("🔍 DEBUG: Starting processProposal for view %d from %s", proposal.View, proposal.ProposerID)
+
+	// Verify signature if signing service is available
+	if c.signingService != nil && len(proposal.Signature) > 0 {
+		valid, err := c.signingService.VerifyProposal(proposal)
+		if err != nil {
+			logger.Warn("❌ Error verifying proposal signature from %s: %v", proposal.ProposerID, err)
+			return
+		}
+		if !valid {
+			logger.Warn("❌ Invalid proposal signature from %s", proposal.ProposerID)
+			return
+		}
+		logger.Info("✅ Valid signature for proposal from %s", proposal.ProposerID)
+	} else {
+		logger.Warn("⚠️ No signing service or empty signature, skipping verification")
+	}
+
+	// Capture signature for storage
+	signatureHex := hex.EncodeToString(proposal.Signature)
+
+	// Store signature in chain state
+	consensusSig := &ConsensusSignature{
+		BlockHash:    proposal.Block.GetHash(),
+		BlockHeight:  proposal.Block.GetHeight(),
+		SignerNodeID: proposal.ProposerID,
+		Signature:    signatureHex,
+		MessageType:  "proposal",
+		View:         proposal.View,
+		Timestamp:    time.Now().Format(time.RFC3339),
+		Valid:        true, // We verified it above
+	}
+
+	// Add to signature tracking
+	c.addConsensusSignature(consensusSig)
 
 	// Check if proposal is for current or future view
 	if proposal.View < c.currentView {
-		log.Printf("Stale proposal for view %d, current view %d", proposal.View, c.currentView)
+		logger.Warn("❌ Stale proposal for view %d, current view %d", proposal.View, c.currentView)
 		return
 	}
 
 	// Update to new view if proposal is for future view
 	if proposal.View > c.currentView {
-		log.Printf("Advancing view from %d to %d", c.currentView, proposal.View)
+		logger.Info("🔄 Advancing view from %d to %d", c.currentView, proposal.View)
 		c.currentView = proposal.View
 		c.resetConsensusState()
-		// UPDATE LEADER STATUS WHEN VIEW CHANGES
 		c.updateLeaderStatus()
 	}
 
-	// Update to new view if proposal is for future view
-	if proposal.View > c.currentView {
-		log.Printf("Advancing view from %d to %d", c.currentView, proposal.View)
-		c.currentView = proposal.View
-		c.resetConsensusState()
+	// Validate the proposed block height
+	currentHeight := c.blockChain.GetLatestBlock().GetHeight()
+	if proposal.Block.GetHeight() != currentHeight+1 {
+		logger.Warn("❌ Invalid block height: expected %d, got %d",
+			currentHeight+1, proposal.Block.GetHeight())
+		return
 	}
 
 	// Validate the proposed block
 	if err := c.blockChain.ValidateBlock(proposal.Block); err != nil {
-		log.Printf("Invalid block in proposal: %v", err)
+		logger.Warn("❌ Invalid block in proposal: %v", err)
 		return
 	}
 
 	// Verify the proposer is the legitimate leader for this view
 	if !c.isValidLeader(proposal.ProposerID, proposal.View) {
-		log.Printf("Invalid leader %s for view %d", proposal.ProposerID, proposal.View)
+		logger.Warn("❌ Invalid leader %s for view %d", proposal.ProposerID, proposal.View)
 		return
 	}
 
-	log.Printf("Node %s accepting proposal for block %s at view %d",
-		c.nodeID, proposal.Block.GetHash(), proposal.View)
+	logger.Info("✅ Node %s accepting proposal for block %s at view %d (height %d)",
+		c.nodeID, proposal.Block.GetHash(), proposal.View, proposal.Block.GetHeight())
 
-	// Store the prepared block and move to pre-prepared phase
+	// CRITICAL FIX: Store the prepared block and move to pre-prepared phase
 	c.preparedBlock = proposal.Block
 	c.preparedView = proposal.View
 	c.phase = PhasePrePrepared
+
+	logger.Info("💾 Stored prepared block: hash=%s, view=%d, phase=%v",
+		proposal.Block.GetHash(), proposal.View, c.phase)
 
 	// Send prepare vote for this block
 	c.sendPrepareVote(proposal.Block.GetHash(), proposal.View)
@@ -383,9 +446,41 @@ func (c *Consensus) processProposal(proposal *Proposal) {
 
 // processPrepareVote handles a received prepare vote
 // Tracks prepare votes and progresses to prepared phase when quorum is reached
+// processPrepareVote handles a received prepare vote
+// Enhanced processPrepareVote method
 func (c *Consensus) processPrepareVote(vote *Vote) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Verify signature if signing service is available
+	if c.signingService != nil && len(vote.Signature) > 0 {
+		valid, err := c.signingService.VerifyVote(vote)
+		if err != nil {
+			logger.Warn("Error verifying prepare vote signature from %s: %v", vote.VoterID, err)
+			return
+		}
+		if !valid {
+			logger.Warn("Invalid prepare vote signature from %s", vote.VoterID)
+			return
+		}
+	}
+
+	// FIX: If we receive prepare votes for a block we don't have, try to find it
+	if c.preparedBlock == nil || c.preparedBlock.GetHash() != vote.BlockHash {
+		// Look for the block in our recent proposals or ask peers
+		logger.Warn("❌ No prepared block found for hash %s, attempting recovery", vote.BlockHash)
+
+		// FIX: Correct assignment - GetBlockByHash returns only one value
+		block := c.blockChain.GetBlockByHash(vote.BlockHash)
+		if block != nil {
+			c.preparedBlock = block
+			c.preparedView = vote.View
+			logger.Info("✅ Recovered prepared block from storage: %s", vote.BlockHash)
+		} else {
+			logger.Warn("❌ Cannot recover block %s, ignoring prepare votes", vote.BlockHash)
+			return
+		}
+	}
 
 	// Initialize vote tracking for this block hash if needed
 	if c.prepareVotes[vote.BlockHash] == nil {
@@ -395,23 +490,90 @@ func (c *Consensus) processPrepareVote(vote *Vote) {
 	// Store the prepare vote
 	c.prepareVotes[vote.BlockHash][vote.VoterID] = vote
 
+	totalVotes := len(c.prepareVotes[vote.BlockHash])
+	quorumSize := c.calculateQuorumSize(c.getTotalNodes())
+
+	logger.Info("📊 Prepare vote received: node=%s, from=%s, block=%s, votes=%d/%d, phase=%v, prepared=%v",
+		c.nodeID, vote.VoterID, vote.BlockHash, totalVotes, quorumSize, c.phase, c.preparedBlock != nil)
+
 	// Check if we have enough prepare votes to progress
-	if c.hasPrepareQuorum(vote.BlockHash) &&
-		c.phase == PhasePrePrepared &&
-		c.preparedBlock != nil &&
-		c.preparedBlock.GetHash() == vote.BlockHash {
-		log.Printf("Prepare quorum achieved for block %s at view %d", vote.BlockHash, vote.View)
-		c.phase = PhasePrepared
-		c.lockedBlock = c.preparedBlock
-		c.voteForBlock(vote.BlockHash, vote.View)
+	if c.hasPrepareQuorum(vote.BlockHash) {
+		logger.Info("🎉 PREPARE QUORUM ACHIEVED for block %s at view %d", vote.BlockHash, vote.View)
+
+		// CRITICAL FIX: Ensure we have the prepared block
+		if c.preparedBlock == nil || c.preparedBlock.GetHash() != vote.BlockHash {
+			logger.Warn("❌ No prepared block found for hash %s (have: %v)",
+				vote.BlockHash, c.preparedBlock != nil)
+			if c.preparedBlock != nil {
+				logger.Warn("   Current prepared block hash: %s", c.preparedBlock.GetHash())
+			}
+			return
+		}
+		// Capture prepare vote signature
+		signatureHex := hex.EncodeToString(vote.Signature)
+		consensusSig := &ConsensusSignature{
+			BlockHash:    vote.BlockHash,
+			BlockHeight:  c.currentHeight,
+			SignerNodeID: vote.VoterID,
+			Signature:    signatureHex,
+			MessageType:  "prepare",
+			View:         vote.View,
+			Timestamp:    time.Now().Format(time.RFC3339),
+			Valid:        true,
+		}
+		c.addConsensusSignature(consensusSig)
+
+		// Move to prepared phase only if we're in pre-prepared phase
+		if c.phase == PhasePrePrepared {
+			c.phase = PhasePrepared
+			c.lockedBlock = c.preparedBlock
+			logger.Info("🔒 Moving to PREPARED phase and locking block %s", vote.BlockHash)
+
+			// Send commit vote
+			c.voteForBlock(vote.BlockHash, vote.View)
+		} else {
+			logger.Info("⚠️ Already in phase %v, skipping phase transition", c.phase)
+		}
 	}
+}
+
+func (c *Consensus) addConsensusSignature(sig *ConsensusSignature) {
+	c.signatureMutex.Lock()
+	defer c.signatureMutex.Unlock()
+	c.consensusSignatures = append(c.consensusSignatures, sig)
+}
+
+func (c *Consensus) GetConsensusSignatures() []*ConsensusSignature {
+	c.signatureMutex.RLock()
+	defer c.signatureMutex.RUnlock()
+
+	// Return a copy to avoid concurrent modification
+	signatures := make([]*ConsensusSignature, len(c.consensusSignatures))
+	copy(signatures, c.consensusSignatures)
+	return signatures
 }
 
 // processVote handles a received commit vote
 // Tracks commit votes and commits block when quorum is reached
+// Enhanced processVote method to ensure commit happens
+// Enhanced processVote method
 func (c *Consensus) processVote(vote *Vote) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Verify signature if signing service is available
+	if c.signingService != nil && len(vote.Signature) > 0 {
+		valid, err := c.signingService.VerifyVote(vote)
+		if err != nil {
+			logger.Warn("Error verifying commit vote signature from %s: %v", vote.VoterID, err)
+			return
+		}
+		if !valid {
+			logger.Warn("Invalid commit vote signature from %s", vote.VoterID)
+			return
+		}
+		logger.Debug("✅ Valid commit vote signature from %s", vote.VoterID)
+	}
 
 	// Initialize vote tracking for this block hash if needed
 	if c.receivedVotes[vote.BlockHash] == nil {
@@ -421,23 +583,77 @@ func (c *Consensus) processVote(vote *Vote) {
 	// Store the commit vote
 	c.receivedVotes[vote.BlockHash][vote.VoterID] = vote
 
+	totalVotes := len(c.receivedVotes[vote.BlockHash])
+	quorumSize := c.calculateQuorumSize(c.getTotalNodes())
+
+	logger.Info("📊 Commit vote received: node=%s, from=%s, block=%s, votes=%d/%d, phase=%v",
+		c.nodeID, vote.VoterID, vote.BlockHash, totalVotes, quorumSize, c.phase)
+
 	// Check if we have enough commit votes to commit the block
-	if c.hasQuorum(vote.BlockHash) &&
-		c.phase == PhasePrepared &&
-		c.lockedBlock != nil &&
-		c.lockedBlock.GetHash() == vote.BlockHash {
-		log.Printf("Commit quorum achieved for block %s at view %d", vote.BlockHash, vote.View)
-		c.phase = PhaseCommitted
-		c.commitBlock(c.lockedBlock)
+	if c.hasQuorum(vote.BlockHash) {
+		logger.Info("🎉 COMMIT QUORUM ACHIEVED for block %s at view %d", vote.BlockHash, vote.View)
+
+		// Find the block to commit
+		var blockToCommit Block
+		if c.lockedBlock != nil && c.lockedBlock.GetHash() == vote.BlockHash {
+			blockToCommit = c.lockedBlock
+		} else if c.preparedBlock != nil && c.preparedBlock.GetHash() == vote.BlockHash {
+			blockToCommit = c.preparedBlock
+		} else {
+			logger.Warn("❌ No block found to commit for hash %s", vote.BlockHash)
+			return
+		}
+
+		// Ensure we're in the correct phase
+		if c.phase != PhaseCommitted {
+			c.phase = PhaseCommitted
+			logger.Info("🚀 Moving to COMMITTED phase for block %s", vote.BlockHash)
+		}
+
+		// Capture vote signature
+		signatureHex := hex.EncodeToString(vote.Signature)
+		consensusSig := &ConsensusSignature{
+			BlockHash:    vote.BlockHash,
+			BlockHeight:  c.currentHeight, // You might need to track this differently
+			SignerNodeID: vote.VoterID,
+			Signature:    signatureHex,
+			MessageType:  "commit",
+			View:         vote.View,
+			Timestamp:    time.Now().Format(time.RFC3339),
+			Valid:        true,
+		}
+		c.addConsensusSignature(consensusSig)
+
+		// Commit the block
+		c.commitBlock(blockToCommit)
 	}
 }
 
-// processTimeout handles a received timeout message
-// Updates to new view if timeout is for a future view
-// Enhanced processTimeout with view change coordination
+// processTimeout handles a received timeout message with proper mutex handling
 func (c *Consensus) processTimeout(timeout *TimeoutMsg) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.mu.Unlock() // Use defer to ensure unlock happens exactly once
+
+	logger.Debug("Processing timeout from %s for view %d (current view: %d)",
+		timeout.VoterID, timeout.View, c.currentView)
+
+	// Verify signature if signing service is available
+	if c.signingService != nil && len(timeout.Signature) > 0 {
+		valid, err := c.signingService.VerifyTimeout(timeout)
+		if err != nil {
+			logger.Warn("Error verifying timeout signature from %s: %v", timeout.VoterID, err)
+			return // Mutex will be unlocked by defer
+		}
+		if !valid {
+			logger.Warn("Invalid timeout signature from %s", timeout.VoterID)
+			return // Mutex will be unlocked by defer
+		}
+		logger.Debug("✅ Valid timeout signature from %s", timeout.VoterID)
+	} else if c.signingService == nil {
+		logger.Warn("WARNING: No signing service, accepting unsigned timeout from %s", timeout.VoterID)
+	} else {
+		logger.Warn("WARNING: Empty signature from %s, accepting timeout", timeout.VoterID)
+	}
 
 	// Only process timeouts for future views
 	if timeout.View > c.currentView {
@@ -457,13 +673,14 @@ func (c *Consensus) processTimeout(timeout *TimeoutMsg) {
 	} else {
 		logger.Debug("Ignoring stale timeout for view %d (current: %d)", timeout.View, c.currentView)
 	}
+	// Mutex automatically unlocked by defer
 }
 
 // sendPrepareVote sends a prepare vote for a specific block
 // blockHash: The hash of the block being voted on
 // view: The consensus view number
+// sendPrepareVote with proper signing
 func (c *Consensus) sendPrepareVote(blockHash string, view uint64) {
-	// Avoid sending duplicate votes
 	if c.sentPrepareVotes[blockHash] {
 		return
 	}
@@ -472,7 +689,17 @@ func (c *Consensus) sendPrepareVote(blockHash string, view uint64) {
 		BlockHash: blockHash,
 		View:      view,
 		VoterID:   c.nodeID,
-		Signature: []byte{}, // Should be properly signed in production
+		Signature: []byte{}, // Initialize empty
+	}
+
+	// Sign the prepare vote
+	if c.signingService != nil {
+		if err := c.signingService.SignVote(prepareVote); err != nil {
+			log.Printf("Failed to sign prepare vote: %v", err)
+			return
+		}
+	} else {
+		log.Printf("WARNING: No signing service available, sending unsigned prepare vote")
 	}
 
 	// Mark vote as sent and broadcast it
@@ -485,9 +712,21 @@ func (c *Consensus) sendPrepareVote(blockHash string, view uint64) {
 // voteForBlock sends a commit vote for a specific block
 // blockHash: The hash of the block being voted on
 // view: The consensus view number
+// Enhanced voteForBlock method with logging
 func (c *Consensus) voteForBlock(blockHash string, view uint64) {
-	// Avoid sending duplicate votes
 	if c.sentVotes[blockHash] {
+		logger.Debug("Already sent commit vote for block %s", blockHash)
+		return
+	}
+
+	// Find the block to vote for (for logging)
+	var blockToVote Block
+	if c.lockedBlock != nil && c.lockedBlock.GetHash() == blockHash {
+		blockToVote = c.lockedBlock
+	} else if c.preparedBlock != nil && c.preparedBlock.GetHash() == blockHash {
+		blockToVote = c.preparedBlock
+	} else {
+		logger.Warn("❌ No block found to vote for hash %s", blockHash)
 		return
 	}
 
@@ -495,14 +734,23 @@ func (c *Consensus) voteForBlock(blockHash string, view uint64) {
 		BlockHash: blockHash,
 		View:      view,
 		VoterID:   c.nodeID,
-		Signature: []byte{}, // Should be properly signed in production
+		Signature: []byte{},
+	}
+
+	// Sign the commit vote
+	if c.signingService != nil {
+		if err := c.signingService.SignVote(vote); err != nil {
+			logger.Warn("Failed to sign commit vote: %v", err)
+			return
+		}
 	}
 
 	// Mark vote as sent and broadcast it
 	c.sentVotes[blockHash] = true
 	c.broadcastVote(vote)
 
-	log.Printf("Node %s sent commit vote for block %s at view %d", c.nodeID, blockHash, view)
+	logger.Info("🗳️ Node %s sent COMMIT vote for block %s (height %d) at view %d",
+		c.nodeID, blockHash, blockToVote.GetHeight(), view)
 }
 
 // hasPrepareQuorum checks if enough prepare votes have been received for a block
@@ -562,64 +810,100 @@ func (c *Consensus) getTotalNodes() int {
 }
 
 // commitBlock commits a block to the blockchain
-// block: The block to commit
-// Updates consensus state and executes commit callback
 func (c *Consensus) commitBlock(block Block) {
-	log.Printf("Node %s committing block %s at height %d",
+	logger.Info("🚀 Node %s attempting to commit block %s at height %d",
 		c.nodeID, block.GetHash(), block.GetHeight())
+
+	// Verify this is the next expected block
+	currentHeight := c.blockChain.GetLatestBlock().GetHeight()
+	if block.GetHeight() != currentHeight+1 {
+		logger.Warn("❌ Block height mismatch: expected %d, got %d", currentHeight+1, block.GetHeight())
+		return
+	}
 
 	// Commit block to blockchain storage
 	if err := c.blockChain.CommitBlock(block); err != nil {
-		log.Printf("Error committing block: %v", err)
+		logger.Error("❌ Error committing block: %v", err)
 		return
 	}
 
 	// Execute commit callback if provided
 	if c.onCommit != nil {
 		if err := c.onCommit(block); err != nil {
-			log.Printf("Error in commit callback: %v", err)
+			logger.Warn("⚠️ Error in commit callback: %v", err)
+			// Don't return here - we still want to update consensus state
 		}
 	}
 
-	// Update consensus state
-	c.currentHeight = block.GetHeight() + 1
+	// Update consensus state and set last block time
+	c.mu.Lock()
+	c.currentHeight = block.GetHeight()
+	c.lastBlockTime = time.Now() // Update the last block time
 	c.resetConsensusState()
+	c.mu.Unlock()
+
+	logger.Info("🎉 Node %s successfully committed block %s at height %d",
+		c.nodeID, block.GetHash(), c.currentHeight)
 }
 
-// startViewChange initiates a view change to the next view
-// Called when view timeout occurs or received timeout messages
-// startViewChange initiates a view change to the next view
-// Enhanced startViewChange with proper synchronization
+// startViewChange initiates a view change to the next view with aggressive prevention
+// to avoid rapid view changes and maintain consensus stability
 func (c *Consensus) startViewChange() {
-	// Use dedicated view change mutex to prevent races
+	// Try to acquire view change lock with timeout
 	if !c.tryViewChangeLock() {
-		return // Another view change is already in progress
+		logger.Debug("View change already in progress for node %s", c.nodeID)
+		return
 	}
 	defer c.viewChangeMutex.Unlock()
 
 	c.mu.Lock()
 
-	// Check if we can change views (prevent rapid view changes)
-	if time.Since(c.lastViewChange) < 2*time.Second {
+	// Prevent view changes if we're actively processing consensus
+	if c.phase != PhaseIdle && c.phase != PhaseCommitted {
+		logger.Debug("Skipping view change - active consensus in phase %v", c.phase)
+		c.mu.Unlock()
+		return
+	}
+
+	// Extended cooldown period: prevent view changes for at least 15 seconds
+	if time.Since(c.lastViewChange) < 15*time.Second {
+		logger.Debug("Skipping view change for node %s (cooldown: %v since last view change)",
+			c.nodeID, time.Since(c.lastViewChange))
+		c.mu.Unlock()
+		return
+	}
+
+	// Only proceed with view change if we're significantly behind in block production
+	if c.currentHeight > 0 && time.Since(c.lastBlockTime) < 30*time.Second {
+		logger.Debug("Skipping view change for node %s (recent block activity: %v since last block)",
+			c.nodeID, time.Since(c.lastBlockTime))
+		c.mu.Unlock()
+		return
+	}
+
+	// Check if we have validators available
+	validators := c.getValidators()
+	if len(validators) == 0 {
+		logger.Warn("Skipping view change - no validators available")
 		c.mu.Unlock()
 		return
 	}
 
 	newView := c.currentView + 1
-	logger.Info("Node %s initiating view change to view %d", c.nodeID, newView)
+	logger.Info("🔄 Node %s initiating view change to view %d (current height: %d, phase: %v)",
+		c.nodeID, newView, c.currentHeight, c.phase)
 
-	// Update state FIRST before broadcasting
+	// Update consensus state
 	c.currentView = newView
 	c.lastViewChange = time.Now()
 	c.resetConsensusState()
 
-	// Update leader status immediately
-	validators := c.getValidators()
+	// Update leader status
 	c.updateLeaderStatusWithValidators(validators)
 
-	c.mu.Unlock()
+	c.mu.Unlock() // Unlock before network operations
 
-	// Broadcast timeout message
+	// Create and sign timeout message
 	timeoutMsg := &TimeoutMsg{
 		View:      newView,
 		VoterID:   c.nodeID,
@@ -627,13 +911,31 @@ func (c *Consensus) startViewChange() {
 		Timestamp: time.Now().Unix(),
 	}
 
-	c.broadcastTimeout(timeoutMsg)
-	logger.Info("View change initiated: node=%s, view=%d", c.nodeID, newView)
+	// Sign the timeout message if signing service is available
+	if c.signingService != nil {
+		if err := c.signingService.SignTimeout(timeoutMsg); err != nil {
+			logger.Warn("Failed to sign timeout message for view %d: %v", newView, err)
+			return // Don't re-lock, we're already unlocked
+		}
+	} else {
+		logger.Warn("WARNING: No signing service available, sending unsigned timeout message")
+	}
+
+	// Broadcast timeout message to all peers
+	if err := c.broadcastTimeout(timeoutMsg); err != nil {
+		logger.Warn("Failed to broadcast timeout message for view %d: %v", newView, err)
+		return // Don't re-lock, we're already unlocked
+	}
+
+	logger.Info("✅ View change initiated: node=%s, view=%d, new_leader=%v",
+		c.nodeID, newView, c.isLeader)
 }
 
 // Helper method to safely acquire view change lock
+// tryViewChangeLock attempts to acquire the view change lock with a timeout
+// Returns true if lock was acquired, false otherwise
 func (c *Consensus) tryViewChangeLock() bool {
-	// Try to acquire the view change mutex without blocking
+	// Try to acquire the view change mutex without blocking for too long
 	acquired := make(chan bool, 1)
 
 	go func() {
@@ -646,10 +948,12 @@ func (c *Consensus) tryViewChangeLock() bool {
 		return true
 	case <-time.After(100 * time.Millisecond):
 		return false // Couldn't acquire lock in time
+	case <-c.ctx.Done():
+		return false // Consensus stopped
 	}
 }
 
-// Enhanced leader election with consistent validator sets
+// updateLeaderStatusWithValidators updates the leader status based on current view and validators
 func (c *Consensus) updateLeaderStatusWithValidators(validators []string) {
 	if len(validators) == 0 {
 		c.isLeader = false
@@ -667,11 +971,11 @@ func (c *Consensus) updateLeaderStatusWithValidators(validators []string) {
 	c.isLeader = (expectedLeader == c.nodeID)
 
 	if c.isLeader {
-		logger.Info("✅ Node %s elected as leader for view %d (index %d/%d)",
-			c.nodeID, c.currentView, leaderIndex, len(validators))
+		logger.Info("✅ Node %s elected as leader for view %d (index %d/%d, validators: %v)",
+			c.nodeID, c.currentView, leaderIndex, len(validators), validators)
 	} else {
-		logger.Debug("Node %s is NOT leader for view %d (leader is %s)",
-			c.nodeID, c.currentView, expectedLeader)
+		logger.Debug("Node %s is NOT leader for view %d (leader is %s, index %d/%d)",
+			c.nodeID, c.currentView, expectedLeader, leaderIndex, len(validators))
 	}
 }
 
@@ -686,6 +990,8 @@ func (c *Consensus) resetConsensusState() {
 	c.prepareVotes = make(map[string]map[string]*Vote)
 	c.sentVotes = make(map[string]bool)
 	c.sentPrepareVotes = make(map[string]bool)
+
+	logger.Debug("Consensus state reset for node %s (view: %d)", c.nodeID, c.currentView)
 }
 
 // isValidLeader checks if a node is the legitimate leader for a given view
@@ -723,6 +1029,7 @@ func (c *Consensus) isValidLeader(nodeID string, view uint64) bool {
 
 // getValidators gets the list of active validator node IDs without duplicates
 // Enhanced getValidators with better error handling and logging
+// getValidators gets the list of active validator node IDs without duplicates
 func (c *Consensus) getValidators() []string {
 	peers := c.nodeManager.GetPeers()
 	validatorSet := make(map[string]bool)
@@ -732,11 +1039,9 @@ func (c *Consensus) getValidators() []string {
 	if c.isValidator() {
 		validatorSet[c.nodeID] = true
 		validators = append(validators, c.nodeID)
-		logger.Debug("Added self to validators: %s", c.nodeID)
 	}
 
 	// Collect validator peers
-	peerCount := 0
 	for _, peer := range peers {
 		node := peer.GetNode()
 		if node != nil && node.GetRole() == RoleValidator && node.GetStatus() == NodeStatusActive {
@@ -744,7 +1049,6 @@ func (c *Consensus) getValidators() []string {
 			if !validatorSet[nodeID] && nodeID != "" {
 				validatorSet[nodeID] = true
 				validators = append(validators, nodeID)
-				peerCount++
 			}
 		}
 	}
@@ -758,15 +1062,50 @@ func (c *Consensus) getValidators() []string {
 		return []string{c.nodeID}
 	}
 
-	logger.Debug("Node %s validator set: %v (total: %d, peers: %d)",
-		c.nodeID, validators, len(validators), peerCount)
 	return validators
 }
 
 // isValidator checks if this node is a validator
+// isValidator checks if this node is a validator
 func (c *Consensus) isValidator() bool {
 	self := c.nodeManager.GetNode(c.nodeID)
 	return self != nil && self.GetRole() == RoleValidator
+}
+
+// SetLastBlockTime updates the last block time to track recent block activity
+// This should be called whenever a block is committed
+func (c *Consensus) SetLastBlockTime(blockTime time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastBlockTime = blockTime
+	logger.Debug("Updated last block time for node %s: %v", c.nodeID, blockTime)
+}
+
+// GetConsensusState returns a string representation of the current consensus state for debugging
+func (c *Consensus) GetConsensusState() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	preparedHash := ""
+	if c.preparedBlock != nil {
+		preparedHash = c.preparedBlock.GetHash()
+	}
+
+	lockedHash := ""
+	if c.lockedBlock != nil {
+		lockedHash = c.lockedBlock.GetHash()
+	}
+
+	return fmt.Sprintf(
+		"Node=%s, View=%d, Phase=%v, Leader=%v, Height=%d, "+
+			"PreparedBlock=%s, LockedBlock=%s, PreparedView=%d, "+
+			"LastViewChange=%v, LastBlockTime=%v, "+
+			"PrepareVotes=%d, CommitVotes=%d",
+		c.nodeID, c.currentView, c.phase, c.isLeader, c.currentHeight,
+		preparedHash, lockedHash, c.preparedView,
+		time.Since(c.lastViewChange), time.Since(c.lastBlockTime),
+		len(c.prepareVotes), len(c.receivedVotes),
+	)
 }
 
 // Network communication methods

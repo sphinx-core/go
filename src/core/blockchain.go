@@ -142,8 +142,7 @@ func (bc *Blockchain) ValidateBlockSize(block *types.Block) error {
 	return nil
 }
 
-// SaveChainState saves the chain state with the actual genesis hash
-// SaveChainState saves the chain state with the actual genesis hash
+// StoreChainState saves the chain state with the actual genesis hash and consensus signatures
 func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo) error {
 	if bc.chainParams == nil {
 		return fmt.Errorf("chain parameters not initialized")
@@ -165,13 +164,55 @@ func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo) error {
 
 	walletPaths := bc.GetWalletDerivationPaths()
 
-	// Create chain state
-	chainState := &storage.ChainState{
-		Nodes:     nodes,
-		Timestamp: time.Now().Format(time.RFC3339),
+	// Collect consensus signatures as FinalStateInfo if consensus engine is available
+	var finalStates []*storage.FinalStateInfo
+	var signatureValidation *storage.SignatureValidation
+
+	if bc.consensusEngine != nil {
+		// Get raw signatures from consensus engine
+		rawSignatures := bc.consensusEngine.GetConsensusSignatures()
+		finalStates = make([]*storage.FinalStateInfo, len(rawSignatures))
+
+		validCount := 0
+		for i, rawSig := range rawSignatures {
+			finalStates[i] = &storage.FinalStateInfo{
+				BlockHash:        rawSig.BlockHash,
+				BlockHeight:      rawSig.BlockHeight,
+				SignerNodeID:     rawSig.SignerNodeID,
+				Signature:        rawSig.Signature,
+				MessageType:      rawSig.MessageType,
+				View:             rawSig.View,
+				Timestamp:        rawSig.Timestamp,
+				Valid:            rawSig.Valid,
+				SignatureStatus:  "Valid",
+				VerificationTime: time.Now().Format(time.RFC3339),
+			}
+			if rawSig.Valid {
+				validCount++
+			}
+		}
+
+		// Create signature validation statistics
+		signatureValidation = &storage.SignatureValidation{
+			TotalSignatures:   len(finalStates),
+			ValidSignatures:   validCount,
+			InvalidSignatures: len(finalStates) - validCount,
+			ValidationTime:    time.Now().Format(time.RFC3339),
+		}
+
+		logger.Info("Storing %d consensus signatures (%d valid) in chain state as final states",
+			len(finalStates), validCount)
 	}
 
-	// Save chain state with actual parameters
+	// Create chain state with signature data
+	chainState := &storage.ChainState{
+		Nodes:               nodes, // This can be nil or empty for individual nodes
+		Timestamp:           time.Now().Format(time.RFC3339),
+		SignatureValidation: signatureValidation,
+		FinalStates:         finalStates, // Use FinalStates instead of ConsensusSignatures
+	}
+
+	// Save chain state with actual parameters and signatures
 	err := bc.storage.SaveCompleteChainState(chainState, chainParams, walletPaths)
 	if err != nil {
 		return fmt.Errorf("failed to save chain state: %w", err)
@@ -180,7 +221,89 @@ func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo) error {
 	// Fix any existing hardcoded hashes
 	bc.storage.FixChainStateGenesisHash()
 
+	logger.Info("Complete chain state saved with block size metrics: %s",
+		filepath.Join(bc.storage.GetStateDir(), "chain_state.json"))
 	logger.Info("Chain state saved with genesis hash: %s", bc.chainParams.GenesisHash)
+
+	if signatureValidation != nil {
+		logger.Info("Signature validation: %d/%d valid signatures",
+			signatureValidation.ValidSignatures, signatureValidation.TotalSignatures)
+	}
+
+	return nil
+}
+
+// CalculateAndStoreBlockSizeMetrics calculates and stores block size statistics
+func (bc *Blockchain) CalculateAndStoreBlockSizeMetrics() error {
+	logger.Info("Starting block size metrics calculation...")
+
+	// Get recent blocks for analysis
+	recentBlocks := bc.getRecentBlocks(100) // Analyze last 100 blocks
+	if len(recentBlocks) == 0 {
+		logger.Info("No blocks available for size metrics calculation")
+		return nil
+	}
+
+	var totalSize uint64
+	var minSize uint64 = ^uint64(0) // Max uint64
+	var maxSize uint64
+	sizeStats := make([]storage.BlockSizeInfo, 0)
+
+	for _, block := range recentBlocks {
+		blockSize := bc.CalculateBlockSize(block)
+		totalSize += blockSize
+
+		if blockSize < minSize {
+			minSize = blockSize
+		}
+		if blockSize > maxSize {
+			maxSize = blockSize
+		}
+
+		// Record individual block stats using BlockSizeInfo
+		blockStat := storage.BlockSizeInfo{
+			Height:    block.GetHeight(),
+			Hash:      block.GetHash(),
+			Size:      blockSize,
+			SizeMB:    float64(blockSize) / (1024 * 1024),
+			TxCount:   uint64(len(block.Body.TxsList)),
+			Timestamp: block.Header.Timestamp,
+		}
+		sizeStats = append(sizeStats, blockStat)
+	}
+
+	averageSize := totalSize / uint64(len(recentBlocks))
+
+	// Convert to MB for human readability
+	averageSizeMB := float64(averageSize) / (1024 * 1024)
+	minSizeMB := float64(minSize) / (1024 * 1024)
+	maxSizeMB := float64(maxSize) / (1024 * 1024)
+	totalSizeMB := float64(totalSize) / (1024 * 1024)
+
+	// Create block size metrics
+	blockSizeMetrics := &storage.BlockSizeMetrics{
+		TotalBlocks:     uint64(len(recentBlocks)),
+		AverageSize:     averageSize,
+		MinSize:         minSize,
+		MaxSize:         maxSize,
+		TotalSize:       totalSize,
+		SizeStats:       sizeStats,
+		CalculationTime: time.Now().Format(time.RFC3339),
+		AverageSizeMB:   averageSizeMB,
+		MinSizeMB:       minSizeMB,
+		MaxSizeMB:       maxSizeMB,
+		TotalSizeMB:     totalSizeMB,
+	}
+
+	// Save to storage
+	if err := bc.storage.SaveBlockSizeMetrics(blockSizeMetrics); err != nil {
+		return fmt.Errorf("failed to save block size metrics: %w", err)
+	}
+
+	logger.Info("Successfully calculated block size metrics for %d blocks", len(recentBlocks))
+	logger.Info("Block size stats: avg=%.2f MB, min=%.2f MB, max=%.2f MB",
+		averageSizeMB, minSizeMB, maxSizeMB)
+
 	return nil
 }
 

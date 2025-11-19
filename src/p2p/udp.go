@@ -301,7 +301,8 @@ func (s *Server) handleDiscoveryMessage(msg *network.DiscoveryMessage, addr *net
 		}
 		node := s.nodeManager.GetNodeByKademliaID(pingData.FromID)
 		if node == nil {
-			node = network.NewNode(tcpAddr, addr.IP.String(), tcpPort, fmt.Sprintf("%d", addr.Port), false, network.RoleNone)
+			// FIX: Add database parameter (use nil since we don't have database access here)
+			node = network.NewNode(tcpAddr, addr.IP.String(), tcpPort, fmt.Sprintf("%d", addr.Port), false, network.RoleNone, nil)
 			node.KademliaID = pingData.FromID
 			node.PublicKey = msg.PublicKey
 			s.nodeManager.AddNode(node)
@@ -318,6 +319,7 @@ func (s *Server) handleDiscoveryMessage(msg *network.DiscoveryMessage, addr *net
 		// Send PONG response
 		s.sendUDPPong(addr, pingData.FromID, msg.Nonce)
 		log.Printf("handleDiscoveryMessage: Sent PONG to %s for PING from %s", addr.String(), s.localNode.Address)
+
 	case "PONG":
 		var pongData network.PongData
 		if err := json.Unmarshal(msg.Data, &pongData); err != nil {
@@ -336,7 +338,8 @@ func (s *Server) handleDiscoveryMessage(msg *network.DiscoveryMessage, addr *net
 		}
 		node := s.nodeManager.GetNodeByKademliaID(pongData.FromID)
 		if node == nil {
-			node = network.NewNode(tcpAddr, addr.IP.String(), tcpPort, fmt.Sprintf("%d", addr.Port), false, network.RoleNone)
+			// FIX: Add database parameter (use nil since we don't have database access here)
+			node = network.NewNode(tcpAddr, addr.IP.String(), tcpPort, fmt.Sprintf("%d", addr.Port), false, network.RoleNone, nil)
 			node.KademliaID = pongData.FromID
 			node.PublicKey = msg.PublicKey
 			s.nodeManager.AddNode(node)
@@ -367,14 +370,7 @@ func (s *Server) handleDiscoveryMessage(msg *network.DiscoveryMessage, addr *net
 		log.Printf("handleDiscoveryMessage: Sending peer %s to ResponseCh for %s (ChannelLen=%d)", node.ID, s.localNode.Address, len(s.nodeManager.ResponseCh))
 		s.nodeManager.ResponseCh <- []*network.Peer{peer}
 		log.Printf("handleDiscoveryMessage: Sent peer %s to ResponseCh for %s (ChannelLen=%d)", node.ID, s.localNode.Address, len(s.nodeManager.ResponseCh))
-	case "FINDNODE":
-		var findNodeData network.FindNodeData
-		if err := json.Unmarshal(msg.Data, &findNodeData); err != nil {
-			log.Printf("handleDiscoveryMessage: Invalid FINDNODE data from %s for %s: %v", addr.String(), s.localNode.Address, err)
-			return
-		}
-		log.Printf("handleDiscoveryMessage: Received FINDNODE from %s for target %x for %s", addr.String(), findNodeData.TargetID[:8], s.localNode.Address)
-		s.sendUDPNeighbors(addr, findNodeData.TargetID, findNodeData.Nonce)
+
 	case "NEIGHBORS":
 		var neighborsData network.NeighborsData
 		if err := json.Unmarshal(msg.Data, &neighborsData); err != nil {
@@ -384,7 +380,8 @@ func (s *Server) handleDiscoveryMessage(msg *network.DiscoveryMessage, addr *net
 		log.Printf("handleDiscoveryMessage: Received NEIGHBORS from %s with %d peers for %s", addr.String(), len(neighborsData.Nodes), s.localNode.Address)
 		peers := make([]*network.Peer, 0, len(neighborsData.Nodes))
 		for _, nodeInfo := range neighborsData.Nodes {
-			node := network.NewNode(nodeInfo.Address, nodeInfo.IP, nodeInfo.Port, nodeInfo.UDPPort, false, nodeInfo.Role)
+			// FIX: Add database parameter (use nil since we don't have database access here)
+			node := network.NewNode(nodeInfo.Address, nodeInfo.IP, nodeInfo.Port, nodeInfo.UDPPort, false, nodeInfo.Role, nil)
 			node.KademliaID = nodeInfo.KademliaID
 			node.PublicKey = nodeInfo.PublicKey
 			node.UpdateStatus(nodeInfo.Status)

@@ -28,6 +28,11 @@ import (
 	"math/big"
 	"sync"
 	"time"
+
+	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
+	"github.com/sphinx-core/go/src/core/hashtree"
+	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
+	sign "github.com/sphinx-core/go/src/core/sphincs/sign/backend"
 )
 
 // Block interface that your existing types.Block will satisfy
@@ -123,12 +128,13 @@ type Consensus struct {
 	blockChain  BlockChain  // Blockchain storage interface
 
 	// Consensus state - these variables track the current progress of consensus
-	currentView   uint64         // Current consensus view/round number
-	currentHeight uint64         // Current blockchain height
-	phase         ConsensusPhase // Current phase in PBFT protocol
-	lockedBlock   Block          // Block that is locked after prepare phase (safety guarantee)
-	preparedBlock Block          // Block that has been prepared but not yet locked
-	preparedView  uint64         // View in which the block was prepared
+	currentView    uint64         // Current consensus view/round number
+	currentHeight  uint64         // Current blockchain height
+	phase          ConsensusPhase // Current phase in PBFT protocol
+	lockedBlock    Block          // Block that is locked after prepare phase (safety guarantee)
+	preparedBlock  Block          // Block that has been prepared but not yet locked
+	preparedView   uint64         // View in which the block was prepared
+	signingService *SigningService
 
 	// Vote tracking - these data structures collect and count votes from validators
 	receivedVotes    map[string]map[string]*Vote // blockHash -> voterID -> commit votes
@@ -156,6 +162,72 @@ type Consensus struct {
 
 	// ADD THESE MISSING FIELDS:
 	viewChangeMutex sync.Mutex // Dedicated mutex for view change synchronization
+
+	// View change and timing control
+	lastBlockTime time.Time // Last time a block was committed
+
+	consensusSignatures []*ConsensusSignature
+	signatureMutex      sync.RWMutex
+
+	// Add this field to track pending proposals for recovery
+	pendingProposal *Proposal
+}
+
+// SigningService handles cryptographic signing for consensus messages
+type SigningService struct {
+	sphincsManager    *sign.SphincsManager
+	keyManager        *key.KeyManager
+	nodeID            string
+	privateKey        *sphincs.SPHINCS_SK
+	publicKey         *sphincs.SPHINCS_PK
+	publicKeyRegistry map[string]*sphincs.SPHINCS_PK // Add this
+	registryMutex     sync.RWMutex                   // Add this
+}
+
+// SignedMessage represents a complete signed message with all components
+type SignedMessage struct {
+	Signature  []byte                 // Raw SPHINCS+ signature bytes
+	Timestamp  []byte                 // Timestamp
+	Nonce      []byte                 // Nonce
+	MerkleRoot *hashtree.HashTreeNode // Merkle root
+	Data       []byte                 // Original message data
+}
+
+// ConsensusSignature represents a captured signature from consensus messages
+// This type stores cryptographic signatures for audit and verification purposes
+// ConsensusSignature represents a captured signature from consensus messages
+type ConsensusSignature struct {
+	BlockHash    string `json:"block_hash"`
+	BlockHeight  uint64 `json:"block_height"`
+	SignerNodeID string `json:"signer_node_id"`
+	Signature    string `json:"signature"`
+	MessageType  string `json:"message_type"`
+	View         uint64 `json:"view"`
+	Timestamp    string `json:"timestamp"`
+	Valid        bool   `json:"valid"`
+}
+
+// SignatureValidation contains statistics about signature validation
+type SignatureValidation struct {
+	TotalSignatures   int    `json:"total_signatures"`
+	ValidSignatures   int    `json:"valid_signatures"`
+	InvalidSignatures int    `json:"invalid_signatures"`
+	ValidationTime    string `json:"validation_time"`
+}
+
+// BlockSizeMetrics contains block size statistics
+type BlockSizeMetrics struct {
+	TotalBlocks     int                      `json:"total_blocks"`
+	AverageSize     uint64                   `json:"average_size_bytes"`
+	MinSize         uint64                   `json:"min_size_bytes"`
+	MaxSize         uint64                   `json:"max_size_bytes"`
+	TotalSize       uint64                   `json:"total_size_bytes"`
+	SizeStats       []map[string]interface{} `json:"size_stats"`
+	CalculationTime string                   `json:"calculation_time"`
+	AverageSizeMB   float64                  `json:"average_size_mb"`
+	MinSizeMB       float64                  `json:"min_size_mb"`
+	MaxSizeMB       float64                  `json:"max_size_mb"`
+	TotalSizeMB     float64                  `json:"total_size_mb"`
 }
 
 // Update TimeoutMsg to include timestamp

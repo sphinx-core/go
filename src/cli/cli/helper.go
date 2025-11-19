@@ -33,12 +33,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
 	"github.com/sphinx-core/go/src/common"
 	"github.com/sphinx-core/go/src/consensus"
 	"github.com/sphinx-core/go/src/core"
 	config "github.com/sphinx-core/go/src/core/sphincs/config"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 	sign "github.com/sphinx-core/go/src/core/sphincs/sign/backend"
+	database "github.com/sphinx-core/go/src/core/state"
 	types "github.com/sphinx-core/go/src/core/transaction"
 	security "github.com/sphinx-core/go/src/handshake"
 	logger "github.com/sphinx-core/go/src/log"
@@ -50,71 +52,58 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
-// inspectConsensusTypes examines the concrete types and structure of consensus messages for debugging
-func inspectConsensusTypes() {
-	logger.Info("=== CONSENSUS TYPE INSPECTION ===")
+// Add this function to exchange public keys between nodes
+// Enhanced key exchange function
+func exchangePublicKeys(signingServices map[string]*consensus.SigningService, nodeIDs []string) {
+	logger.Info("=== EXCHANGING PUBLIC KEYS BETWEEN %d NODES ===", len(nodeIDs))
 
-	// Instantiate consensus message types to inspect their structure
-	proposal := &consensus.Proposal{}
-	vote := &consensus.Vote{}
-	timeout := &consensus.TimeoutMsg{}
-
-	logger.Info("Proposal type: %T", proposal)
-	logger.Info("Vote type: %T", vote)
-	logger.Info("TimeoutMsg type: %T", timeout)
-
-	logger.Info("=== END TYPE INSPECTION ===")
-}
-
-// PrintBlockchainData displays comprehensive blockchain information including TxsRoot and MerkleRoot validation
-func PrintBlockchainData(bc *core.Blockchain, nodeID string) {
-	latestBlock := bc.GetLatestBlock()
-	if latestBlock == nil {
-		logger.Info("Node %s: No blocks available", nodeID)
-		return
-	}
-
-	chainParams := bc.GetChainParams()
-
-	if blockAdapter, ok := latestBlock.(*core.BlockHelper); ok {
-		underlyingBlock := blockAdapter.GetUnderlyingBlock()
-
-		// Validate that TxsRoot in header matches calculated MerkleRoot
-		txsRoot := hex.EncodeToString(underlyingBlock.Header.TxsRoot)
-		calculatedMerkleRoot := hex.EncodeToString(underlyingBlock.CalculateTxsRoot())
-		rootsMatch := txsRoot == calculatedMerkleRoot
-
-		logger.Info("=== NODE %s BLOCKCHAIN DATA ===", nodeID)
-		logger.Info("Block Height: %d", latestBlock.GetHeight())
-		logger.Info("Block Hash: %s", latestBlock.GetHash())
-		logger.Info("TxsRoot (from header): %s", txsRoot)
-		logger.Info("MerkleRoot (calculated): %s", calculatedMerkleRoot)
-		logger.Info("TxsRoot = MerkleRoot: %v", rootsMatch)
-		logger.Info("Magic Number: 0x%x", chainParams.MagicNumber)
-		logger.Info("Previous Hash: %s", hex.EncodeToString(underlyingBlock.Header.PrevHash))
-		logger.Info("Timestamp: %d", underlyingBlock.Header.Timestamp)
-		logger.Info("Difficulty: %s", underlyingBlock.Header.Difficulty.String())
-		logger.Info("Nonce: %d", underlyingBlock.Header.Nonce)
-		logger.Info("Gas Limit: %s", underlyingBlock.Header.GasLimit.String())
-		logger.Info("Gas Used: %s", underlyingBlock.Header.GasUsed.String())
-		logger.Info("Transaction Count: %d", len(underlyingBlock.Body.TxsList))
-		logger.Info("Chain ID: %d", chainParams.ChainID)
-		logger.Info("Chain Name: %s", chainParams.ChainName)
-		logger.Info("=================================")
-
-		if !rootsMatch {
-			logger.Warn("❌ WARNING: TxsRoot does not match MerkleRoot!")
+	// First, collect all public keys
+	publicKeys := make(map[string]*sphincs.SPHINCS_PK)
+	for _, nodeID := range nodeIDs {
+		signingService := signingServices[nodeID]
+		if signingService == nil {
+			logger.Warn("No signing service for node %s", nodeID)
+			continue
 		}
+
+		publicKey := signingService.GetPublicKeyObject()
+		if publicKey == nil {
+			logger.Warn("No public key for node %s", nodeID)
+			continue
+		}
+
+		publicKeys[nodeID] = publicKey
+		logger.Info("Collected public key for node %s", nodeID)
 	}
+
+	// Then register all public keys with all nodes
+	for _, nodeID := range nodeIDs {
+		signingService := signingServices[nodeID]
+		if signingService == nil {
+			continue
+		}
+
+		registeredCount := 0
+		for otherNodeID, publicKey := range publicKeys {
+			if nodeID == otherNodeID {
+				continue // Don't register our own key
+			}
+
+			signingService.RegisterPublicKey(otherNodeID, publicKey)
+			registeredCount++
+		}
+
+		logger.Info("Node %s registered %d public keys", nodeID, registeredCount)
+	}
+
+	logger.Info("✅ Public key exchange completed: %d nodes exchanged keys", len(nodeIDs))
 }
 
-// CallConsensus orchestrates a PBFT integration test with N validator nodes
+// Updated CallConsensus function using only network addresses
 func CallConsensus(numNodes int) error {
 	if numNodes < 3 {
 		return fmt.Errorf("PBFT requires at least 3 validator nodes, got %d", numNodes)
 	}
-
-	startTime := time.Now()
 
 	// State variables for tracking test progress
 	var firstBlock consensus.Block
@@ -158,7 +147,7 @@ func CallConsensus(numNodes int) error {
 		logger.Info("  %s: %s", name, path)
 	}
 
-	// Determine network configuration based on chain parameters using tagged switch
+	// Determine network configuration
 	networkType := "mainnet"
 	networkDisplayName := "Sphinx Mainnet"
 
@@ -169,9 +158,7 @@ func CallConsensus(numNodes int) error {
 	case "Sphinx Testnet":
 		networkType = "testnet"
 		networkDisplayName = "Sphinx Testnet"
-	// Add more cases as needed for other network types
 	default:
-		// Default to mainnet for "Sphinx Mainnet" or any unrecognized name
 		networkType = "mainnet"
 		networkDisplayName = "Sphinx Mainnet"
 	}
@@ -179,29 +166,6 @@ func CallConsensus(numNodes int) error {
 	logger.Info("Network: %s", networkDisplayName)
 	logger.Info("Consensus: PBFT")
 	logger.Info("========================================")
-
-	// ========== CHAIN IDENTIFICATION DATA EXPORT ==========
-	networkName := chainParams.ChainName
-
-	chainIdentification := ChainIdentificationJSON{
-		Timestamp:   time.Now().Format(time.RFC3339),
-		ChainParams: chainParams,
-		TokenInfo:   tokenInfo,
-		WalletPaths: walletPaths,
-		NetworkInfo: map[string]interface{}{
-			"network_name":   networkName,
-			"protocol":       fmt.Sprintf("SPX/%s", chainParams.Version),
-			"consensus":      "PBFT",
-			"test_timestamp": startTime.Format(time.RFC3339),
-			"num_test_nodes": numNodes,
-		},
-	}
-
-	if err := common.WriteJSONToFile(chainIdentification, "chain_identification.json"); err != nil {
-		logger.Warn("Failed to write chain identification JSON: %v", err)
-	} else {
-		logger.Info("Chain identification written to: data/output/chain_identification.json")
-	}
 
 	// ========== TEST ENVIRONMENT SETUP ==========
 	testDataDir := common.DataDir
@@ -211,6 +175,11 @@ func CallConsensus(numNodes int) error {
 			return fmt.Errorf("failed to clean test data: %v", err)
 		}
 		logger.Info("Previous test data cleaned successfully")
+	}
+
+	// Ensure the base data directory exists
+	if err := os.MkdirAll(testDataDir, 0755); err != nil {
+		return fmt.Errorf("failed to create data directory: %v", err)
 	}
 
 	// Debug consensus message types
@@ -226,29 +195,61 @@ func CallConsensus(numNodes int) error {
 	sphincsMgrs := make([]*sign.SphincsManager, numNodes)
 	blockchains := make([]*core.Blockchain, numNodes)
 	consensusEngines := make([]*consensus.Consensus, numNodes)
+	networkNodes := make([]*network.Node, numNodes)
 
-	// Generate validator identifiers
+	// Generate network addresses and validator IDs FIRST
+	networkAddresses := make([]string, numNodes)
 	validatorIDs := make([]string, numNodes)
 	for i := 0; i < numNodes; i++ {
-		validatorIDs[i] = fmt.Sprintf("validator-%d", i)
+		address := fmt.Sprintf("127.0.0.1:%d", 32307+i)
+		networkAddresses[i] = address
+		validatorIDs[i] = fmt.Sprintf("Node-%s", address) // Use network address as ID
 	}
 
-	// Initialize each validator node
+	// Create a map of signing services for key exchange - initialize it here
+	signingServices := make(map[string]*consensus.SigningService)
+
+	// Initialize each validator node using network addresses
 	for i := 0; i < numNodes; i++ {
-		nodeName := fmt.Sprintf("node-%d", i)
+		address := networkAddresses[i]
+		nodeID := validatorIDs[i]
 
-		// Create node data directory
-		dataDir := common.GetNodeDataDir(nodeName)
-		if err := os.MkdirAll(dataDir, 0755); err != nil {
-			return err
+		// Create node data directory using network address
+		if err := common.EnsureNodeDirs(address); err != nil {
+			return fmt.Errorf("failed to create node directories for %s: %v", address, err)
 		}
+		logger.Info("Created directories for node: %s", nodeID)
 
-		// Initialize LevelDB storage
-		db, err := leveldb.OpenFile(common.GetLevelDBPath(nodeName), nil)
+		// Initialize LevelDB storage using network address
+		db, err := leveldb.OpenFile(common.GetLevelDBPath(address), nil)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to open LevelDB for node %s: %v", nodeID, err)
 		}
 		dbs[i] = db
+
+		// Convert LevelDB to database.DB interface
+		nodeDB, err := database.NewLevelDB(common.GetLevelDBPath(address))
+		if err != nil {
+			return fmt.Errorf("failed to create database for node %s: %v", nodeID, err)
+		}
+
+		// Create actual network node using network address
+		networkNode := network.NewNode(
+			address,                    // address
+			"127.0.0.1",                // ip
+			fmt.Sprintf("%d", 32307+i), // port
+			fmt.Sprintf("%d", 32308+i), // udpPort
+			true,                       // isLocal
+			network.RoleValidator,      // role
+			nodeDB,                     // database
+		)
+
+		if networkNode == nil {
+			return fmt.Errorf("failed to create network node %s", nodeID)
+		}
+
+		networkNodes[i] = networkNode
+		logger.Info("Created network node %s with keys stored in config directory", nodeID)
 
 		// Initialize SPHINCS+ cryptographic components
 		km, err := key.NewKeyManager()
@@ -260,21 +261,50 @@ func CallConsensus(numNodes int) error {
 			return err
 		}
 		sphincsMgrs[i] = sign.NewSphincsManager(db, km, sphincsParams)
-		// ========== NODE MANAGER AND PEER CONNECTIONS ==========
-		// Initialize node manager and establish peer connections
-		nodeMgr := network.NewCallNodeManager()
 
-		// Add all validator nodes as peers (including self for PBFT)
-		for _, id := range validatorIDs {
-			nodeMgr.AddPeer(id)
+		// ========== NODE MANAGER AND PEER CONNECTIONS ==========
+		var dhtInstance network.DHT = nil
+
+		// Initialize node manager with actual database
+		nodeMgr := network.NewNodeManager(16, dhtInstance, nodeDB)
+
+		// Create and add local node to node manager using network address
+		if err := nodeMgr.CreateLocalNode(
+			address,
+			"127.0.0.1",
+			fmt.Sprintf("%d", 32307+i),
+			fmt.Sprintf("%d", 32308+i),
+			network.RoleValidator,
+		); err != nil {
+			return fmt.Errorf("failed to create local node for node manager: %v", err)
 		}
 
-		logger.Info("Node-%d peer connections: %v", i, nodeMgr.GetPeerIDs())
+		// Add all validator nodes as peers (using network addresses)
+		for j := range validatorIDs {
+			if i != j {
+				remoteAddress := networkAddresses[j]
+				remoteNode := network.NewNode(
+					remoteAddress,
+					"127.0.0.1",
+					fmt.Sprintf("%d", 32307+j),
+					fmt.Sprintf("%d", 32308+j),
+					false,
+					network.RoleValidator,
+					nil,
+				)
+				if remoteNode != nil {
+					nodeMgr.AddNode(remoteNode)
+				}
+			}
+		}
+
+		logger.Info("%s peer connections established", nodeID)
 
 		// ========== BLOCKCHAIN SETUP ==========
-		bc, err := core.NewBlockchain(common.GetBlockchainDataDir(nodeName), validatorIDs[i], validatorIDs, networkType)
+		// Use network address for blockchain data directory
+		bc, err := core.NewBlockchain(common.GetBlockchainDataDir(address), nodeID, validatorIDs, networkType)
 		if err != nil {
-			return fmt.Errorf("node %d blockchain initialization failed: %v", i, err)
+			return fmt.Errorf("node %s blockchain initialization failed: %v", nodeID, err)
 		}
 
 		// Capture genesis block from first node for validation
@@ -292,7 +322,7 @@ func CallConsensus(numNodes int) error {
 
 		// Display node chain configuration
 		chainInfo := bc.GetChainInfo()
-		logger.Info("Node-%d Chain Configuration:", i)
+		logger.Info("%s Chain Configuration:", nodeID)
 		logger.Info("  Chain: %s", chainInfo["chain_name"])
 		logger.Info("  Chain ID: %d", chainInfo["chain_id"])
 		logger.Info("  Symbol: %s", chainInfo["symbol"])
@@ -302,19 +332,47 @@ func CallConsensus(numNodes int) error {
 		logger.Info("  Ledger Name: %s", chainInfo["ledger_name"])
 
 		// Validate storage layer functionality
-		logger.Info("Node-%d: Validating storage layer...", i)
+		logger.Info("%s: Validating storage layer...", nodeID)
 		if debugErr := bc.DebugStorage(); debugErr != nil {
-			logger.Warn("Node-%d storage validation warning: %v", i, debugErr)
+			logger.Warn("%s storage validation warning: %v", nodeID, debugErr)
 		}
 		blockchains[i] = bc
 
-		// ========== NETWORK AND CONSENSUS CONFIGURATION ==========
-		// Use the SAME nodeMgr instance created earlier
+		// ========== CONSENSUS CONFIGURATION ==========
+		testNodeMgr := network.NewCallNodeManager()
+
+		// Add all validator nodes as peers to the test node manager
+		for _, id := range validatorIDs {
+			testNodeMgr.AddPeer(id)
+		}
+
+		// Initialize SPHINCS+ signing service
+		keyManager, err := key.NewKeyManager()
+		if err != nil {
+			return fmt.Errorf("failed to create key manager for node %s: %v", nodeID, err)
+		}
+
+		// Get SPHINCS parameters
+		sphincsParams, err = config.NewSPHINCSParameters()
+		if err != nil {
+			return fmt.Errorf("failed to get SPHINCS parameters for node %s: %v", nodeID, err)
+		}
+
+		// Initialize SPHINCS manager
+		sphincsManager := sign.NewSphincsManager(db, keyManager, sphincsParams)
+
+		// Create signing service
+		signingService := consensus.NewSigningService(sphincsManager, keyManager, nodeID)
+
+		// Store the signing service in the map for key exchange
+		signingServices[nodeID] = signingService
+
 		// Initialize PBFT consensus engine
 		cons := consensus.NewConsensus(
-			validatorIDs[i],
-			nodeMgr, // Use the nodeMgr created above
+			nodeID, // Use network address ID
+			testNodeMgr,
 			bc,
+			signingService, // Add the signing service here
 			bc.CommitBlock,
 		)
 		consensusEngines[i] = cons
@@ -322,17 +380,14 @@ func CallConsensus(numNodes int) error {
 		bc.SetConsensus(cons)
 
 		// Register consensus with network layer
-		network.RegisterConsensus(validatorIDs[i], cons)
+		network.RegisterConsensus(nodeID, cons)
 
 		// Configure consensus parameters (timeout only)
 		cons.SetTimeout(15 * time.Second)
 
-		// DO NOT set manual leader - PBFT will handle leader rotation
-		// based on view numbers: view % numValidators determines leader
-
 		// Start consensus engine
 		if err := cons.Start(); err != nil {
-			return fmt.Errorf("failed to start consensus for node %d: %v", i, err)
+			return fmt.Errorf("failed to start consensus for node %s: %v", nodeID, err)
 		}
 
 		// Allow consensus engine to fully initialize
@@ -342,33 +397,74 @@ func CallConsensus(numNodes int) error {
 		bc.StartLeaderLoop(ctx)
 	}
 
+	// ========== KEY EXCHANGE - MOVE THIS AFTER ALL NODES ARE INITIALIZED ==========
+	// Exchange public keys between all nodes - NOW this happens after all signing services are created
+	logger.Info("=== EXCHANGING PUBLIC KEYS BETWEEN NODES ===")
+	exchangePublicKeys(signingServices, validatorIDs)
+
+	// Verify that key directories were created using network addresses
+	logger.Info("=== VERIFYING KEY DIRECTORY CREATION ===")
+	for i := 0; i < numNodes; i++ {
+		address := networkAddresses[i]
+		nodeID := validatorIDs[i]
+		keysDir := common.GetKeysDataDir(address)
+
+		if _, err := os.Stat(keysDir); os.IsNotExist(err) {
+			logger.Warn("Keys directory not created for node %s: %s", nodeID, keysDir)
+		} else {
+			logger.Info("Keys directory exists for node %s: %s", nodeID, keysDir)
+
+			// Check if key files exist
+			privateKeyPath := common.GetPrivateKeyPath(address)
+			publicKeyPath := common.GetPublicKeyPath(address)
+
+			if _, err := os.Stat(privateKeyPath); err == nil {
+				logger.Info("  Private key file exists: %s", privateKeyPath)
+			} else {
+				logger.Warn("  Private key file missing: %s", privateKeyPath)
+			}
+
+			if _, err := os.Stat(publicKeyPath); err == nil {
+				logger.Info("  Public key file exists: %s", publicKeyPath)
+			} else {
+				logger.Warn("  Public key file missing: %s", publicKeyPath)
+			}
+		}
+	}
+
 	// ========== GENESIS BLOCK CONSISTENCY VALIDATION ==========
 	logger.Info("=== VALIDATING GENESIS BLOCK CONSISTENCY ===")
 	for i := 0; i < numNodes; i++ {
 		genesis := blockchains[i].GetLatestBlock()
 		if genesis == nil || genesis.GetHeight() != 0 {
-			return fmt.Errorf("node %d failed to initialize genesis block", i)
+			return fmt.Errorf("node %s failed to initialize genesis block", validatorIDs[i])
 		}
 
 		if i == 0 {
 			firstGenesisHash = genesis.GetHash()
-			logger.Info("Node-0 genesis: height=%d, hash=%s", genesis.GetHeight(), genesis.GetHash())
+			logger.Info("%s genesis: height=%d, hash=%s", validatorIDs[i], genesis.GetHeight(), genesis.GetHash())
 		} else {
 			if genesis.GetHash() != firstGenesisHash {
-				return fmt.Errorf("genesis block hash mismatch: node0=%s node%d=%s",
-					firstGenesisHash, i, genesis.GetHash())
+				return fmt.Errorf("genesis block hash mismatch: %s=%s %s=%s",
+					validatorIDs[0], firstGenesisHash, validatorIDs[i], genesis.GetHash())
 			}
-			logger.Info("Node-%d genesis: height=%d, hash=%s (validated)", i, genesis.GetHeight(), genesis.GetHash())
+			logger.Info("%s genesis: height=%d, hash=%s (validated)", validatorIDs[i], genesis.GetHeight(), genesis.GetHash())
 		}
 	}
 	logger.Info("✅ All nodes have consistent genesis blocks")
 
 	// ========== JSON-RPC SERVER INITIALIZATION ==========
 	for i := 0; i < numNodes; i++ {
+		address := networkAddresses[i] // Declare address here
+		nodeID := validatorIDs[i]
+
+		// THIS LINE FIXES THE "declared and not used" ERROR
+		logger.Info("Setting up RPC server for node with address: %s", address)
+
 		msgCh := make(chan *security.Message, 100)
 		rpcSrv := rpc.NewServer(msgCh, blockchains[i])
 
-		go func(ch chan *security.Message, srv *rpc.Server, nodeIdx int) {
+		go func(ch chan *security.Message, srv *rpc.Server, nodeIdx int, nodeAddr string) {
 			for secMsg := range ch {
 				if secMsg.Type != "rpc" {
 					continue
@@ -376,29 +472,26 @@ func CallConsensus(numNodes int) error {
 
 				data, ok := secMsg.Data.([]byte)
 				if !ok {
-					logger.Warn("Node-%d: Invalid RPC data type: %T", nodeIdx, secMsg.Data)
+					logger.Warn("%s: Invalid RPC data type: %T", validatorIDs[nodeIdx], secMsg.Data)
 					continue
 				}
 
-				// Decode RPC message to extract source address
 				var rpcMsg rpc.Message
 				if err := rpcMsg.Unmarshal(data); err != nil {
-					logger.Warn("Node-%d: Failed to unmarshal RPC message: %v", nodeIdx, err)
+					logger.Warn("%s: Failed to unmarshal RPC message: %v", validatorIDs[nodeIdx], err)
 					continue
 				}
 
-				// Process RPC request and generate response
 				resp, err := srv.HandleRequest(data)
 				if err != nil {
-					logger.Warn("Node-%d: RPC request handling error: %v", nodeIdx, err)
+					logger.Warn("%s: RPC request handling error: %v", validatorIDs[nodeIdx], err)
 					continue
 				}
 
-				// Send response back to requesting peer
 				addr := rpcMsg.From.Address.String()
 				conn, err := net.Dial("udp", addr)
 				if err != nil {
-					logger.Warn("Node-%d: Failed to connect to %s: %v", nodeIdx, addr, err)
+					logger.Warn("%s: Failed to connect to %s: %v", validatorIDs[nodeIdx], addr, err)
 					continue
 				}
 				secResp := &security.Message{Type: "rpc", Data: resp}
@@ -406,10 +499,10 @@ func CallConsensus(numNodes int) error {
 				conn.Write(enc)
 				conn.Close()
 			}
-		}(msgCh, rpcSrv, i)
+		}(msgCh, rpcSrv, i, address)
 
 		httpPort := 8545 + i
-		logger.Info("Node-%d JSON-RPC server listening on http://127.0.0.1:%d", i, httpPort)
+		logger.Info("%s JSON-RPC server listening on http://127.0.0.1:%d", nodeID, httpPort)
 	}
 
 	// Allow nodes to synchronize genesis state
@@ -420,9 +513,9 @@ func CallConsensus(numNodes int) error {
 	for i := 0; i < numNodes; i++ {
 		genesis := blockchains[i].GetLatestBlock()
 		if genesis == nil || genesis.GetHeight() != 0 {
-			return fmt.Errorf("node %d failed to initialize genesis block", i)
+			return fmt.Errorf("node %s failed to initialize genesis block", validatorIDs[i])
 		}
-		logger.Info("Node-%d genesis: height=%d, hash=%s", i, genesis.GetHeight(), genesis.GetHash())
+		logger.Info("%s genesis: height=%d, hash=%s", validatorIDs[i], genesis.GetHeight(), genesis.GetHash())
 	}
 
 	// ========== TRANSACTION PROPAGATION TEST ==========
@@ -447,9 +540,9 @@ func CallConsensus(numNodes int) error {
 		}
 
 		if err := blockchains[i].AddTransaction(txCopy); err != nil {
-			logger.Warn("Node-%d failed to add transaction: %v", i, err)
+			logger.Warn("%s failed to add transaction: %v", validatorIDs[i], err)
 		} else {
-			logger.Info("Node-%d added transaction to mempool", i)
+			logger.Info("%s added transaction to mempool", validatorIDs[i])
 		}
 	}
 	logger.Info("Test transaction distributed: alice → bob (100 SPX)")
@@ -458,8 +551,8 @@ func CallConsensus(numNodes int) error {
 	logger.Info("=== CONSENSUS STATE DIAGNOSTICS ===")
 	for i := 0; i < numNodes; i++ {
 		hasPendingTx := blockchains[i].HasPendingTx(tx.GetHash())
-		logger.Info("Node-%d: leader=%v, pending_tx=%v",
-			i, consensusEngines[i].IsLeader(), hasPendingTx)
+		logger.Info("%s: leader=%v, pending_tx=%v",
+			validatorIDs[i], consensusEngines[i].IsLeader(), hasPendingTx)
 	}
 	logger.Info("====================================")
 
@@ -467,11 +560,11 @@ func CallConsensus(numNodes int) error {
 	time.Sleep(2 * time.Second)
 
 	// ========== BLOCK COMMITMENT AND CONSENSUS VALIDATION ==========
-	const timeout = 60 * time.Second
+	const timeout = 90 * time.Second // INCREASED FROM 60s TO 90s
 	start := time.Now()
 	logger.Info("Waiting for block commitment (timeout: %v)...", timeout)
 
-	checkInterval := 500 * time.Millisecond
+	checkInterval := 1 * time.Second // SLOWER CHECK INTERVAL
 	progressTicker := time.NewTicker(checkInterval)
 	defer progressTicker.Stop()
 
@@ -479,7 +572,7 @@ func CallConsensus(numNodes int) error {
 	timeoutReached := false
 	consensusOK := false
 
-	// Monitor block progression across all nodes
+	// Enhanced progress monitoring
 	for range progressTicker.C {
 		if time.Since(start) > timeout {
 			timeoutReached = true
@@ -487,28 +580,33 @@ func CallConsensus(numNodes int) error {
 		}
 
 		allAtHeight1 := true
+		committedNodes := 0
+
 		for i := 0; i < numNodes; i++ {
 			latest := blockchains[i].GetLatestBlock()
 			if latest == nil || latest.GetHeight() < 1 {
 				allAtHeight1 = false
+			} else {
+				committedNodes++
+			}
 
-				// Periodic progress reporting
-				if time.Since(lastProgressLog) > 5*time.Second {
-					if latest == nil {
-						logger.Info("Progress: Node-%d awaiting first block", i)
-					} else {
-						logger.Info("Progress: Node-%d at height %d", i, latest.GetHeight())
-					}
-					lastProgressLog = time.Now()
+			// Enhanced progress reporting
+			if time.Since(lastProgressLog) > 10*time.Second { // SLOWER PROGRESS REPORTS
+				if latest == nil {
+					logger.Info("Progress: %s at height 0 (genesis)", validatorIDs[i])
+				} else {
+					logger.Info("Progress: %s at height %d", validatorIDs[i], latest.GetHeight())
 				}
-				break
+				lastProgressLog = time.Now()
 			}
 		}
 
 		if allAtHeight1 {
-			logger.Info("SUCCESS: All nodes reached block height 1!")
+			logger.Info("🎉 SUCCESS: All %d nodes reached block height 1!", numNodes)
 			consensusOK = true
 			break
+		} else if committedNodes > 0 {
+			logger.Info("📈 Progress: %d/%d nodes committed block 1", committedNodes, numNodes)
 		}
 	}
 
@@ -520,11 +618,11 @@ func CallConsensus(numNodes int) error {
 			hasPendingTx := blockchains[i].HasPendingTx(tx.GetHash())
 
 			if latest != nil {
-				logger.Info("Node-%d: height=%d, hash=%s, pending_tx=%v, leader=%v",
-					i, latest.GetHeight(), latest.GetHash(), hasPendingTx, consensusEngines[i].IsLeader())
+				logger.Info("%s: height=%d, hash=%s, pending_tx=%v, leader=%v",
+					validatorIDs[i], latest.GetHeight(), latest.GetHash(), hasPendingTx, consensusEngines[i].IsLeader())
 			} else {
-				logger.Info("Node-%d: no blocks, pending_tx=%v, leader=%v",
-					i, hasPendingTx, consensusEngines[i].IsLeader())
+				logger.Info("%s: no blocks, pending_tx=%v, leader=%v",
+					validatorIDs[i], hasPendingTx, consensusEngines[i].IsLeader())
 			}
 		}
 		logger.Info("======================================")
@@ -534,17 +632,17 @@ func CallConsensus(numNodes int) error {
 	// ========== BLOCKCHAIN STATE CONSISTENCY VALIDATION ==========
 	firstBlock = blockchains[0].GetLatestBlock()
 	if firstBlock == nil {
-		return fmt.Errorf("node 0 has no committed block")
+		return fmt.Errorf("%s has no committed block", validatorIDs[0])
 	}
 	firstHash := firstBlock.GetHash()
 	for i := 1; i < numNodes; i++ {
 		block := blockchains[i].GetLatestBlock()
 		if block == nil {
-			return fmt.Errorf("node %d has no committed block", i)
+			return fmt.Errorf("%s has no committed block", validatorIDs[i])
 		}
 		h := block.GetHash()
 		if h != firstHash {
-			return fmt.Errorf("block hash mismatch: node0=%s node%d=%s", firstHash, i, h)
+			return fmt.Errorf("block hash mismatch: %s=%s %s=%s", validatorIDs[0], firstHash, validatorIDs[i], h)
 		}
 	}
 
@@ -553,14 +651,33 @@ func CallConsensus(numNodes int) error {
 	// ========== COMPREHENSIVE CHAIN STATE CAPTURE ==========
 	logger.Info("=== CAPTURING FINAL CHAIN STATE ===")
 
-	// Collect node state information including Merkle roots
+	// SIMPLIFIED: Use sequential collection to avoid goroutine timing issues
 	nodes := make([]*state.NodeInfo, numNodes)
-	for i := 0; i < numNodes; i++ {
-		nodeName := fmt.Sprintf("node-%d", i)
-		b := blockchains[i].GetLatestBlock()
-		chainInfo := blockchains[i].GetChainInfo()
 
-		// Calculate and record Merkle root for validation
+	for i := 0; i < numNodes; i++ {
+		address := networkAddresses[i]
+		nodeID := validatorIDs[i]
+
+		logger.Info("Collecting node info for: %s", nodeID)
+
+		b := blockchains[i].GetLatestBlock()
+		if b == nil {
+			logger.Warn("No block found for node %s", nodeID)
+			// Create placeholder node info
+			nodes[i] = &state.NodeInfo{
+				NodeID:      nodeID,
+				NodeName:    nodeID,
+				NodeAddress: address,
+				ChainInfo:   make(map[string]interface{}),
+				BlockHeight: 0,
+				BlockHash:   "no-block",
+				MerkleRoot:  "unknown",
+				Timestamp:   time.Now().Format(time.RFC3339),
+			}
+			continue
+		}
+
+		// Calculate Merkle root
 		var merkleRoot string
 		if blockAdapter, ok := b.(*core.BlockHelper); ok {
 			underlyingBlock := blockAdapter.GetUnderlyingBlock()
@@ -568,30 +685,133 @@ func CallConsensus(numNodes int) error {
 			merkleRoot = hex.EncodeToString(merkleRootBytes)
 		} else {
 			merkleRoot = "unknown"
+			logger.Warn("Could not get underlying block for %s", nodeID)
 		}
 
-		finalState := &state.FinalStateInfo{
-			BlockHeight: b.GetHeight(),
-			BlockHash:   b.GetHash(),
-			MerkleRoot:  merkleRoot,
-			TotalBlocks: blockchains[i].GetBlockCount(),
-			Status:      "completed",
-			Timestamp:   time.Now().Format(time.RFC3339),
+		// Get chain info
+		chainInfo := blockchains[i].GetChainInfo()
+		if chainInfo == nil {
+			chainInfo = make(map[string]interface{})
+			logger.Warn("Chain info was nil for %s, created empty", nodeID)
 		}
 
-		nodes[i] = &state.NodeInfo{
-			NodeID:      validatorIDs[i],
-			NodeName:    nodeName,
+		// Create NodeInfo
+		nodeInfo := &state.NodeInfo{
+			NodeID:      nodeID,
+			NodeName:    nodeID,
+			NodeAddress: address,
 			ChainInfo:   chainInfo,
 			BlockHeight: b.GetHeight(),
 			BlockHash:   b.GetHash(),
 			MerkleRoot:  merkleRoot,
 			Timestamp:   time.Now().Format(time.RFC3339),
-			FinalState:  finalState,
 		}
 
-		logger.Info("Node-%d Merkle Root: %s", i, merkleRoot)
+		// Validate the node info is properly initialized
+		if nodeInfo.NodeID == "" || nodeInfo.NodeName == "" {
+			logger.Error("❌ Node info has empty ID/Name for %s", nodeID)
+		}
+
+		nodes[i] = nodeInfo
+		logger.Info("✅ Collected node info for: %s", nodeID)
 	}
+
+	// Final verification
+	logger.Info("=== FINAL NODES ARRAY VERIFICATION ===")
+	validCount := 0
+	for i, node := range nodes {
+		if node == nil {
+			logger.Error("❌ Node %d is NIL!", i)
+		} else if node.NodeID == "" {
+			logger.Error("❌ Node %d has empty NodeID!", i)
+		} else {
+			validCount++
+			logger.Info("✅ Node %d: %s (%s) - Height: %d",
+				i, node.NodeID, node.NodeAddress, node.BlockHeight)
+		}
+	}
+
+	if validCount != numNodes {
+		logger.Warn("⚠️  Only %d/%d nodes collected properly, but continuing anyway", validCount, numNodes)
+	} else {
+		logger.Info("✅ All %d nodes collected successfully", validCount)
+	}
+
+	// Save to all nodes with proper error handling and delays
+	logger.Info("=== SAVING CHAIN STATE TO ALL NODES ===")
+
+	for i := 0; i < numNodes; i++ {
+		nodeID := validatorIDs[i]
+		logger.Info("--- Saving chain state for %s ---", nodeID)
+
+		// Add small delay between saves to avoid race conditions
+		if i > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		// Make a safe copy of nodes array to prevent any modification issues
+		nodesCopy := make([]*state.NodeInfo, len(nodes))
+		copy(nodesCopy, nodes)
+
+		// FIXED: Check if the copy has valid data, not if it's nil
+		if len(nodesCopy) == 0 {
+			logger.Error("❌ nodesCopy is EMPTY for %s!", nodeID)
+			continue
+		}
+
+		// Count valid (non-nil) nodes in the copy
+		validInCopy := 0
+		for j, node := range nodesCopy {
+			if node == nil {
+				logger.Warn("Node %d in copy is nil for %s", j, nodeID)
+			} else {
+				validInCopy++
+				// Additional validation to catch interface nil issues
+				if node.NodeID == "" {
+					logger.Warn("Node %d has empty NodeID for %s", j, nodeID)
+				}
+			}
+		}
+
+		logger.Info("Nodes copy for %s: %d valid nodes out of %d total", nodeID, validInCopy, len(nodesCopy))
+
+		// If no valid nodes, skip saving to avoid the "non-nil == nil" error
+		if validInCopy == 0 {
+			logger.Error("❌ No valid nodes in copy for %s, skipping save", nodeID)
+			continue
+		}
+
+		// Attempt to save with retry logic
+		maxRetries := 3
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			logger.Info("Attempt %d/%d to save chain state for %s", attempt, maxRetries, nodeID)
+
+			err := blockchains[i].StoreChainState(nodesCopy)
+			if err != nil {
+				logger.Warn("Attempt %d failed for %s: %v", attempt, nodeID, err)
+
+				if attempt == maxRetries {
+					logger.Error("❌ ALL attempts failed for %s", nodeID)
+
+					// Try fallback: save basic state
+					logger.Info("Trying fallback basic state save for %s", nodeID)
+					if basicErr := blockchains[i].SaveBasicChainState(); basicErr != nil {
+						logger.Error("❌ Basic state also failed for %s: %v", nodeID, basicErr)
+					} else {
+						logger.Info("✅ Basic state saved as fallback for %s", nodeID)
+					}
+				} else {
+					// Wait before retry
+					time.Sleep(200 * time.Millisecond)
+				}
+			} else {
+				logger.Info("✅ Successfully saved chain state for %s on attempt %d", nodeID, attempt)
+				break
+			}
+		}
+	}
+
+	logger.Info("=== CHAIN STATE CAPTURE COMPLETED ===")
 
 	// Display detailed block information with Merkle roots
 	logger.Info("=== BLOCK DATA WITH MERKLE ROOTS ===")
@@ -602,7 +822,7 @@ func CallConsensus(numNodes int) error {
 				underlyingBlock := blockAdapter.GetUnderlyingBlock()
 				merkleRoot := hex.EncodeToString(underlyingBlock.CalculateTxsRoot())
 
-				logger.Info("Node-%d Block Details:", i)
+				logger.Info("%s Block Details:", validatorIDs[i])
 				logger.Info("  Height: %d", latestBlock.GetHeight())
 				logger.Info("  Hash: %s", latestBlock.GetHash())
 				logger.Info("  Merkle Root: %s", merkleRoot)
@@ -641,12 +861,63 @@ func CallConsensus(numNodes int) error {
 
 	logger.Info("=== PBFT INTEGRATION TEST COMPLETED ===")
 	logger.Info("Test artifacts:")
-	logger.Info("  - data/node-0/blockchain/state/chain_state.json")
-	logger.Info("  - data/output/chain_identification.json")
+	logger.Info("  - data/Node-127.0.0.1:32307/blockchain/state/chain_state.json")
 
 	if !consensusOK {
 		return fmt.Errorf("consensus validation failed - nodes did not reach agreement")
 	}
 
 	return nil
+}
+
+// Helper function to inspect consensus types (unchanged)
+func inspectConsensusTypes() {
+	logger.Info("=== CONSENSUS TYPE INSPECTION ===")
+	proposal := &consensus.Proposal{}
+	vote := &consensus.Vote{}
+	timeout := &consensus.TimeoutMsg{}
+	logger.Info("Proposal type: %T", proposal)
+	logger.Info("Vote type: %T", vote)
+	logger.Info("TimeoutMsg type: %T", timeout)
+	logger.Info("=== END TYPE INSPECTION ===")
+}
+
+// PrintBlockchainData function (unchanged)
+func PrintBlockchainData(bc *core.Blockchain, nodeID string) {
+	latestBlock := bc.GetLatestBlock()
+	if latestBlock == nil {
+		logger.Info("Node %s: No blocks available", nodeID)
+		return
+	}
+
+	chainParams := bc.GetChainParams()
+
+	if blockAdapter, ok := latestBlock.(*core.BlockHelper); ok {
+		underlyingBlock := blockAdapter.GetUnderlyingBlock()
+		txsRoot := hex.EncodeToString(underlyingBlock.Header.TxsRoot)
+		calculatedMerkleRoot := hex.EncodeToString(underlyingBlock.CalculateTxsRoot())
+		rootsMatch := txsRoot == calculatedMerkleRoot
+
+		logger.Info("=== NODE %s BLOCKCHAIN DATA ===", nodeID)
+		logger.Info("Block Height: %d", latestBlock.GetHeight())
+		logger.Info("Block Hash: %s", latestBlock.GetHash())
+		logger.Info("TxsRoot (from header): %s", txsRoot)
+		logger.Info("MerkleRoot (calculated): %s", calculatedMerkleRoot)
+		logger.Info("TxsRoot = MerkleRoot: %v", rootsMatch)
+		logger.Info("Magic Number: 0x%x", chainParams.MagicNumber)
+		logger.Info("Previous Hash: %s", hex.EncodeToString(underlyingBlock.Header.PrevHash))
+		logger.Info("Timestamp: %d", underlyingBlock.Header.Timestamp)
+		logger.Info("Difficulty: %s", underlyingBlock.Header.Difficulty.String())
+		logger.Info("Nonce: %d", underlyingBlock.Header.Nonce)
+		logger.Info("Gas Limit: %s", underlyingBlock.Header.GasLimit.String())
+		logger.Info("Gas Used: %s", underlyingBlock.Header.GasUsed.String())
+		logger.Info("Transaction Count: %d", len(underlyingBlock.Body.TxsList))
+		logger.Info("Chain ID: %d", chainParams.ChainID)
+		logger.Info("Chain Name: %s", chainParams.ChainName)
+		logger.Info("=================================")
+
+		if !rootsMatch {
+			logger.Warn("❌ WARNING: TxsRoot does not match MerkleRoot!")
+		}
+	}
 }

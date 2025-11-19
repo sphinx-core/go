@@ -38,7 +38,57 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+
+	database "github.com/sphinx-core/go/src/core/state"
 )
+
+// SimpleKeyManager provides basic key management functionality
+type SimpleKeyManager struct{}
+
+// GenerateKey generates a simple key pair (placeholder implementation)
+func (skm *SimpleKeyManager) GenerateKey() ([]byte, []byte, error) {
+	// Generate random keys (in production, use proper cryptographic key generation)
+	privateKey := make([]byte, 32)
+	publicKey := make([]byte, 32)
+
+	if _, err := rand.Read(privateKey); err != nil {
+		return nil, nil, fmt.Errorf("failed to generate private key: %w", err)
+	}
+	if _, err := rand.Read(publicKey); err != nil {
+		return nil, nil, fmt.Errorf("failed to generate public key: %w", err)
+	}
+
+	return privateKey, publicKey, nil
+}
+
+// SerializeKeyPair simply returns the keys as-is
+func (skm *SimpleKeyManager) SerializeKeyPair(privateKey, publicKey []byte) ([]byte, []byte, error) {
+	return privateKey, publicKey, nil
+}
+
+// NewSimpleNetworkKeyManager creates a new key manager with simple implementation
+func NewSimpleNetworkKeyManager(db *database.DB) (*NetworkKeyManager, error) {
+	return &NetworkKeyManager{
+		db:         db,
+		keyManager: &SimpleKeyManager{},
+	}, nil
+}
+
+// GenerateSimpleKeys generates keys using the simple key manager
+func (nkm *NetworkKeyManager) GenerateSimpleKeys() ([]byte, []byte, error) {
+	if skm, ok := nkm.keyManager.(*SimpleKeyManager); ok {
+		return skm.GenerateKey()
+	}
+	return nil, nil, fmt.Errorf("key manager not available")
+}
+
+// SerializeSimpleKeys serializes keys using the simple key manager
+func (nkm *NetworkKeyManager) SerializeSimpleKeys(privateKey, publicKey []byte) ([]byte, []byte, error) {
+	if skm, ok := nkm.keyManager.(*SimpleKeyManager); ok {
+		return skm.SerializeKeyPair(privateKey, publicKey)
+	}
+	return nil, nil, fmt.Errorf("key manager not available")
+}
 
 // IsEmpty checks if the key is zero.
 func (k Key) IsEmpty() bool {

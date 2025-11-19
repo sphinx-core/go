@@ -24,14 +24,16 @@
 package network
 
 import (
+	"crypto/rand"
 	"fmt"
 	"log"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/sphinx-core/go/src/common"
 	"github.com/sphinx-core/go/src/consensus"
-	sphincsKey "github.com/sphinx-core/go/src/core/sphincs/key/backend"
+	database "github.com/sphinx-core/go/src/core/state"
 )
 
 // Add chain identification constants
@@ -299,38 +301,53 @@ func GetConsensusRegistry() map[string]*consensus.Consensus {
 
 // NewNode creates a new node with the specified parameters
 // Generates cryptographic keys and initializes node with provided configuration
-func NewNode(address, ip, port, udpPort string, isLocal bool, role NodeRole) *Node {
-	// Generate node ID from address or create one from UDP port if address is empty
+// Updated NewNode function using only network address format
+func NewNode(address, ip, port, udpPort string, isLocal bool, role NodeRole, db *database.DB) *Node {
+	// Node ID is now the network address identifier
 	nodeID := fmt.Sprintf("Node-%s", address)
-	if address == "" {
-		nodeID = fmt.Sprintf("Node-%s", GenerateKademliaID(udpPort).String()[:8])
-	}
 
-	// Initialize key manager for cryptographic operations
-	km, err := sphincsKey.NewKeyManager()
+	// Try to load existing keys using network address
+	privateKey, publicKey, err := loadNodeKeysFromConfig(address)
 	if err != nil {
-		log.Printf("Failed to create key manager: %v", err)
-		return nil
+		log.Printf("No existing keys found for node %s, generating new keys: %v", nodeID, err)
+
+		// Generate new key pair
+		privateKey, publicKey, err = generateFallbackKeys()
+		if err != nil {
+			log.Printf("Failed to generate key pair: %v", err)
+			return nil
+		}
+
+		// Store keys using network address
+		if err := storeNodeKeysToConfig(address, privateKey, publicKey); err != nil {
+			log.Printf("Failed to store keys in config directory: %v", err)
+			return nil
+		}
+
+		log.Printf("Generated and stored new keys for node %s", nodeID)
+	} else {
+		log.Printf("Loaded existing keys for node %s", nodeID)
 	}
 
-	// Generate key pair for the node
-	sk, pk, err := km.GenerateKey()
-	if err != nil {
-		log.Printf("Failed to generate key pair: %v", err)
-		return nil
+	// Create node information
+	nodeInfo := map[string]interface{}{
+		"id":          nodeID,
+		"address":     address,
+		"ip":          ip,
+		"port":        port,
+		"udp_port":    udpPort,
+		"kademlia_id": GenerateKademliaID(address),
+		"role":        string(role),
+		"is_local":    isLocal,
+		"created_at":  time.Now().Format(time.RFC3339),
 	}
 
-	// Serialize keys for storage and transmission
-	skBytes, pkBytes, err := km.SerializeKeyPair(sk, pk)
-	if err != nil {
-		log.Printf("Failed to serialize key pair: %v", err)
-		return nil
+	// Store node information using network address
+	if err := common.WriteNodeInfo(address, nodeInfo); err != nil {
+		log.Printf("Failed to store node info: %v", err)
 	}
 
-	log.Printf("Generated keys for node %s: PrivateKey length=%d, PublicKey length=%d",
-		address, len(skBytes), len(pkBytes))
-
-	// Create and initialize the node instance
+	// Create node instance
 	node := &Node{
 		ID:         nodeID,
 		Address:    address,
@@ -338,13 +355,60 @@ func NewNode(address, ip, port, udpPort string, isLocal bool, role NodeRole) *No
 		Port:       port,
 		UDPPort:    udpPort,
 		KademliaID: GenerateKademliaID(address),
-		PrivateKey: skBytes,
-		PublicKey:  pkBytes,
+		PrivateKey: privateKey,
+		PublicKey:  publicKey,
 		IsLocal:    isLocal,
 		Role:       role,
 		Status:     NodeStatusActive,
+		db:         db,
 	}
+
 	return node
+}
+
+// Update key management functions to use network address
+func storeNodeKeysToConfig(address string, privateKey, publicKey []byte) error {
+	return common.WriteKeysToFile(address, privateKey, publicKey)
+}
+
+func loadNodeKeysFromConfig(address string) ([]byte, []byte, error) {
+	if !common.KeysExist(address) {
+		return nil, nil, fmt.Errorf("keys do not exist for node %s", address)
+	}
+	return common.ReadKeysFromFile(address)
+}
+
+// generateFallbackKeys provides a simple key generation fallback
+func generateFallbackKeys() ([]byte, []byte, error) {
+	privateKey := make([]byte, 32)
+	publicKey := make([]byte, 32)
+
+	if _, err := rand.Read(privateKey); err != nil {
+		return nil, nil, fmt.Errorf("failed to generate private key: %w", err)
+	}
+	if _, err := rand.Read(publicKey); err != nil {
+		return nil, nil, fmt.Errorf("failed to generate public key: %w", err)
+	}
+
+	return privateKey, publicKey, nil
+}
+
+func loadNodeKeys(db *database.DB, nodeID string) ([]byte, []byte, error) {
+	// Load private key
+	privateKeyKey := fmt.Sprintf("node:%s:private_key", nodeID)
+	privateKey, err := db.Get(privateKeyKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load private key: %w", err)
+	}
+
+	// Load public key
+	publicKeyKey := fmt.Sprintf("node:%s:public_key", nodeID)
+	publicKey, err := db.Get(publicKeyKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load public key: %w", err)
+	}
+
+	return privateKey, publicKey, nil
 }
 
 // GenerateNodeID creates a node ID from the node's public key

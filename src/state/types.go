@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 // go/src/state/types.go
+// go/src/state/types.go
 package state
 
 import (
@@ -75,6 +76,10 @@ type StateMachine struct {
 	stateCh   chan *StateSnapshot
 	commitCh  chan *CommitProof
 	timeoutCh chan struct{}
+
+	// Final state tracking for replication
+	finalStates []*FinalStateInfo
+	stateMutex  sync.RWMutex
 }
 
 // Storage manages blockchain data persistence
@@ -110,14 +115,14 @@ type ChainParams struct {
 	LedgerName    string
 }
 
-// Add this struct to represent basic chain state
+// BasicChainState represents basic chain state
 type BasicChainState struct {
 	BestBlockHash string `json:"best_block_hash"`
 	TotalBlocks   uint64 `json:"total_blocks"`
 	LastUpdated   string `json:"last_updated"`
 }
 
-// Enhanced BlockSizeMetrics with human-readable MB fields
+// BlockSizeMetrics with human-readable MB fields
 type BlockSizeMetrics struct {
 	TotalBlocks     uint64          `json:"total_blocks"`
 	AverageSize     uint64          `json:"average_size_bytes"`
@@ -134,7 +139,7 @@ type BlockSizeMetrics struct {
 	TotalSizeMB   float64 `json:"total_size_mb"`
 }
 
-// Enhanced BlockSizeInfo with MB field
+// BlockSizeInfo with MB field
 type BlockSizeInfo struct {
 	Height    uint64  `json:"height"`
 	Hash      string  `json:"hash"`
@@ -144,7 +149,7 @@ type BlockSizeInfo struct {
 	Timestamp int64   `json:"timestamp"`
 }
 
-// Update ChainState to include block size metrics
+// ChainState represents the complete chain state
 type ChainState struct {
 	// Chain identification
 	ChainIdentification *ChainIdentification `json:"chain_identification"`
@@ -155,7 +160,7 @@ type ChainState struct {
 	// Storage state
 	StorageState *StorageState `json:"storage_state"`
 
-	// Basic chain state (merged from basic_chain_state.json)
+	// Basic chain state
 	BasicChainState *BasicChainState `json:"basic_chain_state"`
 
 	// Block size metrics
@@ -163,6 +168,52 @@ type ChainState struct {
 
 	// Timestamp
 	Timestamp string `json:"timestamp"`
+
+	// Signature validation section (now simplified)
+	SignatureValidation *SignatureValidation `json:"signature_validation,omitempty"`
+
+	// REPLACED: ConsensusSignatures with FinalStateInfo array
+	FinalStates []*FinalStateInfo `json:"final_states,omitempty"`
+}
+
+type SignatureValidation struct {
+	TotalSignatures   int    `json:"total_signatures"`
+	ValidSignatures   int    `json:"valid_signatures"`
+	InvalidSignatures int    `json:"invalid_signatures"`
+	ValidationTime    string `json:"validation_time"`
+}
+
+// FINAL STATE INFO - MERGED ConsensusSignature and FinalStateInfo
+type FinalStateInfo struct {
+	// Block identification
+	BlockHash   string `json:"block_hash"`
+	BlockHeight uint64 `json:"block_height"`
+	MerkleRoot  string `json:"merkle_root"`
+
+	// Node information
+	NodeID      string `json:"node_id,omitempty"`
+	NodeName    string `json:"node_name,omitempty"`
+	NodeAddress string `json:"node_address,omitempty"`
+
+	// Chain state
+	TotalBlocks uint64 `json:"total_blocks,omitempty"`
+	Status      string `json:"status"` // "proposed", "prepared", "committed", "timeout"
+
+	// Signature information (merged from ConsensusSignature)
+	SignerNodeID string `json:"signer_node_id,omitempty"` // Who signed (from ConsensusSignature)
+	Signature    string `json:"signature"`                // hex encoded signature
+	MessageType  string `json:"message_type"`             // "proposal", "prepare", "commit", "timeout"
+	View         uint64 `json:"view"`                     // Consensus view number
+	Valid        bool   `json:"valid"`                    // Signature validity
+
+	// Additional context
+	ProposerID       string `json:"proposer_id,omitempty"`       // Who proposed the block
+	SignatureStatus  string `json:"signature_status,omitempty"`  // "Valid", "Invalid", "Pending"
+	VerificationTime string `json:"verification_time,omitempty"` // When signature was verified
+
+	// Timestamps
+	Timestamp      string `json:"timestamp"`                 // When this final state was created
+	BlockTimestamp int64  `json:"block_timestamp,omitempty"` // Original block timestamp
 }
 
 // Operation represents a state machine operation (block or transaction)
@@ -174,6 +225,9 @@ type Operation struct {
 	Sequence    uint64             `json:"sequence"`
 	Proposer    string             `json:"proposer"`
 	Signature   []byte             `json:"signature"`
+
+	// UPDATED: Use FinalStateInfo instead of ConsensusSignature
+	FinalStates []*FinalStateInfo `json:"final_states,omitempty"`
 }
 
 // StateSnapshot represents a snapshot of the blockchain state
@@ -219,41 +273,22 @@ type ChainIdentification struct {
 	NetworkInfo map[string]interface{} `json:"network_info"`
 }
 
-// TestSummary represents test execution results
-type TestSummary struct {
-	TestName      string `json:"test_name"`
-	Timestamp     string `json:"timestamp"`
-	NumNodes      int    `json:"num_nodes"`
-	TestDuration  string `json:"test_duration"`
-	Success       bool   `json:"success"`
-	FinalHeight   uint64 `json:"final_height"`
-	GenesisHash   string `json:"genesis_hash"`
-	ConsensusType string `json:"consensus_type"`
-}
-
-// Update NodeInfo to include Merkle root
+// NodeInfo represents information about a network node
 type NodeInfo struct {
 	NodeID      string                 `json:"node_id"`
 	NodeName    string                 `json:"node_name"`
+	NodeAddress string                 `json:"node_address"`
 	ChainInfo   map[string]interface{} `json:"chain_info"`
 	BlockHeight uint64                 `json:"block_height"`
 	BlockHash   string                 `json:"block_hash"`
-	MerkleRoot  string                 `json:"merkle_root"` // ADD THIS
+	MerkleRoot  string                 `json:"merkle_root"`
 	Timestamp   string                 `json:"timestamp"`
-	FinalState  *FinalStateInfo        `json:"final_state"`
+
+	// UPDATED: FinalState is now a single FinalStateInfo instead of separate struct
+	FinalState *FinalStateInfo `json:"final_state"`
 }
 
-// Update FinalStateInfo to include Merkle root
-type FinalStateInfo struct {
-	BlockHeight uint64 `json:"block_height"`
-	BlockHash   string `json:"block_hash"`
-	MerkleRoot  string `json:"merkle_root"` // ADD THIS
-	TotalBlocks uint64 `json:"total_blocks"`
-	Status      string `json:"status"`
-	Timestamp   string `json:"timestamp"`
-}
-
-// Add a new structure for detailed block information
+// BlockInfo represents detailed block information
 type BlockInfo struct {
 	Height           uint64   `json:"height"`
 	Hash             string   `json:"hash"`
