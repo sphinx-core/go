@@ -378,15 +378,25 @@ func (c *Consensus) processProposal(proposal *Proposal) {
 		logger.Warn("⚠️ No signing service or empty signature, skipping verification")
 	}
 
-	// Capture signature for storage
-	signatureHex := hex.EncodeToString(proposal.Signature)
+	// CAPTURE SIGNATURE - FIXED VERSION
+	// Deserialize to get just the SPHINCS signature bytes
+	signedMsg, err := DeserializeSignedMessage(proposal.Signature)
+	var signatureHex string
+	if err != nil {
+		logger.Warn("Failed to deserialize signed message for storage: %v", err)
+		// Fallback: use raw signature (with prefix)
+		signatureHex = hex.EncodeToString(proposal.Signature)
+	} else {
+		// Get clean SPHINCS signature without length prefix
+		signatureHex = hex.EncodeToString(signedMsg.Signature)
+	}
 
 	// Store signature in chain state
 	consensusSig := &ConsensusSignature{
 		BlockHash:    proposal.Block.GetHash(),
 		BlockHeight:  proposal.Block.GetHeight(),
 		SignerNodeID: proposal.ProposerID,
-		Signature:    signatureHex,
+		Signature:    signatureHex, // Now this is just the SPHINCS signature
 		MessageType:  "proposal",
 		View:         proposal.View,
 		Timestamp:    common.GetTimeService().GetCurrentTimeInfo().ISOLocal,
@@ -512,16 +522,24 @@ func (c *Consensus) processPrepareVote(vote *Vote) {
 			}
 			return
 		}
-		// Capture prepare vote signature
-		signatureHex := hex.EncodeToString(vote.Signature)
+		// CAPTURE PREPARE VOTE SIGNATURE - FIXED VERSION
+		signedMsg, err := DeserializeSignedMessage(vote.Signature)
+		var signatureHex string
+		if err != nil {
+			logger.Warn("Failed to deserialize prepare vote for storage: %v", err)
+			signatureHex = hex.EncodeToString(vote.Signature)
+		} else {
+			signatureHex = hex.EncodeToString(signedMsg.Signature)
+		}
+
 		consensusSig := &ConsensusSignature{
 			BlockHash:    vote.BlockHash,
 			BlockHeight:  c.currentHeight,
 			SignerNodeID: vote.VoterID,
-			Signature:    signatureHex,
+			Signature:    signatureHex, // Clean SPHINCS signature
 			MessageType:  "prepare",
 			View:         vote.View,
-			Timestamp:    common.GetTimeService().GetCurrentTimeInfo().ISOLocal, // Use centralized time
+			Timestamp:    common.GetTimeService().GetCurrentTimeInfo().ISOLocal,
 			Valid:        true,
 		}
 		c.addConsensusSignature(consensusSig)
@@ -613,16 +631,24 @@ func (c *Consensus) processVote(vote *Vote) {
 			logger.Info("🚀 Moving to COMMITTED phase for block %s", vote.BlockHash)
 		}
 
-		// Capture vote signature
-		signatureHex := hex.EncodeToString(vote.Signature)
+		// CAPTURE COMMIT VOTE SIGNATURE - FIXED VERSION
+		signedMsg, err := DeserializeSignedMessage(vote.Signature)
+		var signatureHex string
+		if err != nil {
+			logger.Warn("Failed to deserialize commit vote for storage: %v", err)
+			signatureHex = hex.EncodeToString(vote.Signature)
+		} else {
+			signatureHex = hex.EncodeToString(signedMsg.Signature)
+		}
+
 		consensusSig := &ConsensusSignature{
 			BlockHash:    vote.BlockHash,
-			BlockHeight:  c.currentHeight, // You might need to track this differently
+			BlockHeight:  c.currentHeight,
 			SignerNodeID: vote.VoterID,
-			Signature:    signatureHex,
+			Signature:    signatureHex, // Clean SPHINCS signature
 			MessageType:  "commit",
 			View:         vote.View,
-			Timestamp:    common.GetTimeService().GetCurrentTimeInfo().ISOLocal, // Use centralized time
+			Timestamp:    common.GetTimeService().GetCurrentTimeInfo().ISOLocal,
 			Valid:        true,
 		}
 		c.addConsensusSignature(consensusSig)
