@@ -25,6 +25,7 @@ package consensus
 
 import (
 	"crypto"
+	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -32,6 +33,7 @@ import (
 	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
 	key "github.com/sphinx-core/go/src/core/sphincs/key/backend"
 	sign "github.com/sphinx-core/go/src/core/sphincs/sign/backend"
+	logger "github.com/sphinx-core/go/src/log"
 )
 
 // Add this method to register public keys
@@ -66,15 +68,19 @@ func NewSigningService(sphincsManager *sign.SphincsManager, keyManager *key.KeyM
 }
 
 // initializeKeys generates or loads keys for this node
-func (s *SigningService) initializeKeys() {
-	// Generate a new key pair for this node
+// In initializeKeys method, add this debug:
+func (s *SigningService) initializeKeys() error {
+	fmt.Printf("=== KEY GENERATION DEBUG for node %s ===\n", s.nodeID)
+
 	skWrapper, pk, err := s.keyManager.GenerateKey()
 	if err != nil {
-		fmt.Printf("Failed to generate keys: %v\n", err)
-		return
+		return err
 	}
 
-	// Convert the wrapper to the actual SPHINCS_SK type
+	// Check if keys are actually different
+	fmt.Printf("SKseed fingerprint: %x...\n", skWrapper.SKseed[:8])
+	fmt.Printf("PKroot fingerprint: %x...\n", skWrapper.PKroot[:8])
+
 	s.privateKey = &sphincs.SPHINCS_SK{
 		SKseed: skWrapper.SKseed,
 		SKprf:  skWrapper.SKprf,
@@ -83,10 +89,16 @@ func (s *SigningService) initializeKeys() {
 	}
 	s.publicKey = pk
 
-	fmt.Printf("Initialized keys for node %s\n", s.nodeID)
+	// Verify public key is unique
+	pkBytes, err := pk.SerializePK()
+	if err == nil {
+		fmt.Printf("Public key fingerprint: %x...\n", pkBytes[:8])
+	}
+
+	fmt.Printf("=== END KEY DEBUG ===\n")
+	return nil
 }
 
-// SignMessage signs a consensus message
 // SignMessage signs a consensus message
 func (s *SigningService) SignMessage(data []byte) ([]byte, error) {
 	if s.sphincsManager == nil || s.privateKey == nil {
@@ -178,9 +190,11 @@ func (s *SigningService) GenerateMessageHash(messageType string, data []byte) []
 }
 
 // SignProposal signs a block proposal
-// SignProposal signs a block proposal
 func (s *SigningService) SignProposal(proposal *Proposal) error {
 	data := s.serializeProposalForSigning(proposal)
+
+	// DEBUG: Log what we're signing
+	logger.Info("🔐 SIGNING PROPOSAL for node %s - Data: %s", s.nodeID, string(data))
 
 	signedData, err := s.SignMessage(data)
 	if err != nil {
@@ -188,6 +202,14 @@ func (s *SigningService) SignProposal(proposal *Proposal) error {
 	}
 
 	proposal.Signature = signedData
+
+	// DEBUG: Log the resulting signature
+	signatureHex := hex.EncodeToString(signedData)
+	logger.Info("🔐 CREATED PROPOSAL SIGNATURE for node %s: %s... (length: %d chars)",
+		s.nodeID,
+		signatureHex[:min(64, len(signatureHex))],
+		len(signatureHex))
+
 	return nil
 }
 
@@ -200,16 +222,26 @@ func (s *SigningService) VerifyProposal(proposal *Proposal) (bool, error) {
 func (s *SigningService) SignVote(vote *Vote) error {
 	data := s.serializeVoteForSigning(vote)
 
+	// DEBUG: Log what we're signing
+	logger.Info("🔐 SIGNING VOTE for node %s - Data: %s", s.nodeID, string(data))
+
 	signature, err := s.SignMessage(data)
 	if err != nil {
 		return err
 	}
 
 	vote.Signature = signature
+
+	// DEBUG: Log the resulting signature
+	signatureHex := hex.EncodeToString(signature)
+	logger.Info("🔐 CREATED VOTE SIGNATURE for node %s: %s... (length: %d chars)",
+		s.nodeID,
+		signatureHex[:min(64, len(signatureHex))],
+		len(signatureHex))
+
 	return nil
 }
 
-// VerifyVote verifies a vote signature
 // VerifyVote verifies a vote signature
 func (s *SigningService) VerifyVote(vote *Vote) (bool, error) {
 	return s.VerifySignature(vote.Signature, vote.VoterID) // CORRECT - 2 arguments

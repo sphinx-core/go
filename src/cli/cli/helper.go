@@ -538,9 +538,9 @@ func CallConsensus(numNodes int) error {
 
 	// ========== TRANSACTION PROPAGATION TEST ==========
 	tx := &types.Transaction{
-		Sender:   "alice",
-		Receiver: "bob",
-		Amount:   big.NewInt(100),
+		Sender:   "bob",
+		Receiver: "alice",
+		Amount:   big.NewInt(1000),
 		GasLimit: big.NewInt(21000),
 		GasPrice: big.NewInt(1),
 		Nonce:    1,

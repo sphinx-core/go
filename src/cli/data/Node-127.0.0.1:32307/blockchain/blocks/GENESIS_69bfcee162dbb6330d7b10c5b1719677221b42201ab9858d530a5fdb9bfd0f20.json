@@ -1,24 +1,24 @@
 {
   "header": {
     "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
-    "hash": "GENESIS_3d1c01bdf4bd095cf14a8831fef20ff896ff8b81c5ab8d64086cf9e6de4a331f",
+    "hash": "GENESIS_69bfcee162dbb6330d7b10c5b1719677221b42201ab9858d530a5fdb9bfd0f20",
     "txs_root": "c20f4bc14267aad693be2bb6e9799675ec4c494c654a6ad275b3124ae3182782",
     "state_root": "6bd593c675ee90f411c64f9f56ff743cae4219b1581efac28458b63ae550cf77",
-    "parent_hash": "",
-    "uncles_hash": "",
+    "parent_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "uncles_hash": "b4b78cf2354f589822242e7314883dfced2436d7859b184f8f0b6c0a3430231b",
     "extra_data": "Sphinx Network Genesis Block - Decentralized Future",
     "miner": "0000000000000000000000000000000000000000",
     "version": 1,
     "nblock": 0,
     "height": 0,
     "timestamp": 1732070400,
-    "difficulty": 17179869184,
+    "difficulty": "17179869184",
     "nonce": 66,
-    "gas_limit": 5000,
-    "gas_used": 0
+    "gas_limit": "5000",
+    "gas_used": "0"
   },
   "body": {
     "txs_list": [],
-    "uncles_hash": ""
+    "uncles_hash": "8c90fd3a568c559be3f6b02a36296c426553ca79495b1d850e289cedea83be0a"
   }
 }

@@ -64,6 +64,7 @@ const (
 )
 
 // Global genesis block definition with comprehensive data
+// Global genesis block definition with comprehensive data
 var genesisBlockDefinition = &types.BlockHeader{
 	Version:    1,
 	Height:     0,
@@ -77,6 +78,10 @@ var genesisBlockDefinition = &types.BlockHeader{
 	GasUsed:    big.NewInt(0),
 	ExtraData:  []byte("Sphinx Network Genesis Block - Decentralized Future"),
 	Miner:      make([]byte, 20), // Zero address for genesis
+
+	// FIX: Set meaningful values for ParentHash and UnclesHash
+	ParentHash: make([]byte, 32),                    // Genesis has no parent, so use zeros like PrevHash
+	UnclesHash: common.SpxHash([]byte("no-uncles")), // Hash indicating no uncles
 }
 
 // GenerateGenesisHash creates a deterministic genesis hash that starts with "GENESIS_"
@@ -95,6 +100,8 @@ func GenerateGenesisHash() string {
 		GasUsed:    big.NewInt(0),
 		ExtraData:  []byte("Sphinx Network Genesis Block - Decentralized Future"),
 		Miner:      make([]byte, 20),
+		ParentHash: make([]byte, 32),                            // Genesis has no parent
+		UnclesHash: common.SpxHash([]byte("genesis-no-uncles")), // Meaningful uncles hash
 	}
 
 	genesisBody := types.NewBlockBody([]*types.Transaction{}, []byte{})

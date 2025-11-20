@@ -31,10 +31,12 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"time"
 
 	"github.com/sphinx-core/go/src/common"
 )
 
+// NewBlockHeader creates a new BlockHeader with centralized time service
 // NewBlockHeader creates a new BlockHeader with centralized time service
 func NewBlockHeader(height uint64, prevHash []byte, difficulty *big.Int, txsRoot, stateRoot []byte, gasLimit, gasUsed *big.Int,
 	extraData, miner []byte, timestamp int64) *BlockHeader {
@@ -42,6 +44,38 @@ func NewBlockHeader(height uint64, prevHash []byte, difficulty *big.Int, txsRoot
 	// Use time service if timestamp is 0 (auto-generate)
 	if timestamp == 0 {
 		timestamp = common.GetCurrentTimestamp()
+	}
+
+	// For ALL blocks, set meaningful values for ParentHash and UnclesHash
+	var parentHash []byte
+	var unclesHash []byte
+
+	if height == 0 {
+		// Genesis block: no parent, so use zeros
+		parentHash = make([]byte, 32)
+		unclesHash = common.SpxHash([]byte("genesis-no-uncles"))
+	} else {
+		// Normal block: ParentHash should be same as PrevHash
+		parentHash = prevHash
+
+		// FIX: Set meaningful uncles hash for normal blocks too
+		if len(prevHash) > 0 {
+			// Create a meaningful uncles hash based on previous block hash
+			unclesData := append([]byte("no-uncles-for-block-"), prevHash...)
+			unclesHash = common.SpxHash(unclesData)
+		} else {
+			unclesHash = common.SpxHash([]byte("no-uncles"))
+		}
+	}
+
+	// FIX: Ensure extraData is never nil
+	if extraData == nil {
+		extraData = []byte{}
+	}
+
+	// FIX: Ensure miner is never nil
+	if miner == nil {
+		miner = make([]byte, 20) // Default zero address
 	}
 
 	return &BlockHeader{
@@ -57,8 +91,8 @@ func NewBlockHeader(height uint64, prevHash []byte, difficulty *big.Int, txsRoot
 		StateRoot:  stateRoot,
 		GasLimit:   gasLimit,
 		GasUsed:    gasUsed,
-		ParentHash: prevHash, // Same as PrevHash for compatibility
-		UnclesHash: []byte{}, // Empty for now
+		ParentHash: parentHash, // Now properly set for all blocks
+		UnclesHash: unclesHash, // Now meaningful for all blocks
 		ExtraData:  extraData,
 		Miner:      miner,
 	}
@@ -66,6 +100,13 @@ func NewBlockHeader(height uint64, prevHash []byte, difficulty *big.Int, txsRoot
 
 // NewBlockBody creates a new BlockBody with a list of transactions and uncles hash.
 func NewBlockBody(txsList []*Transaction, unclesHash []byte) *BlockBody {
+	// FIX: Always set a meaningful uncles hash if empty
+	if len(unclesHash) == 0 {
+		// Create a meaningful uncles hash based on current timestamp
+		timestampData := []byte(fmt.Sprintf("uncles-%d", time.Now().UnixNano()))
+		unclesHash = common.SpxHash(timestampData)
+	}
+
 	return &BlockBody{
 		TxsList:    txsList,
 		UnclesHash: unclesHash,

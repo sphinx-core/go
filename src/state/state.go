@@ -923,26 +923,70 @@ func (s *Storage) sanitizeFilename(hash string) string {
 	return sanitized
 }
 
-// storeBlockToDisk stores a block to disk, preserving text format for genesis hashes
 // storeBlockToDisk stores a block to disk with sanitized filenames
 func (s *Storage) storeBlockToDisk(block *types.Block) error {
 	blockHash := block.GetHash()
-
-	// SANITIZE THE FILENAME to handle non-printable characters
 	sanitizedHash := s.sanitizeFilename(blockHash)
 	filename := filepath.Join(s.blocksDir, sanitizedHash+".json")
 
 	logger.Info("Storing block to disk: original_hash=%s, sanitized_filename=%s",
 		blockHash, sanitizedHash)
 
-	// Create a copy of the block to ensure hash is stored correctly
-	blockCopy := *block
-	if blockCopy.Header != nil {
-		// Ensure the hash is stored as proper string, not hex-encoded
-		blockCopy.Header.Hash = []byte(blockHash)
+	// Create a custom serialization structure to FORCE hex encoding
+	type SerializableBlock struct {
+		Header struct {
+			PrevHash   string `json:"prev_hash"`
+			Hash       string `json:"hash"`
+			TxsRoot    string `json:"txs_root"`
+			StateRoot  string `json:"state_root"`
+			ParentHash string `json:"parent_hash"`
+			UnclesHash string `json:"uncles_hash"`
+			ExtraData  string `json:"extra_data"`
+			Miner      string `json:"miner"`
+			Version    uint64 `json:"version"`
+			NBlock     uint64 `json:"nblock"`
+			Height     uint64 `json:"height"`
+			Timestamp  int64  `json:"timestamp"`
+			Difficulty string `json:"difficulty"`
+			Nonce      uint64 `json:"nonce"`
+			GasLimit   string `json:"gas_limit"`
+			GasUsed    string `json:"gas_used"`
+		} `json:"header"`
+		Body struct {
+			TxsList    []*types.Transaction `json:"txs_list"`
+			UnclesHash string               `json:"uncles_hash"`
+		} `json:"body"`
 	}
 
-	data, err := json.MarshalIndent(blockCopy, "", "  ")
+	var serializableBlock SerializableBlock
+
+	// Convert header
+	if block.Header != nil {
+		serializableBlock.Header.PrevHash = hex.EncodeToString(block.Header.PrevHash)
+		serializableBlock.Header.Hash = blockHash
+		serializableBlock.Header.TxsRoot = hex.EncodeToString(block.Header.TxsRoot)
+		serializableBlock.Header.StateRoot = hex.EncodeToString(block.Header.StateRoot)
+		serializableBlock.Header.ParentHash = hex.EncodeToString(block.Header.ParentHash)
+		serializableBlock.Header.UnclesHash = hex.EncodeToString(block.Header.UnclesHash)
+		serializableBlock.Header.ExtraData = string(block.Header.ExtraData)
+		serializableBlock.Header.Miner = hex.EncodeToString(block.Header.Miner)
+		serializableBlock.Header.Version = block.Header.Version
+		serializableBlock.Header.NBlock = block.Header.Block
+		serializableBlock.Header.Height = block.Header.Height
+		serializableBlock.Header.Timestamp = block.Header.Timestamp
+		serializableBlock.Header.Difficulty = block.Header.Difficulty.String()
+		serializableBlock.Header.Nonce = block.Header.Nonce
+		serializableBlock.Header.GasLimit = block.Header.GasLimit.String()
+		serializableBlock.Header.GasUsed = block.Header.GasUsed.String()
+	}
+
+	// Convert body - FORCE hex encoding
+	serializableBlock.Body.TxsList = block.Body.TxsList
+	serializableBlock.Body.UnclesHash = hex.EncodeToString(block.Body.UnclesHash)
+
+	logger.Info("DEBUG: Body uncles_hash being written as hex: %s", serializableBlock.Body.UnclesHash)
+
+	data, err := json.MarshalIndent(serializableBlock, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal block: %w", err)
 	}
