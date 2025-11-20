@@ -27,11 +27,11 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/sphinx-core/go/src/common"
 	logger "github.com/sphinx-core/go/src/log"
 )
 
@@ -69,16 +69,16 @@ func NewConsensus(
 		onCommit:         onCommit,                          // Callback for committed blocks
 		ctx:              ctx,                               // Context for cancellation
 		cancel:           cancel,                            // Cancel function for shutdown
-		lastViewChange:   time.Now(),                        // Initialize last view change time
+		lastViewChange:   common.GetTimeService().Now(),     // Initialize last view change time using centralized time
 		viewChangeMutex:  sync.Mutex{},                      // Initialize view change mutex
-		lastBlockTime:    time.Now(),
+		lastBlockTime:    common.GetTimeService().Now(),     // Initialize last block time using centralized time
 	}
 }
 
 // Start begins the consensus process by launching all message handlers
 // Returns error if consensus cannot be started
 func (c *Consensus) Start() error {
-	log.Printf("Consensus started for node %s", c.nodeID)
+	logger.Info("Consensus started for node %s", c.nodeID)
 
 	// Start message handlers in separate goroutines
 	go c.handleProposals()    // Handle incoming block proposals
@@ -107,7 +107,7 @@ func (c *Consensus) SetTimeout(d time.Duration) {
 // Stop halts the consensus process and cleans up resources
 // Returns error if consensus cannot be stopped properly
 func (c *Consensus) Stop() error {
-	log.Printf("Consensus stopped for node %s", c.nodeID)
+	logger.Info("Consensus stopped for node %s", c.nodeID)
 	c.cancel() // Cancel context to signal all goroutines to stop
 	return nil
 }
@@ -138,10 +138,10 @@ func (c *Consensus) ProposeBlock(block Block) error {
 			return fmt.Errorf("failed to sign proposal: %v", err)
 		}
 	} else {
-		log.Printf("WARNING: No signing service available, sending unsigned proposal")
+		logger.Warn("WARNING: No signing service available, sending unsigned proposal")
 	}
 
-	log.Printf("Node %s proposing block %s at view %d", c.nodeID, block.GetHash(), c.currentView)
+	logger.Info("Node %s proposing block %s at view %d", c.nodeID, block.GetHash(), c.currentView)
 	return c.broadcastProposal(proposal)
 }
 
@@ -241,7 +241,7 @@ func (c *Consensus) consensusLoop() {
 			viewTimer.Reset(c.timeout)
 		case <-c.ctx.Done():
 			// Consensus stopped, exit loop
-			log.Printf("Consensus loop stopped for node %s", c.nodeID)
+			logger.Info("Consensus loop stopped for node %s", c.nodeID)
 			return
 		}
 	}
@@ -258,7 +258,7 @@ func (c *Consensus) handleProposals() {
 			}
 			c.processProposal(proposal)
 		case <-c.ctx.Done():
-			log.Printf("Proposal handler stopped for node %s", c.nodeID)
+			logger.Info("Proposal handler stopped for node %s", c.nodeID)
 			return
 		}
 	}
@@ -275,7 +275,7 @@ func (c *Consensus) handleVotes() {
 			}
 			c.processVote(vote)
 		case <-c.ctx.Done():
-			log.Printf("Vote handler stopped for node %s", c.nodeID)
+			logger.Info("Vote handler stopped for node %s", c.nodeID)
 			return
 		}
 	}
@@ -292,7 +292,7 @@ func (c *Consensus) handlePrepareVotes() {
 			}
 			c.processPrepareVote(vote)
 		case <-c.ctx.Done():
-			log.Printf("Prepare vote handler stopped for node %s", c.nodeID)
+			logger.Info("Prepare vote handler stopped for node %s", c.nodeID)
 			return
 		}
 	}
@@ -309,7 +309,7 @@ func (c *Consensus) handleTimeouts() {
 			}
 			c.processTimeout(timeout)
 		case <-c.ctx.Done():
-			log.Printf("Timeout handler stopped for node %s", c.nodeID)
+			logger.Info("Timeout handler stopped for node %s", c.nodeID)
 			return
 		}
 	}
@@ -336,17 +336,14 @@ func (c *Consensus) updateLeaderStatus() {
 	c.isLeader = (expectedLeader == c.nodeID)
 
 	if c.isLeader {
-		log.Printf("✅ Node %s is leader for view %d (index %d/%d)",
+		logger.Info("✅ Node %s is leader for view %d (index %d/%d)",
 			c.nodeID, c.currentView, leaderIndex, len(validators))
 	} else {
-		log.Printf("Node %s is NOT leader for view %d (leader is %s)",
+		logger.Info("Node %s is NOT leader for view %d (leader is %s)",
 			c.nodeID, c.currentView, expectedLeader)
 	}
 }
 
-// processProposal handles a received block proposal
-// Validates the proposal and progresses consensus state if valid
-// processProposal with signature verification
 // processProposal handles a received block proposal
 func (c *Consensus) processProposal(proposal *Proposal) {
 	c.mu.Lock()
@@ -360,6 +357,10 @@ func (c *Consensus) processProposal(proposal *Proposal) {
 	}
 
 	logger.Info("🔍 DEBUG: Starting processProposal for view %d from %s", proposal.View, proposal.ProposerID)
+
+	// DEBUG: Log the previous hash to see what's happening
+	prevHash := proposal.Block.GetPrevHash()
+	logger.Info("🔍 DEBUG: Previous hash in proposal: %s", prevHash)
 
 	// Verify signature if signing service is available
 	if c.signingService != nil && len(proposal.Signature) > 0 {
@@ -388,8 +389,8 @@ func (c *Consensus) processProposal(proposal *Proposal) {
 		Signature:    signatureHex,
 		MessageType:  "proposal",
 		View:         proposal.View,
-		Timestamp:    time.Now().Format(time.RFC3339),
-		Valid:        true, // We verified it above
+		Timestamp:    common.GetTimeService().GetCurrentTimeInfo().ISOLocal,
+		Valid:        true,
 	}
 
 	// Add to signature tracking
@@ -417,11 +418,13 @@ func (c *Consensus) processProposal(proposal *Proposal) {
 		return
 	}
 
-	// Validate the proposed block
+	// FIX: The issue might be in block validation - add detailed logging
+	logger.Info("🔍 DEBUG: Starting blockchain validation for block %s", proposal.Block.GetHash())
 	if err := c.blockChain.ValidateBlock(proposal.Block); err != nil {
 		logger.Warn("❌ Invalid block in proposal: %v", err)
 		return
 	}
+	logger.Info("✅ Blockchain validation passed for block %s", proposal.Block.GetHash())
 
 	// Verify the proposer is the legitimate leader for this view
 	if !c.isValidLeader(proposal.ProposerID, proposal.View) {
@@ -518,7 +521,7 @@ func (c *Consensus) processPrepareVote(vote *Vote) {
 			Signature:    signatureHex,
 			MessageType:  "prepare",
 			View:         vote.View,
-			Timestamp:    time.Now().Format(time.RFC3339),
+			Timestamp:    common.GetTimeService().GetCurrentTimeInfo().ISOLocal, // Use centralized time
 			Valid:        true,
 		}
 		c.addConsensusSignature(consensusSig)
@@ -619,7 +622,7 @@ func (c *Consensus) processVote(vote *Vote) {
 			Signature:    signatureHex,
 			MessageType:  "commit",
 			View:         vote.View,
-			Timestamp:    time.Now().Format(time.RFC3339),
+			Timestamp:    common.GetTimeService().GetCurrentTimeInfo().ISOLocal, // Use centralized time
 			Valid:        true,
 		}
 		c.addConsensusSignature(consensusSig)
@@ -659,7 +662,7 @@ func (c *Consensus) processTimeout(timeout *TimeoutMsg) {
 	if timeout.View > c.currentView {
 		logger.Info("View change requested to view %d by %s", timeout.View, timeout.VoterID)
 		c.currentView = timeout.View
-		c.lastViewChange = time.Now()
+		c.lastViewChange = common.GetTimeService().Now() // Use centralized time
 		c.resetConsensusState()
 
 		// Update leader status immediately
@@ -695,18 +698,18 @@ func (c *Consensus) sendPrepareVote(blockHash string, view uint64) {
 	// Sign the prepare vote
 	if c.signingService != nil {
 		if err := c.signingService.SignVote(prepareVote); err != nil {
-			log.Printf("Failed to sign prepare vote: %v", err)
+			logger.Warn("Failed to sign prepare vote: %v", err)
 			return
 		}
 	} else {
-		log.Printf("WARNING: No signing service available, sending unsigned prepare vote")
+		logger.Warn("WARNING: No signing service available, sending unsigned prepare vote")
 	}
 
 	// Mark vote as sent and broadcast it
 	c.sentPrepareVotes[blockHash] = true
 	c.broadcastPrepareVote(prepareVote)
 
-	log.Printf("Node %s sent prepare vote for block %s at view %d", c.nodeID, blockHash, view)
+	logger.Info("Node %s sent prepare vote for block %s at view %d", c.nodeID, blockHash, view)
 }
 
 // voteForBlock sends a commit vote for a specific block
@@ -838,7 +841,7 @@ func (c *Consensus) commitBlock(block Block) {
 	// Update consensus state and set last block time
 	c.mu.Lock()
 	c.currentHeight = block.GetHeight()
-	c.lastBlockTime = time.Now() // Update the last block time
+	c.lastBlockTime = common.GetTimeService().Now() // Update the last block time using centralized time
 	c.resetConsensusState()
 	c.mu.Unlock()
 
@@ -866,17 +869,17 @@ func (c *Consensus) startViewChange() {
 	}
 
 	// Extended cooldown period: prevent view changes for at least 15 seconds
-	if time.Since(c.lastViewChange) < 15*time.Second {
+	if common.GetTimeService().Now().Sub(c.lastViewChange) < 15*time.Second {
 		logger.Debug("Skipping view change for node %s (cooldown: %v since last view change)",
-			c.nodeID, time.Since(c.lastViewChange))
+			c.nodeID, common.GetTimeService().Now().Sub(c.lastViewChange))
 		c.mu.Unlock()
 		return
 	}
 
 	// Only proceed with view change if we're significantly behind in block production
-	if c.currentHeight > 0 && time.Since(c.lastBlockTime) < 30*time.Second {
+	if c.currentHeight > 0 && common.GetTimeService().Now().Sub(c.lastBlockTime) < 30*time.Second {
 		logger.Debug("Skipping view change for node %s (recent block activity: %v since last block)",
-			c.nodeID, time.Since(c.lastBlockTime))
+			c.nodeID, common.GetTimeService().Now().Sub(c.lastBlockTime))
 		c.mu.Unlock()
 		return
 	}
@@ -895,7 +898,7 @@ func (c *Consensus) startViewChange() {
 
 	// Update consensus state
 	c.currentView = newView
-	c.lastViewChange = time.Now()
+	c.lastViewChange = common.GetTimeService().Now() // Use centralized time
 	c.resetConsensusState()
 
 	// Update leader status
@@ -908,7 +911,7 @@ func (c *Consensus) startViewChange() {
 		View:      newView,
 		VoterID:   c.nodeID,
 		Signature: []byte{},
-		Timestamp: time.Now().Unix(),
+		Timestamp: common.GetCurrentTimestamp(), // Use centralized time service
 	}
 
 	// Sign the timeout message if signing service is available
@@ -924,7 +927,7 @@ func (c *Consensus) startViewChange() {
 	// Broadcast timeout message to all peers
 	if err := c.broadcastTimeout(timeoutMsg); err != nil {
 		logger.Warn("Failed to broadcast timeout message for view %d: %v", newView, err)
-		return // Don't re-lock, we're already unlocked
+		return // Don't re-lock
 	}
 
 	logger.Info("✅ View change initiated: node=%s, view=%d, new_leader=%v",
@@ -1016,12 +1019,12 @@ func (c *Consensus) isValidLeader(nodeID string, view uint64) bool {
 
 	// Enhanced logging for debugging
 	if isValid {
-		log.Printf("✅ Valid leader: %s for view %d (index %d/%d)",
+		logger.Info("✅ Valid leader: %s for view %d (index %d/%d)",
 			nodeID, view, leaderIndex, len(validators))
 	} else {
-		log.Printf("❌ Invalid leader: expected %s for view %d (index %d/%d), got %s",
+		logger.Info("❌ Invalid leader: expected %s for view %d (index %d/%d), got %s",
 			expectedLeader, view, leaderIndex, len(validators), nodeID)
-		log.Printf("   Validators: %v", validators)
+		logger.Info("   Validators: %v", validators)
 	}
 
 	return isValid
@@ -1096,6 +1099,11 @@ func (c *Consensus) GetConsensusState() string {
 		lockedHash = c.lockedBlock.GetHash()
 	}
 
+	// Use centralized time service for time calculations
+	currentTime := common.GetTimeService().Now()
+	lastViewChangeDuration := currentTime.Sub(c.lastViewChange)
+	lastBlockTimeDuration := currentTime.Sub(c.lastBlockTime)
+
 	return fmt.Sprintf(
 		"Node=%s, View=%d, Phase=%v, Leader=%v, Height=%d, "+
 			"PreparedBlock=%s, LockedBlock=%s, PreparedView=%d, "+
@@ -1103,7 +1111,7 @@ func (c *Consensus) GetConsensusState() string {
 			"PrepareVotes=%d, CommitVotes=%d",
 		c.nodeID, c.currentView, c.phase, c.isLeader, c.currentHeight,
 		preparedHash, lockedHash, c.preparedView,
-		time.Since(c.lastViewChange), time.Since(c.lastBlockTime),
+		lastViewChangeDuration, lastBlockTimeDuration,
 		len(c.prepareVotes), len(c.receivedVotes),
 	)
 }
@@ -1113,7 +1121,7 @@ func (c *Consensus) GetConsensusState() string {
 // proposal: The proposal to broadcast
 // Returns error if broadcast fails
 func (c *Consensus) broadcastProposal(proposal *Proposal) error {
-	log.Printf("Broadcasting proposal for block %s at view %d",
+	logger.Info("Broadcasting proposal for block %s at view %d",
 		proposal.Block.GetHash(), proposal.View)
 	return c.nodeManager.BroadcastMessage("proposal", proposal)
 }
@@ -1122,7 +1130,7 @@ func (c *Consensus) broadcastProposal(proposal *Proposal) error {
 // vote: The vote to broadcast
 // Returns error if broadcast fails
 func (c *Consensus) broadcastVote(vote *Vote) error {
-	log.Printf("Broadcasting commit vote for block %s at view %d", vote.BlockHash, vote.View)
+	logger.Info("Broadcasting commit vote for block %s at view %d", vote.BlockHash, vote.View)
 	return c.nodeManager.BroadcastMessage("vote", vote)
 }
 
@@ -1130,7 +1138,7 @@ func (c *Consensus) broadcastVote(vote *Vote) error {
 // vote: The prepare vote to broadcast
 // Returns error if broadcast fails
 func (c *Consensus) broadcastPrepareVote(vote *Vote) error {
-	log.Printf("Broadcasting prepare vote for block %s at view %d", vote.BlockHash, vote.View)
+	logger.Info("Broadcasting prepare vote for block %s at view %d", vote.BlockHash, vote.View)
 	return c.nodeManager.BroadcastMessage("prepare", vote)
 }
 
@@ -1138,7 +1146,7 @@ func (c *Consensus) broadcastPrepareVote(vote *Vote) error {
 // timeout: The timeout message to broadcast
 // Returns error if broadcast fails
 func (c *Consensus) broadcastTimeout(timeout *TimeoutMsg) error {
-	log.Printf("Broadcasting timeout for view %d", timeout.View)
+	logger.Info("Broadcasting timeout for view %d", timeout.View)
 	return c.nodeManager.BroadcastMessage("timeout", timeout)
 }
 
@@ -1149,5 +1157,5 @@ func (c *Consensus) SetLeader(isLeader bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.isLeader = isLeader
-	log.Printf("Node %s leader status set to %t", c.nodeID, isLeader)
+	logger.Info("Node %s leader status set to %t", c.nodeID, isLeader)
 }

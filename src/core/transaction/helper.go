@@ -25,8 +25,7 @@ package types
 
 import (
 	"encoding/hex"
-	"errors"
-	"math/big"
+	"fmt"
 )
 
 // Ensure your Block type has these methods to implement consensus.Block
@@ -34,36 +33,64 @@ func (b *Block) GetHeight() uint64 {
 	return b.Header.Block
 }
 
-func (b *Block) GetHash() string {
-	return hex.EncodeToString(b.Header.Hash)
-}
-
+// GetPrevHash returns the previous block hash as printable string
 func (b *Block) GetPrevHash() string {
-	return hex.EncodeToString(b.Header.PrevHash)
+	if b.Header == nil || len(b.Header.PrevHash) == 0 {
+		return ""
+	}
+
+	// Check if it's already a valid string
+	prevHashStr := string(b.Header.PrevHash)
+
+	// If it's a genesis hash in text format, return as-is
+	if len(prevHashStr) > 8 && prevHashStr[:8] == "GENESIS_" {
+		return prevHashStr
+	}
+
+	// Otherwise, check if it contains non-printable characters
+	for _, r := range prevHashStr {
+		if r < 32 || r > 126 {
+			// Contains non-printable chars, convert to hex
+			return hex.EncodeToString(b.Header.PrevHash)
+		}
+	}
+
+	// It's already a printable string
+	return prevHashStr
 }
 
 func (b *Block) GetTimestamp() int64 {
 	return b.Header.Timestamp
 }
 
-func (b *Block) Validate() error {
-	// Your existing block validation logic
-	if b.Header.Block == 0 && len(b.Header.PrevHash) != 0 {
-		return errors.New("genesis block must have empty previous hash")
-	}
-	if b.Header.Block > 0 && len(b.Header.PrevHash) == 0 {
-		return errors.New("non-genesis block must have previous hash")
-	}
-	return nil
-}
-
-func (b *Block) GetDifficulty() *big.Int {
-	if b.Header.Difficulty != nil {
-		return b.Header.Difficulty
-	}
-	return big.NewInt(1)
-}
-
 func (b *Block) GetBody() *BlockBody {
 	return &b.Body
+}
+
+// ValidateHashFormat validates that a hash is in acceptable format
+func (b *Block) ValidateHashFormat() error {
+	hash := b.GetHash()
+
+	if hash == "" {
+		return fmt.Errorf("block hash is empty")
+	}
+
+	// Check for non-printable characters
+	for i, r := range hash {
+		if r < 32 || r > 126 {
+			return fmt.Errorf("hash contains non-printable character at position %d: %d", i, r)
+		}
+	}
+
+	// Check for invalid filename characters
+	invalidChars := []rune{'/', '\\', ':', '*', '?', '"', '<', '>', '|', '\x00'}
+	for _, char := range invalidChars {
+		for _, r := range hash {
+			if r == char {
+				return fmt.Errorf("hash contains invalid character: %q", char)
+			}
+		}
+	}
+
+	return nil
 }

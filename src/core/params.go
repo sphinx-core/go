@@ -46,30 +46,44 @@ func (m *MockChainParamsProvider) GetWalletDerivationPaths() map[string]string {
 }
 
 // GetSphinxChainParams returns the mainnet parameters
-func GetSphinxChainParams(genesisHash string) *SphinxChainParameters {
+func GetSphinxChainParams() *SphinxChainParameters {
+	// Use the consistent genesis hash
+	genesisHash := GetGenesisHash()
+
 	return &SphinxChainParameters{
 		// Network Identification
 		ChainID:       7331,
-		ChainName:     "Sphinx", // Mainnet name
+		ChainName:     "Sphinx Mainnet",
 		Symbol:        "SPX",
-		GenesisTime:   1731375284,
+		GenesisTime:   1732070400, // Fixed genesis timestamp
 		GenesisHash:   genesisHash,
 		Version:       "1.0.0",
-		MagicNumber:   0x53504858,
+		MagicNumber:   0x53504858, // "SPHX"
 		DefaultPort:   32307,
-		BIP44CoinType: 7331, // Mainnet uses 7331
+		BIP44CoinType: 7331,
 		LedgerName:    "Sphinx",
 		Denominations: map[string]*big.Int{
-			"nSPX": big.NewInt(1e0),
-			"gSPX": big.NewInt(1e9),
-			"SPX":  big.NewInt(1e18),
+			"nSPX": big.NewInt(1),    // Base unit
+			"uSPX": big.NewInt(1e3),  // Micro SPX
+			"mSPX": big.NewInt(1e6),  // Milli SPX
+			"SPX":  big.NewInt(1e9),  // Main unit
+			"kSPX": big.NewInt(1e12), // Kilo SPX
 		},
 
 		// Block Configuration
-		MaxBlockSize:       2 * 1024 * 1024,      // 2MB max block size
-		MaxTransactionSize: 100 * 1024,           // 100KB max transaction size
-		TargetBlockSize:    1 * 1024 * 1024,      // 1MB target block size
-		BlockGasLimit:      big.NewInt(10000000), // 10 million gas
+		MaxBlockSize:       2 * 1024 * 1024,        // 2MB
+		MaxTransactionSize: 100 * 1024,             // 100KB
+		TargetBlockSize:    1 * 1024 * 1024,        // 1MB
+		BlockGasLimit:      big.NewInt(10000000),   // 10 million gas
+		BaseBlockReward:    big.NewInt(5000000000), // 5 SPX in base units
+
+		// Genesis-specific configuration
+		GenesisConfig: &GenesisConfig{
+			InitialDifficulty: big.NewInt(17179869184),
+			InitialGasLimit:   big.NewInt(5000),
+			GenesisNonce:      66,
+			GenesisExtraData:  []byte("Sphinx Network Genesis Block - Humanity Future"),
+		},
 
 		// Mempool Configuration
 		MempoolConfig: GetDefaultMempoolConfig(),
@@ -123,10 +137,10 @@ func GetDefaultPerformanceConfig() *PerformanceConfig {
 }
 
 // GetTestnetChainParams returns testnet parameters
-func GetTestnetChainParams(genesisHash string) *SphinxChainParameters {
-	params := GetSphinxChainParams(genesisHash)
+func GetTestnetChainParams() *SphinxChainParameters {
+	params := GetSphinxChainParams()
 	params.ChainName = "Sphinx Testnet"
-	params.ChainID = 17331 // Different chain ID
+	params.ChainID = 17331
 	params.DefaultPort = 32308
 	params.BIP44CoinType = 1 // Same as devnet
 	params.LedgerName = "Sphinx Testnet"
@@ -143,8 +157,8 @@ func GetTestnetChainParams(genesisHash string) *SphinxChainParameters {
 }
 
 // GetDevnetChainParams returns development network parameters
-func GetDevnetChainParams(genesisHash string) *SphinxChainParameters {
-	params := GetSphinxChainParams(genesisHash)
+func GetDevnetChainParams() *SphinxChainParameters {
+	params := GetSphinxChainParams()
 	params.ChainName = "Sphinx Devnet"
 	params.ChainID = 7331 // Same as mainnet but different name
 	params.DefaultPort = 32309
@@ -219,7 +233,7 @@ func (p *SphinxChainParameters) GetNetworkName() string {
 
 // IsMainnet returns true if this is mainnet configuration
 func (p *SphinxChainParameters) IsMainnet() bool {
-	return p.ChainID == 7331 && p.ChainName == "Sphinx"
+	return p.ChainID == 7331 && p.ChainName == "Sphinx Mainnet"
 }
 
 // IsTestnet returns true if this is testnet configuration

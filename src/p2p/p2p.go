@@ -410,10 +410,10 @@ func (s *Server) handleMessages() {
 					continue
 				}
 				blocks := s.blockchain.GetBlocks()
-				var headers []types.BlockHeader
+				var headers []*types.BlockHeader // Change to slice of pointers
 				for _, block := range blocks {
 					if block.Header.Block >= uint64(startHeight) {
-						headers = append(headers, block.Header)
+						headers = append(headers, block.Header) // Now this works
 					}
 				}
 				if peer, ok := s.nodeManager.GetPeers()[originID]; ok && originID != "" {

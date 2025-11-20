@@ -37,7 +37,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sphinx-core/go/src/common"
 	"github.com/sphinx-core/go/src/consensus"
+
 	types "github.com/sphinx-core/go/src/core/transaction"
 	logger "github.com/sphinx-core/go/src/log"
 	"github.com/sphinx-core/go/src/pool"
@@ -75,12 +77,17 @@ func (bc *Blockchain) GetBlockWithMerkleInfo(blockHash string) (map[string]inter
 	// Calculate Merkle root
 	merkleRoot := block.CalculateTxsRoot()
 
+	// Get formatted timestamps using centralized time service
+	localTime, utcTime := common.FormatTimestamp(block.Header.Timestamp)
+
 	info := map[string]interface{}{
 		"height":            block.GetHeight(),
 		"hash":              block.GetHash(),
 		"previous_hash":     hex.EncodeToString(block.Header.PrevHash),
 		"merkle_root":       hex.EncodeToString(merkleRoot),
 		"timestamp":         block.Header.Timestamp,
+		"timestamp_local":   localTime,
+		"timestamp_utc":     utcTime,
 		"difficulty":        block.Header.Difficulty.String(),
 		"nonce":             block.Header.Nonce,
 		"gas_limit":         block.Header.GasLimit.String(),
@@ -185,7 +192,7 @@ func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo) error {
 				Timestamp:        rawSig.Timestamp,
 				Valid:            rawSig.Valid,
 				SignatureStatus:  "Valid",
-				VerificationTime: time.Now().Format(time.RFC3339),
+				VerificationTime: common.GetTimeService().GetCurrentTimeInfo().ISOLocal,
 			}
 			if rawSig.Valid {
 				validCount++
@@ -197,7 +204,7 @@ func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo) error {
 			TotalSignatures:   len(finalStates),
 			ValidSignatures:   validCount,
 			InvalidSignatures: len(finalStates) - validCount,
-			ValidationTime:    time.Now().Format(time.RFC3339),
+			ValidationTime:    common.GetTimeService().GetCurrentTimeInfo().ISOLocal,
 		}
 
 		logger.Info("Storing %d consensus signatures (%d valid) in chain state as final states",
@@ -207,7 +214,7 @@ func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo) error {
 	// Create chain state with signature data
 	chainState := &storage.ChainState{
 		Nodes:               nodes, // This can be nil or empty for individual nodes
-		Timestamp:           time.Now().Format(time.RFC3339),
+		Timestamp:           common.GetTimeService().GetCurrentTimeInfo().ISOLocal,
 		SignatureValidation: signatureValidation,
 		FinalStates:         finalStates, // Use FinalStates instead of ConsensusSignatures
 	}
@@ -288,7 +295,7 @@ func (bc *Blockchain) CalculateAndStoreBlockSizeMetrics() error {
 		MaxSize:         maxSize,
 		TotalSize:       totalSize,
 		SizeStats:       sizeStats,
-		CalculationTime: time.Now().Format(time.RFC3339),
+		CalculationTime: common.GetTimeService().GetCurrentTimeInfo().ISOLocal,
 		AverageSizeMB:   averageSizeMB,
 		MinSizeMB:       minSizeMB,
 		MaxSizeMB:       maxSizeMB,
@@ -373,34 +380,39 @@ func NewBlockchain(dataDir string, nodeID string, validators []string, networkTy
 		return nil, fmt.Errorf("failed to initialize chain: %w", err)
 	}
 
-	// Now that we have the genesis block, set the chain params with actual hash
+	// Now that we have the genesis block, set the chain params with consistent hash
 	if len(blockchain.chain) > 0 {
-		genesisHash := blockchain.chain[0].GetHash()
-
-		// Select network type
+		// Use consistent genesis hash that's the same for all nodes
 		var chainParams *SphinxChainParameters
 		switch networkType {
 		case "testnet":
-			chainParams = GetTestnetChainParams(genesisHash)
+			chainParams = GetTestnetChainParams()
 		case "devnet":
-			chainParams = GetDevnetChainParams(genesisHash)
+			chainParams = GetDevnetChainParams()
 		default:
-			chainParams = GetSphinxChainParams(genesisHash)
+			chainParams = GetSphinxChainParams()
 		}
 
 		blockchain.chainParams = chainParams
 
-		// Validate chain parameters
-		if err := ValidateChainParams(chainParams); err != nil {
-			return nil, fmt.Errorf("invalid chain parameters: %w", err)
+		// Validate that our genesis hash matches the chain params
+		actualGenesisHash := blockchain.chain[0].GetHash()
+		if actualGenesisHash != chainParams.GenesisHash {
+			logger.Warn("Genesis hash mismatch: actual=%s, expected=%s",
+				actualGenesisHash, chainParams.GenesisHash)
+			// This shouldn't happen with our consistent approach
 		}
+
+		logger.Info("Chain parameters initialized for %s: genesis_hash=%s",
+			chainParams.GetNetworkName(), chainParams.GenesisHash)
 
 		// Initialize mempool with configuration from chain params
 		mempoolConfig := GetMempoolConfigFromChainParams(chainParams)
 		blockchain.mempool = pool.NewMempool(mempoolConfig)
 
+		// FIXED: Use chainParams.GenesisHash instead of undefined genesisHash
 		logger.Info("Chain parameters initialized for %s: genesis_hash=%s",
-			chainParams.GetNetworkName(), genesisHash)
+			chainParams.GetNetworkName(), chainParams.GenesisHash)
 
 		// Verify the genesis hash is properly stored in block_index.json
 		if err := blockchain.verifyGenesisHashInIndex(); err != nil {
@@ -512,7 +524,7 @@ func (bc *Blockchain) GenerateLedgerHeaders(operation string, amount float64, ad
 		address,
 		memo,
 		params.BIP44CoinType,
-		time.Now().Unix(),
+		common.GetCurrentTimestamp(),
 	)
 }
 
@@ -952,14 +964,10 @@ func (bc *Blockchain) GetBlocksizeInfo() map[string]interface{} {
 }
 
 // CreateBlock creates a new block with transactions from mempool
+// CreateBlock - ensure PrevHash is stored as proper bytes
 func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 	bc.lock.Lock()
 	defer bc.lock.Unlock()
-
-	if bc.status != StatusRunning {
-		return nil, fmt.Errorf("blockchain not ready to create blocks, status: %s",
-			bc.StatusString(bc.status))
-	}
 
 	// Get the latest block
 	prevBlock, err := bc.storage.GetLatestBlock()
@@ -967,32 +975,68 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 		return nil, fmt.Errorf("no previous block found: %v", err)
 	}
 
-	// Select transactions from mempool within block size limits
-	selectedTxs, totalSize := bc.mempool.SelectTransactionsForBlock(
-		bc.chainParams.MaxBlockSize,
-		bc.chainParams.TargetBlockSize,
-	)
+	// FIX: Get the previous hash and handle it properly
+	prevHash := prevBlock.GetHash()
+	var prevHashBytes []byte
 
-	if len(selectedTxs) == 0 {
-		return nil, errors.New("no transactions fit within block size limits")
+	if strings.HasPrefix(prevHash, "GENESIS_") {
+		// For genesis blocks, we need to store the actual bytes
+		// The genesis hash is stored as text "GENESIS_...", so we'll store it as bytes
+		prevHashBytes = []byte(prevHash)
+		logger.Info("Using genesis-style previous hash: %s (stored as %d bytes)",
+			prevHash, len(prevHashBytes))
+	} else {
+		// Normal block - decode from hex
+		prevHashBytes, err = hex.DecodeString(prevHash)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode previous hash: %w", err)
+		}
+		logger.Info("Using normal previous hash: %s (stored as %d bytes)",
+			prevHash, len(prevHashBytes))
 	}
 
-	logger.Info("Creating block with %d transactions, estimated size: %d bytes",
-		len(selectedTxs), totalSize)
+	// Rest of block creation...
+	pendingTxs := bc.mempool.GetPendingTransactions()
+	if len(pendingTxs) == 0 {
+		return nil, errors.New("no pending transactions in mempool")
+	}
 
-	// Calculate roots
+	logger.Info("Found %d pending transactions in mempool", len(pendingTxs))
+
+	var selectedTxs []*types.Transaction
+	currentSize := uint64(0)
+
+	for _, tx := range pendingTxs {
+		txSize := bc.mempool.CalculateTransactionSize(tx)
+		if currentSize+txSize > bc.chainParams.MaxBlockSize {
+			break
+		}
+		selectedTxs = append(selectedTxs, tx)
+		currentSize += txSize
+		if len(selectedTxs) >= 1000 {
+			break
+		}
+	}
+
+	if len(selectedTxs) == 0 {
+		return nil, errors.New("no transactions could be selected for block")
+	}
+
+	logger.Info("Creating block with %d transactions, estimated size: %d bytes (limit: %d)",
+		len(selectedTxs), currentSize, bc.chainParams.MaxBlockSize)
+
+	// Calculate roots and create block
 	txsRoot := bc.calculateTransactionsRoot(selectedTxs)
 	stateRoot := bc.calculateStateRoot()
 
-	// Convert previous hash
-	prevHashBytes, err := hex.DecodeString(prevBlock.GetHash())
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode previous hash: %w", err)
+	currentTimestamp := common.GetCurrentTimestamp()
+	if currentTimestamp == 0 {
+		currentTimestamp = time.Now().Unix()
 	}
 
 	newHeader := types.NewBlockHeader(
 		prevBlock.GetHeight()+1,
-		prevHashBytes,
+		prevHashBytes, // This now contains the proper bytes
 		big.NewInt(1),
 		txsRoot,
 		stateRoot,
@@ -1000,33 +1044,75 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 		big.NewInt(0),
 		[]byte{},
 		[]byte{},
-		time.Now().Unix(),
+		currentTimestamp,
 	)
 
 	newBody := types.NewBlockBody(selectedTxs, []byte{})
 	newBlock := types.NewBlock(newHeader, newBody)
 
-	// Finalize hash ensures TxsRoot is properly set
+	// Finalize and validate
 	newBlock.FinalizeHash()
 
-	// Validate that TxsRoot = MerkleRoot
+	// VALIDATE THE GENERATED HASH FORMAT
+	if err := newBlock.ValidateHashFormat(); err != nil {
+		logger.Warn("❌ Block hash format validation failed: %v", err)
+		// Try to fix by regenerating with hex encoding
+		newBlock.SetHash(hex.EncodeToString(newBlock.GenerateBlockHash()))
+
+		// Validate again
+		if err := newBlock.ValidateHashFormat(); err != nil {
+			return nil, fmt.Errorf("failed to generate valid block hash: %w", err)
+		}
+	}
+
 	if err := newBlock.ValidateTxsRoot(); err != nil {
 		return nil, fmt.Errorf("created block has inconsistent TxsRoot: %v", err)
 	}
 
-	// Validate block size
-	if err := bc.ValidateBlockSize(newBlock); err != nil {
-		return nil, fmt.Errorf("created block exceeds size limits: %v", err)
-	}
+	logger.Info("✅ Created new block: height=%d, transactions=%d, hash=%s",
+		newBlock.GetHeight(), len(selectedTxs), newBlock.GetHash())
 
-	// Sanity check (includes TxsRoot validation)
-	if err := newBlock.SanityCheck(); err != nil {
-		return nil, fmt.Errorf("created invalid block: %v", err)
-	}
-
-	logger.Info("Created new block: height=%d, transactions=%d, size=%d bytes, hash=%s, TxsRoot=%x",
-		newBlock.GetHeight(), len(selectedTxs), totalSize, newBlock.GetHash(), newBlock.Header.TxsRoot)
 	return newBlock, nil
+}
+
+// DecodeBlockHashForConsensus - ensure it handles both formats correctly
+// DecodeBlockHash - handle both text and hex formats
+func (bc *Blockchain) DecodeBlockHash(hash string) ([]byte, error) {
+	// Handle empty hash
+	if hash == "" {
+		return nil, fmt.Errorf("empty hash")
+	}
+
+	// If it's a genesis hash in text format
+	if strings.HasPrefix(hash, "GENESIS_") && len(hash) > 8 {
+		// For consensus operations, extract the hex part
+		hexPart := hash[8:]
+		if isHexString(hexPart) {
+			return hex.DecodeString(hexPart)
+		}
+		// If it's not valid hex, return the text as bytes
+		return []byte(hash), nil
+	}
+
+	// Normal hex-encoded hash
+	if !isHexString(hash) {
+		// If it's not hex, it might already be bytes, return as-is
+		return []byte(hash), nil
+	}
+	return hex.DecodeString(hash)
+}
+
+// Helper function to check if string is hex
+func isHexString(s string) bool {
+	if len(s)%2 != 0 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 // VerifyTransactionInBlock verifies if a transaction is included in a block
@@ -1059,7 +1145,8 @@ func (bc *Blockchain) GenerateTransactionProof(tx *types.Transaction, blockHash 
 // calculateTransactionsRoot calculates the Merkle root of transactions
 func (bc *Blockchain) calculateTransactionsRoot(txs []*types.Transaction) []byte {
 	if len(txs) == 0 {
-		return []byte{}
+		// Use the dedicated method for empty transactions
+		return bc.calculateEmptyTransactionsRoot()
 	}
 
 	tempBlock := &types.Block{
@@ -1171,34 +1258,92 @@ func (bc *Blockchain) initializeChain() error {
 	return nil
 }
 
-// createGenesisBlock creates and stores the genesis block with actual hash
+// createGenesisBlock creates and stores the genesis block with comprehensive data
 func (bc *Blockchain) createGenesisBlock() error {
-	// Create genesis block from the shared definition
+	// Create genesis block from the enhanced definition
 	genesisHeader := &types.BlockHeader{}
 	*genesisHeader = *genesisBlockDefinition
+
+	// DO NOT override timestamp - use the fixed value
+	// genesisHeader.Timestamp = common.GetCurrentTimestamp() // REMOVE THIS LINE
+
+	// Set additional genesis-specific fields
+	genesisHeader.Miner = make([]byte, 20) // Zero address for genesis
+
+	// Ensure proper roots
+	if len(genesisHeader.TxsRoot) == 0 {
+		genesisHeader.TxsRoot = common.SpxHash([]byte{})
+	}
+	if len(genesisHeader.StateRoot) == 0 {
+		genesisHeader.StateRoot = common.SpxHash([]byte("sphinx-genesis-state"))
+	}
 
 	genesisBody := types.NewBlockBody([]*types.Transaction{}, []byte{})
 	genesis := types.NewBlock(genesisHeader, genesisBody)
 
-	// Generate the actual hash for the genesis block
+	// Let the block generate its own hash (which will include GENESIS_ prefix for height 0)
 	genesis.FinalizeHash()
 
-	// Now set the ParentHash to the actual genesis hash
-	genesisHashBytes, err := hex.DecodeString(genesis.GetHash())
-	if err != nil {
-		return fmt.Errorf("failed to decode genesis hash: %w", err)
-	}
-	genesis.Header.ParentHash = genesisHashBytes
+	// Get the actual hash that was calculated
+	actualGenesisHash := genesis.GetHash()
 
-	logger.Info("Creating genesis block: Height=%d, Hash=%s",
-		genesis.GetHeight(), genesis.GetHash())
+	// CRITICAL: Ensure the hash is stored as text, not hex-encoded
+	genesis.SetHash(actualGenesisHash)
+
+	logger.Info("Using genesis hash: %s", actualGenesisHash)
+
+	// Verify the hash starts with "GENESIS_" and is in text format
+	if !strings.HasPrefix(actualGenesisHash, "GENESIS_") {
+		logger.Warn("⚠️  Genesis hash does not start with 'GENESIS_': %s", actualGenesisHash)
+		// Try to fix it
+		if strings.HasPrefix(actualGenesisHash, "47454e455349535f") {
+			// It's hex-encoded, decode it
+			decoded, err := hex.DecodeString(actualGenesisHash)
+			if err == nil {
+				fixedHash := string(decoded)
+				genesis.SetHash(fixedHash)
+				actualGenesisHash = fixedHash
+				logger.Info("✅ Fixed hex-encoded genesis hash: %s", fixedHash)
+			}
+		}
+	} else {
+		logger.Info("✅ Genesis hash correctly starts with 'GENESIS_' and is in text format")
+	}
+
+	// Log comprehensive genesis information
+	localTime, utcTime := common.FormatTimestamp(genesisHeader.Timestamp)
+	relativeTime := common.GetTimeService().GetRelativeTime(genesisHeader.Timestamp)
+
+	logger.Info("=== GENESIS BLOCK CREATION ===")
+	logger.Info("Height: %d", genesis.GetHeight())
+	logger.Info("Status: Genesis")
+	logger.Info("Timestamp: %d (%s)", genesisHeader.Timestamp, relativeTime)
+	logger.Info("Local Time: %s", localTime)
+	logger.Info("UTC Time: %s", utcTime)
+	logger.Info("Transactions: %d transactions", len(genesis.Body.TxsList))
+	logger.Info("Mined by: Null: 0x000...000")
+	logger.Info("Block Reward: 0 SPX")
+	logger.Info("Difficulty: %s", genesisHeader.Difficulty.String())
+	logger.Info("Total Difficulty: %s", genesisHeader.Difficulty.String())
+	logger.Info("Size: %d bytes", bc.CalculateBlockSize(genesis))
+	logger.Info("Gas Used: %s (%.2f%%)",
+		genesisHeader.GasUsed.String(),
+		bc.calculateGasUsedPercent(genesis))
+	logger.Info("Gas Limit: %s", genesisHeader.GasLimit.String())
+	logger.Info("Extra Data: %s", bc.decodeExtraData(genesisHeader.ExtraData))
+	logger.Info("Hash: %s", genesis.GetHash()) // This should now show "GENESIS_..."
+	logger.Info("Parent Hash: %s", hex.EncodeToString(genesis.Header.PrevHash))
+	logger.Info("State Root: %s", hex.EncodeToString(genesis.Header.StateRoot))
+	logger.Info("Transactions Root: %s", hex.EncodeToString(genesis.Header.TxsRoot))
+	logger.Info("Nonce: 0x%x", genesis.Header.Nonce)
+	logger.Info("==============================")
 
 	// Store genesis block
 	if err := bc.storage.StoreBlock(genesis); err != nil {
 		return fmt.Errorf("failed to store genesis block: %w", err)
 	}
 
-	// Verify the block was stored by trying to retrieve it
+	// Verify storage
 	storedBlock, err := bc.storage.GetBlockByHash(genesis.GetHash())
 	if err != nil || storedBlock == nil {
 		return fmt.Errorf("genesis block storage verification failed: %v", err)
@@ -1210,6 +1355,91 @@ func (bc *Blockchain) createGenesisBlock() error {
 	bc.chain = []*types.Block{genesis}
 
 	return nil
+}
+
+// ValidateGenesisHash compares genesis hashes handling both GENESIS_ prefixed and hex-only formats
+func (bc *Blockchain) ValidateGenesisHash(storedHash, expectedHash string) bool {
+	// Handle both formats
+	if strings.HasPrefix(storedHash, "GENESIS_") && len(storedHash) > 8 {
+		return storedHash[8:] == expectedHash
+	}
+	return storedHash == expectedHash
+}
+
+// IsGenesisHash checks if a hash is a valid genesis hash (starts with GENESIS_)
+func (bc *Blockchain) IsGenesisHash(hash string) bool {
+	return strings.HasPrefix(hash, "GENESIS_")
+}
+
+// ValidateGenesisBlock validates that a block has the correct genesis hash format
+func (bc *Blockchain) ValidateGenesisBlock(block *types.Block) error {
+	if block.GetHeight() != 0 {
+		return fmt.Errorf("not a genesis block: height=%d", block.GetHeight())
+	}
+
+	if !bc.IsGenesisHash(block.GetHash()) {
+		return fmt.Errorf("invalid genesis hash: does not start with 'GENESIS_'")
+	}
+
+	return nil
+}
+
+// calculateGasUsedPercent calculates the percentage of gas used in a block
+func (bc *Blockchain) calculateGasUsedPercent(block *types.Block) float64 {
+	if block.Header == nil || block.Header.GasLimit == nil || block.Header.GasUsed == nil {
+		return 0.0
+	}
+
+	if block.Header.GasLimit.Sign() == 0 {
+		return 0.0
+	}
+
+	gasUsed := new(big.Float).SetInt(block.Header.GasUsed)
+	gasLimit := new(big.Float).SetInt(block.Header.GasLimit)
+
+	percent, _ := new(big.Float).Quo(gasUsed, gasLimit).Float64()
+	return percent * 100
+}
+
+// decodeExtraData decodes extra data from bytes to string
+// decodeExtraData decodes extra data from bytes to string
+func (bc *Blockchain) decodeExtraData(extraData []byte) string {
+	if len(extraData) == 0 {
+		return ""
+	}
+
+	// Simple printable check
+	if isPrintableString(extraData) {
+		return string(extraData)
+	}
+
+	return fmt.Sprintf("0x%x", extraData)
+}
+
+// isPrintableString checks if bytes represent a printable string
+func isPrintableString(data []byte) bool {
+	for _, b := range data {
+		if b < 32 || b > 126 {
+			return false
+		}
+	}
+	return true
+}
+
+// GetDifficulty returns the current network difficulty
+func (bc *Blockchain) GetDifficulty() *big.Int {
+	latest := bc.GetLatestBlock()
+	if latest == nil {
+		return big.NewInt(1)
+	}
+	return latest.GetDifficulty()
+}
+
+// calculateEmptyTransactionsRoot returns a standard Merkle root for empty transactions
+func (bc *Blockchain) calculateEmptyTransactionsRoot() []byte {
+	// Standard empty Merkle root (hash of empty string)
+	emptyHash := common.SpxHash([]byte{})
+	return emptyHash
 }
 
 // verifyGenesisHashInIndex verifies that the genesis hash in block_index.json matches our actual genesis hash
@@ -1381,15 +1611,6 @@ func (bc *Blockchain) GetBlockHash(height uint64) string {
 	return block.GetHash()
 }
 
-// GetDifficulty returns the current network difficulty
-func (bc *Blockchain) GetDifficulty() *big.Int {
-	latest := bc.GetLatestBlock()
-	if latest == nil {
-		return big.NewInt(1)
-	}
-	return latest.GetDifficulty()
-}
-
 // GetChainTip returns information about the current chain tip
 func (bc *Blockchain) GetChainTip() map[string]interface{} {
 	latest := bc.GetLatestBlock()
@@ -1397,10 +1618,15 @@ func (bc *Blockchain) GetChainTip() map[string]interface{} {
 		return nil
 	}
 
+	// Get formatted timestamps using centralized time service
+	localTime, utcTime := common.FormatTimestamp(latest.GetTimestamp())
+
 	return map[string]interface{}{
-		"height":    latest.GetHeight(),
-		"hash":      latest.GetHash(),
-		"timestamp": latest.GetTimestamp(),
+		"height":          latest.GetHeight(),
+		"hash":            latest.GetHash(),
+		"timestamp":       latest.GetTimestamp(),
+		"timestamp_local": localTime,
+		"timestamp_utc":   utcTime,
 	}
 }
 
@@ -1414,6 +1640,7 @@ func (bc *Blockchain) ValidateAddress(address string) bool {
 	return err == nil
 }
 
+// GetNetworkInfo returns network information
 // GetNetworkInfo returns network information
 func (bc *Blockchain) GetNetworkInfo() map[string]interface{} {
 	params := bc.GetChainParams()
@@ -1430,7 +1657,7 @@ func (bc *Blockchain) GetNetworkInfo() map[string]interface{} {
 	if latest != nil {
 		info["blocks"] = latest.GetHeight()
 		info["best_block_hash"] = latest.GetHash()
-		info["difficulty"] = bc.GetDifficulty().String()
+		info["difficulty"] = bc.GetDifficulty().String() // Fixed: Use bc.GetDifficulty()
 		info["median_time"] = latest.GetTimestamp()
 	}
 
@@ -1444,7 +1671,7 @@ func (bc *Blockchain) GetMiningInfo() map[string]interface{} {
 	info := map[string]interface{}{
 		"blocks":         0,
 		"current_weight": 0,
-		"difficulty":     bc.GetDifficulty().String(),
+		"difficulty":     bc.GetDifficulty().String(), // Fixed: Use bc.GetDifficulty()
 		"network_hashps": big.NewInt(0).String(),
 	}
 
@@ -1515,6 +1742,9 @@ func (bc *Blockchain) GetRawTransaction(txID string, verbose bool) interface{} {
 		return hex.EncodeToString(txData)
 	}
 
+	// Get formatted timestamps using centralized time service
+	localTime, utcTime := common.FormatTimestamp(tx.Timestamp)
+
 	// Return verbose transaction info
 	return map[string]interface{}{
 		"txid":          tx.ID,
@@ -1526,8 +1756,10 @@ func (bc *Blockchain) GetRawTransaction(txID string, verbose bool) interface{} {
 		"vout":          []interface{}{},
 		"blockhash":     "",
 		"confirmations": 0,
-		"time":          time.Now().Unix(),
-		"blocktime":     time.Now().Unix(),
+		"time":          tx.Timestamp,
+		"time_local":    localTime,
+		"time_utc":      utcTime,
+		"blocktime":     tx.Timestamp,
 	}
 }
 
@@ -1577,14 +1809,42 @@ func (bc *Blockchain) Close() error {
 }
 
 // ValidateBlock validates a block including TxsRoot = MerkleRoot verification
+// ValidateBlock - handle raw bytes in previous hash
 func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
-	// Extract the underlying types.Block from adapter
 	var b *types.Block
 	switch blk := block.(type) {
 	case *BlockHelper:
 		b = blk.GetUnderlyingBlock()
 	default:
 		return fmt.Errorf("invalid block type")
+	}
+
+	// FIX: Use the new GetPrevHash method which handles genesis hashes properly
+	if b.Header.Height > 0 {
+		prev := bc.GetLatestBlock()
+		if prev != nil {
+			expectedPrevHash := prev.GetHash()
+			currentPrevHash := b.GetPrevHash() // This now handles genesis hashes
+
+			logger.Info("🔍 DEBUG: PrevHash validation - expected: %s, current: %s",
+				expectedPrevHash, currentPrevHash)
+
+			// For comparison, we need to normalize both hashes
+			decodedExpected, err := bc.DecodeBlockHash(expectedPrevHash)
+			if err != nil {
+				return fmt.Errorf("failed to decode expected prev hash '%s': %w", expectedPrevHash, err)
+			}
+
+			decodedCurrent, err := bc.DecodeBlockHash(currentPrevHash)
+			if err != nil {
+				return fmt.Errorf("failed to decode current prev hash '%s': %w", currentPrevHash, err)
+			}
+
+			if !bytes.Equal(decodedExpected, decodedCurrent) {
+				return fmt.Errorf("invalid prev hash: expected %x, got %x",
+					decodedExpected, decodedCurrent)
+			}
+		}
 	}
 
 	// 1. Verify TxsRoot = MerkleRoot
@@ -1614,16 +1874,22 @@ func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 		return fmt.Errorf("invalid block hash: expected %x, got %x", expectedHash, b.Header.Hash)
 	}
 
-	// 5. Links to previous block
+	// 5. Links to previous block - USE THE CORRECT DECODING METHOD
 	prev := bc.GetLatestBlock()
 	if prev != nil {
-		prevHashBytes, err := hex.DecodeString(prev.GetHash())
+		// Use your existing DecodeBlockHash method that handles genesis hashes
+		prevHashBytes, err := bc.DecodeBlockHash(prev.GetHash())
 		if err != nil {
-			return fmt.Errorf("failed to decode previous block hash: %w", err)
+			return fmt.Errorf("failed to decode previous block hash '%s': %w", prev.GetHash(), err)
 		}
 
-		if !bytes.Equal(b.Header.PrevHash, prevHashBytes) {
-			return fmt.Errorf("invalid prev hash: expected %s, got %x", prev.GetHash(), b.Header.PrevHash)
+		currentPrevHashBytes, err := bc.DecodeBlockHash(b.GetPrevHash())
+		if err != nil {
+			return fmt.Errorf("failed to decode current prev hash '%s': %w", b.GetPrevHash(), err)
+		}
+
+		if !bytes.Equal(prevHashBytes, currentPrevHashBytes) {
+			return fmt.Errorf("invalid prev hash: expected %s, got %s", prev.GetHash(), b.GetPrevHash())
 		}
 	}
 

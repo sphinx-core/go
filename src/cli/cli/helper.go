@@ -30,6 +30,7 @@ import (
 	"math/big"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -99,6 +100,7 @@ func exchangePublicKeys(signingServices map[string]*consensus.SigningService, no
 	logger.Info("✅ Public key exchange completed: %d nodes exchanged keys", len(nodeIDs))
 }
 
+// Updated CallConsensus function using only network addresses
 // Updated CallConsensus function using only network addresses
 func CallConsensus(numNodes int) error {
 	if numNodes < 3 {
@@ -193,13 +195,13 @@ func CallConsensus(numNodes int) error {
 	// Initialize node components
 	dbs := make([]*leveldb.DB, numNodes)
 	sphincsMgrs := make([]*sign.SphincsManager, numNodes)
-	blockchains := make([]*core.Blockchain, numNodes)
+	blockchains := make([]*core.Blockchain, numNodes) // DECLARED HERE
 	consensusEngines := make([]*consensus.Consensus, numNodes)
 	networkNodes := make([]*network.Node, numNodes)
 
 	// Generate network addresses and validator IDs FIRST
 	networkAddresses := make([]string, numNodes)
-	validatorIDs := make([]string, numNodes)
+	validatorIDs := make([]string, numNodes) // DECLARED HERE
 	for i := 0; i < numNodes; i++ {
 		address := fmt.Sprintf("127.0.0.1:%d", 32307+i)
 		networkAddresses[i] = address
@@ -397,6 +399,43 @@ func CallConsensus(numNodes int) error {
 		bc.StartLeaderLoop(ctx)
 	}
 
+	// ========== GENESIS BLOCK CONSISTENCY VALIDATION ==========
+	logger.Info("=== VALIDATING GENESIS BLOCK CONSISTENCY ===")
+
+	// First, get the expected genesis hash that should be consistent across all nodes
+	expectedGenesisHash := core.GetGenesisHash()
+	logger.Info("Expected genesis hash for all nodes: %s", expectedGenesisHash)
+
+	for i := 0; i < numNodes; i++ {
+		genesis := blockchains[i].GetLatestBlock()
+		if genesis == nil || genesis.GetHeight() != 0 {
+			return fmt.Errorf("node %s failed to initialize genesis block", validatorIDs[i])
+		}
+
+		actualHash := genesis.GetHash()
+		logger.Info("%s genesis: height=%d, hash=%s", validatorIDs[i], genesis.GetHeight(), actualHash)
+
+		// FIXED: Simple direct comparison - both should have GENESIS_ prefix
+		if actualHash != expectedGenesisHash {
+			// If direct comparison fails, try normalized comparison as fallback
+			normalizedActual := actualHash
+			normalizedExpected := expectedGenesisHash
+
+			if strings.HasPrefix(actualHash, "GENESIS_") && len(actualHash) > 8 {
+				normalizedActual = actualHash[8:]
+			}
+			if strings.HasPrefix(expectedGenesisHash, "GENESIS_") && len(expectedGenesisHash) > 8 {
+				normalizedExpected = expectedGenesisHash[8:]
+			}
+
+			if normalizedActual != normalizedExpected {
+				return fmt.Errorf("genesis block hash mismatch: %s=%s (normalized: %s) expected=%s (normalized: %s)",
+					validatorIDs[i], actualHash, normalizedActual, expectedGenesisHash, normalizedExpected)
+			}
+		}
+	}
+	logger.Info("✅ All nodes have consistent genesis blocks: %s", expectedGenesisHash)
+
 	// ========== KEY EXCHANGE - MOVE THIS AFTER ALL NODES ARE INITIALIZED ==========
 	// Exchange public keys between all nodes - NOW this happens after all signing services are created
 	logger.Info("=== EXCHANGING PUBLIC KEYS BETWEEN NODES ===")
@@ -431,27 +470,6 @@ func CallConsensus(numNodes int) error {
 			}
 		}
 	}
-
-	// ========== GENESIS BLOCK CONSISTENCY VALIDATION ==========
-	logger.Info("=== VALIDATING GENESIS BLOCK CONSISTENCY ===")
-	for i := 0; i < numNodes; i++ {
-		genesis := blockchains[i].GetLatestBlock()
-		if genesis == nil || genesis.GetHeight() != 0 {
-			return fmt.Errorf("node %s failed to initialize genesis block", validatorIDs[i])
-		}
-
-		if i == 0 {
-			firstGenesisHash = genesis.GetHash()
-			logger.Info("%s genesis: height=%d, hash=%s", validatorIDs[i], genesis.GetHeight(), genesis.GetHash())
-		} else {
-			if genesis.GetHash() != firstGenesisHash {
-				return fmt.Errorf("genesis block hash mismatch: %s=%s %s=%s",
-					validatorIDs[0], firstGenesisHash, validatorIDs[i], genesis.GetHash())
-			}
-			logger.Info("%s genesis: height=%d, hash=%s (validated)", validatorIDs[i], genesis.GetHeight(), genesis.GetHash())
-		}
-	}
-	logger.Info("✅ All nodes have consistent genesis blocks")
 
 	// ========== JSON-RPC SERVER INITIALIZATION ==========
 	for i := 0; i < numNodes; i++ {

@@ -30,7 +30,7 @@ import (
 	types "github.com/sphinx-core/go/src/core/transaction"
 )
 
-// NewBlockAdapter creates a new adapter for types.Block
+// NewBlockHelper creates a new adapter for types.Block
 func NewBlockHelper(block *types.Block) consensus.Block {
 	return &BlockHelper{block: block}
 }
@@ -62,7 +62,10 @@ func (a *BlockHelper) Validate() error {
 
 // GetDifficulty returns the block difficulty
 func (a *BlockHelper) GetDifficulty() *big.Int {
-	return a.block.GetDifficulty()
+	if a.block.Header != nil {
+		return a.block.Header.Difficulty
+	}
+	return big.NewInt(1)
 }
 
 // GetUnderlyingBlock returns the underlying types.Block

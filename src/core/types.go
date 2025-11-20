@@ -20,7 +20,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/core/types.go
 package core
 
 import (
@@ -62,6 +61,14 @@ type MockChainParamsProvider struct {
 	params *SphinxChainParameters
 }
 
+// GenesisConfig defines genesis-specific parameters
+type GenesisConfig struct {
+	InitialDifficulty *big.Int
+	InitialGasLimit   *big.Int
+	GenesisNonce      uint64
+	GenesisExtraData  []byte
+}
+
 // SphinxChainParameters defines the complete blockchain parameters
 type SphinxChainParameters struct {
 	// Network Identification
@@ -82,6 +89,10 @@ type SphinxChainParameters struct {
 	MaxTransactionSize uint64
 	TargetBlockSize    uint64
 	BlockGasLimit      *big.Int
+	BaseBlockReward    *big.Int // Block reward in base units
+
+	// Genesis-specific configuration
+	GenesisConfig *GenesisConfig
 
 	// Mempool Configuration
 	MempoolConfig *pool.MempoolConfig

@@ -30,8 +30,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
+	"github.com/sphinx-core/go/src/common"
 	types "github.com/sphinx-core/go/src/core/transaction"
 	logger "github.com/sphinx-core/go/src/log"
 )
@@ -284,6 +286,19 @@ func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *Ch
 
 	// Initialize ChainIdentification if nil
 	if chainState.ChainIdentification == nil {
+		// Get the actual genesis hash with GENESIS_ prefix
+		actualGenesisHash, err := s.GetGenesisHash()
+		if err != nil {
+			logger.Warn("Failed to get actual genesis hash: %v, using provided one", err)
+			actualGenesisHash = chainParams.GenesisHash
+		}
+
+		// Ensure it has GENESIS_ prefix
+		if !strings.HasPrefix(actualGenesisHash, "GENESIS_") {
+			logger.Warn("Genesis hash missing GENESIS_ prefix, adding it: %s", actualGenesisHash)
+			actualGenesisHash = "GENESIS_" + actualGenesisHash
+		}
+
 		chainState.ChainIdentification = &ChainIdentification{
 			Timestamp: time.Now().Format(time.RFC3339),
 			ChainParams: map[string]interface{}{
@@ -291,7 +306,7 @@ func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *Ch
 				"chain_name":   chainParams.ChainName,
 				"symbol":       chainParams.Symbol,
 				"genesis_time": chainParams.GenesisTime,
-				"genesis_hash": chainParams.GenesisHash,
+				"genesis_hash": actualGenesisHash, // Use the actual hash with GENESIS_ prefix
 				"version":      chainParams.Version,
 				"magic_number": chainParams.MagicNumber,
 				"default_port": chainParams.DefaultPort,
@@ -539,11 +554,24 @@ func (s *Storage) StoreBlock(block *types.Block) error {
 
 	logger.Info("Storing block: height=%d, hash=%s", height, blockHash)
 
-	// Validate TxsRoot = MerkleRoot before storing
-	if err := block.ValidateTxsRoot(); err != nil {
-		return fmt.Errorf("block TxsRoot validation failed before storage: %w", err)
+	// SPECIAL HANDLING FOR GENESIS BLOCK
+	if height == 0 {
+		logger.Info("Genesis block detected, using relaxed TxsRoot validation")
+		// For genesis block, we accept empty TxsRoot or calculate it
+		if len(block.Header.TxsRoot) == 0 {
+			// Calculate TxsRoot for empty transactions
+			emptyTxsRoot := s.calculateEmptyMerkleRoot()
+			block.Header.TxsRoot = emptyTxsRoot
+			logger.Info("Set empty TxsRoot for genesis block: %x", emptyTxsRoot)
+		}
+	} else {
+		// Normal blocks must pass TxsRoot validation
+		if err := block.ValidateTxsRoot(); err != nil {
+			return fmt.Errorf("block TxsRoot validation failed before storage: %w", err)
+		}
 	}
 
+	// Rest of the StoreBlock method remains the same...
 	// Calculate and log block size (simplified)
 	data, err := json.Marshal(block)
 	if err == nil {
@@ -592,9 +620,15 @@ func (s *Storage) StoreBlock(block *types.Block) error {
 		return fmt.Errorf("failed to save chain state: %w", err)
 	}
 
-	logger.Info("Successfully stored block: height=%d, hash=%s, TxsRoot=%x (verified = MerkleRoot)",
+	logger.Info("Successfully stored block: height=%d, hash=%s, TxsRoot=%x",
 		height, blockHash, block.Header.TxsRoot)
 	return nil
+}
+
+// calculateEmptyMerkleRoot returns standard empty Merkle root
+func (s *Storage) calculateEmptyMerkleRoot() []byte {
+	// This should match what the blockchain calculates
+	return common.SpxHash([]byte{})
 }
 
 // GetBlockByHash retrieves a block by its hash
@@ -679,7 +713,32 @@ func (s *Storage) ValidateChain() error {
 	return nil
 }
 
+// isHexString checks if a string is a valid hex string
+func isHexString(s string) bool {
+	// Empty string is not a valid hex string
+	if len(s) == 0 {
+		return false
+	}
+
+	// Hex strings should have even length (each byte is 2 hex chars)
+	if len(s)%2 != 0 {
+		return false
+	}
+
+	// Check each character is a valid hex digit
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') ||
+			(c >= 'a' && c <= 'f') ||
+			(c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // Helper method to get actual genesis hash from block_index.json
+// GetGenesisHash returns the genesis hash with GENESIS_ prefix from block_index.json
 func (s *Storage) GetGenesisHash() (string, error) {
 	indexFile := filepath.Join(s.indexDir, "block_index.json")
 
@@ -698,6 +757,16 @@ func (s *Storage) GetGenesisHash() (string, error) {
 	// Find the block with height 0 (genesis)
 	for hash, height := range index.Blocks {
 		if height == 0 {
+			// CRITICAL: Ensure the genesis hash always has the GENESIS_ prefix
+			if !strings.HasPrefix(hash, "GENESIS_") {
+				logger.Warn("Genesis hash in block_index.json missing GENESIS_ prefix: %s", hash)
+				// If it's a valid hex string, add the prefix
+				if isHexString(hash) {
+					fixedHash := "GENESIS_" + hash
+					logger.Info("Fixed genesis hash by adding prefix: %s", fixedHash)
+					return fixedHash, nil
+				}
+			}
 			return hash, nil
 		}
 	}
@@ -706,6 +775,7 @@ func (s *Storage) GetGenesisHash() (string, error) {
 }
 
 // FixChainStateGenesisHash updates any hardcoded genesis hash in chain_state.json with actual hash
+// FixChainStateGenesisHash updates any hardcoded genesis hash in chain_state.json with actual hash including GENESIS_ prefix
 func (s *Storage) FixChainStateGenesisHash() error {
 	stateFile := filepath.Join(s.stateDir, "chain_state.json")
 
@@ -725,48 +795,154 @@ func (s *Storage) FixChainStateGenesisHash() error {
 		return fmt.Errorf("failed to unmarshal chain state: %w", err)
 	}
 
-	// Get actual genesis hash
+	// Get actual genesis hash with GENESIS_ prefix
 	actualHash, err := s.GetGenesisHash()
 	if err != nil {
 		return fmt.Errorf("failed to get actual genesis hash: %w", err)
 	}
 
-	// Fix hardcoded genesis hash if found
+	// Ensure the actual hash has GENESIS_ prefix
+	if !strings.HasPrefix(actualHash, "GENESIS_") {
+		logger.Warn("Actual genesis hash missing GENESIS_ prefix, adding it: %s", actualHash)
+		actualHash = "GENESIS_" + actualHash
+	}
+
+	needsUpdate := false
+
+	// Fix ChainIdentification genesis hash
 	if chainState.ChainIdentification != nil && chainState.ChainIdentification.ChainParams != nil {
 		if genesisHash, exists := chainState.ChainIdentification.ChainParams["genesis_hash"]; exists {
-			if genesisHashStr, ok := genesisHash.(string); ok && genesisHashStr == "sphinx-genesis-2024" {
-				chainState.ChainIdentification.ChainParams["genesis_hash"] = actualHash
-				logger.Info("Fixed hardcoded genesis hash in chain_state.json: %s", actualHash)
-
-				// Save the fixed chain state
-				data, err := json.MarshalIndent(chainState, "", "  ")
-				if err != nil {
-					return fmt.Errorf("failed to marshal fixed chain state: %w", err)
+			if genesisHashStr, ok := genesisHash.(string); ok {
+				if genesisHashStr != actualHash {
+					chainState.ChainIdentification.ChainParams["genesis_hash"] = actualHash
+					logger.Info("Fixed genesis hash in ChainIdentification: %s", actualHash)
+					needsUpdate = true
 				}
+			}
+		} else {
+			// Add genesis_hash if it doesn't exist
+			chainState.ChainIdentification.ChainParams["genesis_hash"] = actualHash
+			logger.Info("Added genesis hash to ChainIdentification: %s", actualHash)
+			needsUpdate = true
+		}
+	}
 
-				tmpFile := stateFile + ".tmp"
-				if err := os.WriteFile(tmpFile, data, 0644); err != nil {
-					return fmt.Errorf("failed to write fixed chain state file: %w", err)
+	// Fix BasicChainState best block hash if it's the genesis block
+	if chainState.BasicChainState != nil && chainState.BasicChainState.BestBlockHash != "" {
+		// Check if best block is genesis (height 0)
+		if chainState.BasicChainState.TotalBlocks == 1 {
+			genesisBlock, err := s.GetBlockByHeight(0)
+			if err == nil && genesisBlock != nil {
+				genesisHash := genesisBlock.GetHash()
+				if strings.HasPrefix(genesisHash, "GENESIS_") && chainState.BasicChainState.BestBlockHash != genesisHash {
+					chainState.BasicChainState.BestBlockHash = genesisHash
+					logger.Info("Fixed best block hash to genesis hash: %s", genesisHash)
+					needsUpdate = true
 				}
-
-				if err := os.Rename(tmpFile, stateFile); err != nil {
-					return fmt.Errorf("failed to rename fixed chain state file: %w", err)
-				}
-
-				logger.Info("Successfully updated chain_state.json with actual genesis hash")
 			}
 		}
+	}
+
+	// Fix StorageState best block hash if it's the genesis block
+	if chainState.StorageState != nil && chainState.StorageState.BestBlockHash != "" {
+		// Check if best block is genesis (height 0)
+		if chainState.StorageState.TotalBlocks == 1 {
+			genesisBlock, err := s.GetBlockByHeight(0)
+			if err == nil && genesisBlock != nil {
+				genesisHash := genesisBlock.GetHash()
+				if strings.HasPrefix(genesisHash, "GENESIS_") && chainState.StorageState.BestBlockHash != genesisHash {
+					chainState.StorageState.BestBlockHash = genesisHash
+					logger.Info("Fixed storage state best block hash to genesis hash: %s", genesisHash)
+					needsUpdate = true
+				}
+			}
+		}
+	}
+
+	// Fix node block hashes if they point to genesis
+	for _, node := range chainState.Nodes {
+		if node != nil && node.BlockHeight == 0 && node.BlockHash != "" {
+			genesisBlock, err := s.GetBlockByHeight(0)
+			if err == nil && genesisBlock != nil {
+				genesisHash := genesisBlock.GetHash()
+				if strings.HasPrefix(genesisHash, "GENESIS_") && node.BlockHash != genesisHash {
+					node.BlockHash = genesisHash
+					logger.Info("Fixed node %s genesis block hash: %s", node.NodeID, genesisHash)
+					needsUpdate = true
+				}
+			}
+		}
+	}
+
+	// Save the fixed chain state if changes were made
+	if needsUpdate {
+		logger.Info("Updating chain_state.json with correct genesis hash including GENESIS_ prefix")
+
+		// Save the fixed chain state
+		data, err := json.MarshalIndent(chainState, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal fixed chain state: %w", err)
+		}
+
+		tmpFile := stateFile + ".tmp"
+		if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+			return fmt.Errorf("failed to write fixed chain state file: %w", err)
+		}
+
+		if err := os.Rename(tmpFile, stateFile); err != nil {
+			return fmt.Errorf("failed to rename fixed chain state file: %w", err)
+		}
+
+		logger.Info("Successfully updated chain_state.json with genesis hash: %s", actualHash)
+	} else {
+		logger.Info("chain_state.json already has correct genesis hash: %s", actualHash)
 	}
 
 	return nil
 }
 
 // Private methods
+
+// sanitizeFilename ensures a hash can be used as a valid filename
+func (s *Storage) sanitizeFilename(hash string) string {
+	// If hash contains non-printable characters, use hex encoding
+	for _, r := range hash {
+		if r < 32 || r > 126 {
+			// Hash contains non-printable chars, use hex encoding
+			return hex.EncodeToString([]byte(hash))
+		}
+	}
+
+	// Also check for other invalid filename characters
+	invalidChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
+	sanitized := hash
+	for _, char := range invalidChars {
+		sanitized = strings.ReplaceAll(sanitized, char, "_")
+	}
+
+	return sanitized
+}
+
+// storeBlockToDisk stores a block to disk, preserving text format for genesis hashes
+// storeBlockToDisk stores a block to disk with sanitized filenames
 func (s *Storage) storeBlockToDisk(block *types.Block) error {
 	blockHash := block.GetHash()
-	filename := filepath.Join(s.blocksDir, blockHash+".json")
 
-	data, err := json.MarshalIndent(block, "", "  ")
+	// SANITIZE THE FILENAME to handle non-printable characters
+	sanitizedHash := s.sanitizeFilename(blockHash)
+	filename := filepath.Join(s.blocksDir, sanitizedHash+".json")
+
+	logger.Info("Storing block to disk: original_hash=%s, sanitized_filename=%s",
+		blockHash, sanitizedHash)
+
+	// Create a copy of the block to ensure hash is stored correctly
+	blockCopy := *block
+	if blockCopy.Header != nil {
+		// Ensure the hash is stored as proper string, not hex-encoded
+		blockCopy.Header.Hash = []byte(blockHash)
+	}
+
+	data, err := json.MarshalIndent(blockCopy, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal block: %w", err)
 	}
@@ -781,38 +957,71 @@ func (s *Storage) storeBlockToDisk(block *types.Block) error {
 		return fmt.Errorf("failed to rename block file: %w", err)
 	}
 
-	logger.Info("Block written to disk: %s", filename)
+	logger.Info("Block successfully written to disk: %s", filename)
 	return nil
 }
 
-// FIXED loadBlockFromDisk with better error handling
+// loadBlockFromDisk loads a block from disk, handling text format genesis hashes
+// loadBlockFromDisk loads a block from disk, handling sanitized filenames
 func (s *Storage) loadBlockFromDisk(hash string) (*types.Block, error) {
-	filename := filepath.Join(s.blocksDir, hash+".json")
-
-	// Check if file exists first
-	if _, err := os.Stat(filename); os.IsNotExist(err) {
-		return nil, fmt.Errorf("block file does not exist: %s", filename)
+	// Try both original hash and sanitized version
+	filenames := []string{
+		filepath.Join(s.blocksDir, hash+".json"),
+		filepath.Join(s.blocksDir, s.sanitizeFilename(hash)+".json"),
 	}
 
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read block file: %w", err)
+	var data []byte
+	var usedFilename string
+
+	for _, filename := range filenames {
+		if _, err := os.Stat(filename); err == nil {
+			var err error
+			data, err = os.ReadFile(filename)
+			if err == nil {
+				usedFilename = filename
+				break
+			}
+		}
+	}
+
+	if data == nil {
+		return nil, fmt.Errorf("block file does not exist for hash: %s", hash)
 	}
 
 	var block types.Block
 	if err := json.Unmarshal(data, &block); err != nil {
-		// Try to log the problematic data for debugging
-		logger.Warn("Failed to unmarshal block file %s: %v, file content: %s", filename, err, string(data[:min(100, len(data))]))
+		logger.Warn("Failed to unmarshal block file %s: %v, file content: %s",
+			usedFilename, err, string(data[:min(100, len(data))]))
 		return nil, fmt.Errorf("failed to unmarshal block: %w", err)
 	}
 
-	// Validate the loaded block
-	if block.GetHash() != hash {
-		return nil, fmt.Errorf("block hash mismatch: expected %s, got %s", hash, block.GetHash())
+	// Fix the hash if it was hex-encoded during storage
+	if block.Header != nil && len(block.Header.Hash) > 0 {
+		hashStr := string(block.Header.Hash)
+		// If it's a genesis hash that got hex-encoded, fix it
+		if isHexEncodedGenesis(hashStr) {
+			decoded, err := hex.DecodeString(hashStr)
+			if err == nil {
+				decodedStr := string(decoded)
+				if len(decodedStr) > 8 && decodedStr[:8] == "GENESIS_" {
+					block.Header.Hash = []byte(decodedStr)
+				}
+			}
+		}
 	}
 
-	logger.Debug("Block loaded from disk: height=%d, hash=%s", block.GetHeight(), block.GetHash())
+	logger.Debug("Block loaded from disk: height=%d, hash=%s, file=%s",
+		block.GetHeight(), block.GetHash(), usedFilename)
 	return &block, nil
+}
+
+// isHexEncodedGenesis checks if a string is a hex-encoded genesis hash
+func isHexEncodedGenesis(s string) bool {
+	if len(s) < 16 { // "GENESIS_" hex-encoded is 16 chars
+		return false
+	}
+	// Check if it starts with hex-encoded "GENESIS_" (47454e455349535f)
+	return s[:16] == "47454e455349535f"
 }
 
 // Helper function

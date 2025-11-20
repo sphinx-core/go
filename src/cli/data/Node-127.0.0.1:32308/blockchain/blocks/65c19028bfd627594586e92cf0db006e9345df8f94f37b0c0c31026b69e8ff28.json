@@ -1,0 +1,36 @@
+{
+  "header": {
+    "prev_hash": "47454e455349535f33643163303162646634626430393563663134613838333166656632306666383936666638623831633561623864363430383663663965366465346133333166",
+    "hash": "65c19028bfd627594586e92cf0db006e9345df8f94f37b0c0c31026b69e8ff28",
+    "txs_root": "bdecd26f3d56ee3ccbcc5d2c60cb48cbf49832fd441f2d152f68da04eaccbd3a",
+    "state_root": "706c616365686f6c6465722d73746174652d726f6f74",
+    "parent_hash": "47454e455349535f33643163303162646634626430393563663134613838333166656632306666383936666638623831633561623864363430383663663965366465346133333166",
+    "uncles_hash": "",
+    "extra_data": "",
+    "miner": "",
+    "version": 1,
+    "nblock": 1,
+    "height": 1,
+    "timestamp": 1763611683,
+    "difficulty": 1,
+    "nonce": 0,
+    "gas_limit": 10000000,
+    "gas_used": 0
+  },
+  "body": {
+    "txs_list": [
+      {
+        "id": "288894c067f39d2880ea484617c260eab5981d1d047b5ceb12a87d21a17803b3",
+        "sender": "alice",
+        "receiver": "bob",
+        "amount": 100,
+        "gas_limit": 21000,
+        "gas_price": 1,
+        "nonce": 1,
+        "timestamp": 0,
+        "signature": null
+      }
+    ],
+    "uncles_hash": ""
+  }
+}

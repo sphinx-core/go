@@ -24,9 +24,13 @@
 package core
 
 import (
+	"encoding/hex"
 	"math/big"
+	"strings"
 
+	"github.com/sphinx-core/go/src/common"
 	types "github.com/sphinx-core/go/src/core/transaction"
+	logger "github.com/sphinx-core/go/src/log"
 )
 
 // Constants for blockchain status, sync modes, etc.
@@ -59,17 +63,88 @@ const (
 	CacheTypeState
 )
 
-// Global genesis block definition
+// Global genesis block definition with comprehensive data
 var genesisBlockDefinition = &types.BlockHeader{
-	Block:      0,
-	Timestamp:  int64(1731375284), // Fixed timestamp
-	PrevHash:   []byte("genesis"),
-	Difficulty: big.NewInt(1),
-	Nonce:      uint64(0),
-	TxsRoot:    []byte{},
-	StateRoot:  []byte{},
-	GasLimit:   big.NewInt(1000000),
+	Version:    1,
+	Height:     0,
+	Timestamp:  1732070400,               // Fixed: Nov 20, 2024 00:00:00 UTC
+	PrevHash:   make([]byte, 32),         // 32 bytes of zeros
+	Difficulty: big.NewInt(17179869184),  // Substantial initial difficulty
+	Nonce:      66,                       // Meaningful nonce
+	TxsRoot:    common.SpxHash([]byte{}), // Empty transactions root
+	StateRoot:  common.SpxHash([]byte("sphinx-genesis-state-root")),
+	GasLimit:   big.NewInt(5000), // Initial gas limit
 	GasUsed:    big.NewInt(0),
-	ParentHash: []byte{}, // Will be set dynamically
-	UnclesHash: []byte{},
+	ExtraData:  []byte("Sphinx Network Genesis Block - Decentralized Future"),
+	Miner:      make([]byte, 20), // Zero address for genesis
+}
+
+// GenerateGenesisHash creates a deterministic genesis hash that starts with "GENESIS_"
+func GenerateGenesisHash() string {
+	// Create genesis block with all fields
+	genesisHeader := &types.BlockHeader{
+		Version:    1,
+		Height:     0,
+		Timestamp:  1732070400,
+		PrevHash:   make([]byte, 32),
+		Difficulty: big.NewInt(17179869184),
+		Nonce:      66,
+		TxsRoot:    common.SpxHash([]byte{}),
+		StateRoot:  common.SpxHash([]byte("sphinx-genesis-state-root")),
+		GasLimit:   big.NewInt(5000),
+		GasUsed:    big.NewInt(0),
+		ExtraData:  []byte("Sphinx Network Genesis Block - Decentralized Future"),
+		Miner:      make([]byte, 20),
+	}
+
+	genesisBody := types.NewBlockBody([]*types.Transaction{}, []byte{})
+	genesis := types.NewBlock(genesisHeader, genesisBody)
+
+	// Calculate the hash - this will create the GENESIS_ prefixed hash
+	genesis.FinalizeHash()
+	hash := genesis.GetHash()
+
+	logger.Info("🔷 Raw genesis hash: %s", hash)
+
+	// CRITICAL FIX: For chain parameters, use only the hex part (without GENESIS_ prefix)
+	if strings.HasPrefix(hash, "GENESIS_") && len(hash) > 8 {
+		hexPart := hash[8:] // Remove "GENESIS_" prefix
+		if isHexString(hexPart) {
+			logger.Info("🔷 Using hex-only genesis hash for chain params: %s", hexPart)
+			return hexPart
+		}
+	}
+
+	// Fallback: if it's already hex, use as-is
+	logger.Info("🔷 Using existing genesis hash: %s", hash)
+	return hash
+}
+
+// GetGenesisHash returns the consistent genesis hash for all nodes
+// GetGenesisHash returns the actual genesis hash with GENESIS_ prefix
+func GetGenesisHash() string {
+	// Calculate the actual genesis block hash
+	genesisHeader := &types.BlockHeader{}
+	*genesisHeader = *genesisBlockDefinition
+
+	genesisBody := types.NewBlockBody([]*types.Transaction{}, []byte{})
+	genesis := types.NewBlock(genesisHeader, genesisBody)
+
+	// Let the block generate its own hash
+	genesis.FinalizeHash()
+
+	// Get the actual hash that was calculated
+	actualGenesisHash := genesis.GetHash()
+
+	// CRITICAL: Ensure consistent format - always return with GENESIS_ prefix
+	if !strings.HasPrefix(actualGenesisHash, "GENESIS_") {
+		// If it doesn't have the prefix, add it
+		hashBytes := genesis.GenerateBlockHash()
+		hexHash := hex.EncodeToString(hashBytes)
+		actualGenesisHash = "GENESIS_" + hexHash
+		logger.Info("Added GENESIS_ prefix to genesis hash: %s", actualGenesisHash)
+	}
+
+	logger.Info("Using genesis hash with prefix: %s", actualGenesisHash)
+	return actualGenesisHash
 }

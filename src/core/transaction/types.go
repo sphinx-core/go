@@ -30,7 +30,9 @@ import (
 
 // BlockHeader represents the metadata for a block in the blockchain.
 type BlockHeader struct {
+	Version    uint64   `json:"version"`   // Block version
 	Block      uint64   `json:"nblock"`    // The position of the block in the blockchain (index)
+	Height     uint64   `json:"height"`    // Block height (same as Block)
 	Timestamp  int64    `json:"timestamp"` // The timestamp when the block is mined
 	PrevHash   []byte   `json:"prev_hash"` // Hash of the previous block (direct predecessor)
 	Hash       []byte   `json:"hash"`
@@ -42,6 +44,8 @@ type BlockHeader struct {
 	GasUsed    *big.Int `json:"gas_used"`    // The actual gas used by the transactions
 	ParentHash []byte   `json:"parent_hash"` // The hash of the parent block (alternative to PrevHash)
 	UnclesHash []byte   `json:"uncles_hash"` // The hash of the uncles (previous block headers, also known as ommers)
+	ExtraData  []byte   `json:"extra_data"`  // Extra data field for additional information
+	Miner      []byte   `json:"miner"`       // Miner address (20 bytes)
 }
 
 // BlockBody represents the transactions and other data inside the block.
@@ -51,13 +55,12 @@ type BlockBody struct {
 }
 
 // Block represents the entire block structure including the header and body.
-// Block represents a blockchain block
 type Block struct {
-	Header BlockHeader `json:"header"`
-	Body   BlockBody   `json:"body"`
+	Header *BlockHeader `json:"header"` // Changed to pointer for consistency
+	Body   BlockBody    `json:"body"`
 }
 
-// Transaction represents a blockchain transaction
+// Transaction and other types remain the same...
 type Transaction struct {
 	ID        string   `json:"id"`
 	Sender    string   `json:"sender"`
