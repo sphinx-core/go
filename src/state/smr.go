@@ -61,8 +61,7 @@ func NewStateMachine(storage *Storage, nodeID string, validators []string) *Stat
 		stateCh:      make(chan *StateSnapshot, 100),
 		commitCh:     make(chan *CommitProof, 100),
 		timeoutCh:    make(chan struct{}, 10),
-		// ADD: Initialize the new fields
-		finalStates: make([]*FinalStateInfo, 0),
+		finalStates:  make([]*FinalStateInfo, 0),
 	}
 
 	// Load initial state
@@ -206,7 +205,6 @@ func (sm *StateMachine) extractMerkleRootFromBlock(block *types.Block) string {
 }
 
 // getFinalStatesForBlock retrieves final states for a block
-// getFinalStatesForBlock retrieves final states for a block
 func (sm *StateMachine) getFinalStatesForBlock(blockHash string) []*FinalStateInfo {
 	sm.stateMutex.RLock()
 	defer sm.stateMutex.RUnlock()
@@ -280,7 +278,7 @@ func (sm *StateMachine) syncFinalStates() {
 		finalState := sm.convertToFinalStateInfo(rawSig)
 
 		// CRITICAL: Ensure merkle_root and status are NEVER empty
-		finalState = sm.ensureFinalStatePopulated(finalState)
+		finalState = sm.FinalStatePopulated(finalState)
 
 		sm.finalStates = append(sm.finalStates, finalState)
 
@@ -342,8 +340,6 @@ func (sm *StateMachine) convertToFinalStateInfo(sig *consensus.ConsensusSignatur
 	}
 }
 
-// go/src/state/smr.go
-
 // ForcePopulateFinalStates manually populates final states with real data
 func (sm *StateMachine) ForcePopulateFinalStates() error {
 	logger.Info("🔄 Force populating final states with real data")
@@ -397,7 +393,7 @@ func (sm *StateMachine) createFinalStateFromBlock(block *types.Block) *FinalStat
 }
 
 // ensureFinalStatePopulated guarantees critical fields are never empty
-func (sm *StateMachine) ensureFinalStatePopulated(state *FinalStateInfo) *FinalStateInfo {
+func (sm *StateMachine) FinalStatePopulated(state *FinalStateInfo) *FinalStateInfo {
 	// EMERGENCY: Ensure merkle_root is NEVER empty
 	if state.MerkleRoot == "" || state.MerkleRoot == "pending_calculation" {
 		block, err := sm.storage.GetBlockByHash(state.BlockHash)
@@ -473,32 +469,8 @@ func (sm *StateMachine) DebugFinalStates() {
 	}
 }
 
-// EmergencyRepairFinalStates is a nuclear option that completely rebuilds final states
-func (sm *StateMachine) EmergencyRepairFinalStates() {
-	logger.Info("🚨 STARTING EMERGENCY REPAIR OF FINAL STATES")
-
-	// Step 1: Clear everything
-	sm.stateMutex.Lock()
-	sm.finalStates = make([]*FinalStateInfo, 0)
-	sm.stateMutex.Unlock()
-
-	// Step 2: Force consensus to rebuild all signatures
-	if sm.consensus != nil {
-		// Force population
-		sm.consensus.ForcePopulateAllSignatures()
-	}
-
-	// Step 3: Sync with consensus
-	sm.syncFinalStates()
-
-	// Step 4: Force populate any remaining empty fields
-	sm.ForceRepopulateFinalStates()
-
-	logger.Info("✅ EMERGENCY REPAIR COMPLETED")
-}
-
 // ForceRepopulateFinalStates manually triggers complete repopulation of final states
-func (sm *StateMachine) ForceRepopulateFinalStates() {
+func (sm *StateMachine) RepopulateFinalStates() {
 	logger.Info("🔄 Force repopulating all final states")
 
 	sm.stateMutex.Lock()

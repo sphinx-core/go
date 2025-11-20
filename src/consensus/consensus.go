@@ -407,7 +407,7 @@ func (c *Consensus) processProposal(proposal *Proposal) {
 	}
 
 	// ADD THE SIGNATURE - THIS IS THE CRITICAL MISSING LINE!
-	c.addConsensusSignature(consensusSig)
+	c.addConsensusSig(consensusSig)
 	logger.Info("✅ Added proposal signature for block %s", proposal.Block.GetHash())
 
 	// Rest of the method remains the same...
@@ -481,7 +481,7 @@ func (c *Consensus) GetCachedMerkleRoot(blockHash string) string {
 }
 
 // determineStatusFromMessageType maps message types to status strings
-func (c *Consensus) determineStatusFromMessageType(messageType string) string {
+func (c *Consensus) StatusFromMsgType(messageType string) string {
 	switch messageType {
 	case "proposal":
 		return "proposed"
@@ -583,7 +583,7 @@ func (c *Consensus) processPrepareVote(vote *Vote) {
 			MerkleRoot:   "pending_calculation", // Provide initial value
 			Status:       "prepared",            // Provide initial value
 		}
-		c.addConsensusSignature(consensusSig)
+		c.addConsensusSig(consensusSig)
 
 		// Move to prepared phase only if we're in pre-prepared phase
 		if c.phase == PhasePrePrepared {
@@ -600,7 +600,7 @@ func (c *Consensus) processPrepareVote(vote *Vote) {
 }
 
 // CORRECTED: Safe merkle root extraction without interface changes
-func (c *Consensus) addConsensusSignature(sig *ConsensusSignature) {
+func (c *Consensus) addConsensusSig(sig *ConsensusSignature) {
 	c.signatureMutex.Lock()
 	defer c.signatureMutex.Unlock()
 
@@ -640,7 +640,7 @@ func (c *Consensus) addConsensusSignature(sig *ConsensusSignature) {
 
 	// Ensure status is never empty
 	if sig.Status == "" {
-		sig.Status = c.determineStatusFromMessageType(sig.MessageType)
+		sig.Status = c.StatusFromMsgType(sig.MessageType)
 		logger.Info("✅ Set status: %s", sig.Status)
 	}
 
@@ -722,18 +722,6 @@ func (c *Consensus) DebugConsensusSignaturesDeep() {
 		} else {
 			logger.Info("    - Block exists in chain: false")
 		}
-	}
-}
-
-// DebugSignatures prints detailed information about all stored signatures
-func (c *Consensus) DebugSignatures() {
-	c.signatureMutex.RLock()
-	defer c.signatureMutex.RUnlock()
-
-	logger.Info("🔍 DEBUG: Current consensus signatures (%d total):", len(c.consensusSignatures))
-	for i, sig := range c.consensusSignatures {
-		logger.Info("  Signature %d: block=%s, height=%d, type=%s, merkle_root=%s, status=%s, valid=%t",
-			i, sig.BlockHash, sig.BlockHeight, sig.MessageType, sig.MerkleRoot, sig.Status, sig.Valid)
 	}
 }
 
@@ -889,7 +877,7 @@ func (c *Consensus) processVote(vote *Vote) {
 			MerkleRoot:   "pending_calculation", // Provide initial value
 			Status:       "committed",           // Provide initial value
 		}
-		c.addConsensusSignature(consensusSig)
+		c.addConsensusSig(consensusSig)
 
 		// Commit the block
 		c.commitBlock(blockToCommit)

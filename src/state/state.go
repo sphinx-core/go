@@ -21,7 +21,6 @@
 // SOFTWARE.
 
 // go/src/state/storage.go
-// go/src/state/storage.go
 package state
 
 import (
@@ -42,9 +41,9 @@ import (
 // GetBlockByHeight returns a block by its height
 func (s *Storage) GetBlockByHeight(height uint64) (*types.Block, error) {
 	// Simple implementation - iterate through blocks to find by height
-	// In production, you'd maintain a height index
+	// In production, maintain a height index
 
-	// Get all blocks (you'll need to implement this)
+	// Get all blocks (need to implement this)
 	blocks, err := s.GetAllBlocks()
 	if err != nil {
 		return nil, err
@@ -167,8 +166,7 @@ func (s *Storage) GetTotalBlocks() uint64 {
 	return s.totalBlocks
 }
 
-// NewStorage creates a new storage instance
-// FIXED NewStorage with better initialization
+// NewStorage creates a new storage instances
 func NewStorage(dataDir string) (*Storage, error) {
 	storage := &Storage{
 		dataDir:       dataDir,
@@ -254,7 +252,7 @@ func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *Ch
 			if node == nil {
 				logger.Warn("Node %d in chainState is nil, replacing with real node info", i)
 				// Replace nil nodes with real node information
-				chainState.Nodes[i] = s.createRealNodeInfo(i)
+				chainState.Nodes[i] = s.createNodeInfo(i)
 			}
 		}
 	}
@@ -342,7 +340,7 @@ func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *Ch
 			chainState.BlockSizeMetrics.TotalBlocks)
 	}
 
-	// ✅ CRITICAL FIX: Ensure FinalStates is populated and has real data
+	// Ensure FinalStates is populated and has real data
 	if chainState.FinalStates == nil {
 		chainState.FinalStates = make([]*FinalStateInfo, 0)
 	}
@@ -426,7 +424,7 @@ func (s *Storage) ensureFinalStateValues(state *FinalStateInfo) *FinalStateInfo 
 }
 
 // createRealNodeInfo creates real node information without FinalState
-func (s *Storage) createRealNodeInfo(index int) *NodeInfo {
+func (s *Storage) createNodeInfo(index int) *NodeInfo {
 	latestBlock, err := s.GetLatestBlock()
 	var blockHash string
 	var blockHeight uint64
@@ -451,8 +449,6 @@ func (s *Storage) createRealNodeInfo(index int) *NodeInfo {
 		MerkleRoot:  merkleRoot,
 		Timestamp:   time.Now().Format(time.RFC3339),
 	}
-
-	// ✅ REMOVED: No longer creating FinalState for individual nodes
 
 	return node
 }
@@ -524,8 +520,6 @@ func (s *Storage) LoadCompleteChainState() (*ChainState, error) {
 		return nil, fmt.Errorf("failed to unmarshal chain state: %w", err)
 	}
 
-	// ✅ REMOVED: No longer ensuring FinalState is populated for nodes
-
 	// Log block size metrics if available
 	if chainState.BlockSizeMetrics != nil {
 		metrics := chainState.BlockSizeMetrics
@@ -535,38 +529,6 @@ func (s *Storage) LoadCompleteChainState() (*ChainState, error) {
 
 	logger.Info("Complete chain state loaded from: %s", stateFile)
 	return &chainState, nil
-}
-
-// FixFinalStateInExistingChainState updates existing chain state files (now simplified)
-func (s *Storage) FixFinalStateInExistingChainState() error {
-	stateFile := filepath.Join(s.stateDir, "chain_state.json")
-
-	// Check if file exists
-	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
-		return nil // No file to fix
-	}
-
-	// Load existing chain state
-	chainState, err := s.LoadCompleteChainState()
-	if err != nil {
-		return fmt.Errorf("failed to load chain state for fixing: %w", err)
-	}
-
-	// ✅ SIMPLIFIED: Only ensure FinalStates array exists
-	needsUpdate := false
-	if chainState.FinalStates == nil {
-		chainState.FinalStates = make([]*FinalStateInfo, 0)
-		needsUpdate = true
-		logger.Info("Fixed nil FinalStates array")
-	}
-
-	// Save fixed chain state if changes were made
-	if needsUpdate {
-		logger.Info("Updating chain state with fixed FinalStates array")
-		return s.SaveCompleteChainState(chainState, &ChainParams{}, make(map[string]string))
-	}
-
-	return nil
 }
 
 // GetChainStatePath returns the path to the chain state file
@@ -601,7 +563,6 @@ func (s *Storage) StoreBlock(block *types.Block) error {
 		}
 	}
 
-	// Rest of the StoreBlock method remains the same...
 	// Calculate and log block size (simplified)
 	data, err := json.Marshal(block)
 	if err == nil {
@@ -932,7 +893,6 @@ func (s *Storage) FixChainStateGenesisHash() error {
 }
 
 // Private methods
-
 // sanitizeFilename ensures a hash can be used as a valid filename
 func (s *Storage) sanitizeFilename(hash string) string {
 	// If hash contains non-printable characters, use hex encoding
@@ -1097,14 +1057,6 @@ func isHexEncodedGenesis(s string) bool {
 	return s[:16] == "47454e455349535f"
 }
 
-// Helper function
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func (s *Storage) saveBlockIndex() error {
 	indexFile := filepath.Join(s.indexDir, "block_index.json")
 
@@ -1250,8 +1202,6 @@ func (s *Storage) updateBasicChainStateInFile(stateFile string) error {
 		chainState.BasicChainState = &BasicChainState{}
 	}
 
-	// ✅ REMOVED: No longer adding FinalState to nodes
-
 	chainState.BasicChainState.BestBlockHash = s.bestBlockHash
 	chainState.BasicChainState.TotalBlocks = s.totalBlocks
 	chainState.BasicChainState.LastUpdated = time.Now().Format(time.RFC3339)
@@ -1274,41 +1224,6 @@ func (s *Storage) updateBasicChainStateInFile(stateFile string) error {
 
 	logger.Info("Updated basic chain state in: %s", stateFile)
 	return nil
-}
-
-// getFinalStatesForBlock retrieves final states for a block from the FinalStates array
-func (s *Storage) getFinalStatesForBlock(blockHash string) []*FinalStateInfo {
-	// Load chain state to get final states
-	chainState, err := s.LoadCompleteChainState()
-	if err != nil {
-		return nil
-	}
-
-	var states []*FinalStateInfo
-	for _, state := range chainState.FinalStates {
-		if state != nil && state.BlockHash == blockHash {
-			// FIX: Ensure critical fields are never empty
-			if state.MerkleRoot == "" {
-				// Try to get the block to calculate merkle root
-				block, err := s.GetBlockByHash(blockHash)
-				if err == nil && block != nil {
-					state.MerkleRoot = hex.EncodeToString(block.CalculateTxsRoot())
-				}
-			}
-
-			if state.Status == "" {
-				// Determine status based on message type
-				if state.MessageType == "proposal" {
-					state.Status = "proposed"
-				} else {
-					state.Status = "committed"
-				}
-			}
-
-			states = append(states, state)
-		}
-	}
-	return states
 }
 
 func (s *Storage) loadChainState() error {
