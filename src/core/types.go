@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// go/src/core/types.go
 package core
 
 import (
@@ -139,4 +140,7 @@ type Blockchain struct {
 	syncMode        SyncMode
 	consensusEngine *consensus.Consensus
 	chainParams     *SphinxChainParameters
+
+	merkleRootCache map[string]string // Add this field
+	cacheMutex      sync.RWMutex      // Add this mutex
 }

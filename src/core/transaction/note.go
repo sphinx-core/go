@@ -34,7 +34,6 @@ import (
 )
 
 // NewNote creates a new Note instance using centralized time service
-// NewNote creates a new Note instance using centralized time service
 func NewNote(to, from string, fee float64, storage, key string) (*Note, error) {
 	// Step 1: Validate the sender's and receiver's wallet addresses to ensure they are correctly formatted.
 	if err := validateAddress(to); err != nil {

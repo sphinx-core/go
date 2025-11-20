@@ -31,51 +31,35 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"time"
 
 	"github.com/sphinx-core/go/src/common"
 )
 
-// NewBlockHeader creates a new BlockHeader with centralized time service
-// NewBlockHeader creates a new BlockHeader with centralized time service
-func NewBlockHeader(height uint64, prevHash []byte, difficulty *big.Int, txsRoot, stateRoot []byte, gasLimit, gasUsed *big.Int,
-	extraData, miner []byte, timestamp int64) *BlockHeader {
+// NewBlockHeader creates a new BlockHeader with proper parent-uncle relationships
+func NewBlockHeader(height uint64, parentHash []byte, difficulty *big.Int, txsRoot, stateRoot []byte, gasLimit, gasUsed *big.Int,
+	extraData, miner []byte, timestamp int64, uncles []*BlockHeader) *BlockHeader {
 
 	// Use time service if timestamp is 0 (auto-generate)
 	if timestamp == 0 {
 		timestamp = common.GetCurrentTimestamp()
 	}
 
-	// For ALL blocks, set meaningful values for ParentHash and UnclesHash
-	var parentHash []byte
-	var unclesHash []byte
+	// Calculate uncles hash from actual uncle blocks
+	unclesHash := CalculateUnclesHash(uncles)
 
-	if height == 0 {
-		// Genesis block: no parent, so use zeros
-		parentHash = make([]byte, 32)
-		unclesHash = common.SpxHash([]byte("genesis-no-uncles"))
-	} else {
-		// Normal block: ParentHash should be same as PrevHash
-		parentHash = prevHash
-
-		// FIX: Set meaningful uncles hash for normal blocks too
-		if len(prevHash) > 0 {
-			// Create a meaningful uncles hash based on previous block hash
-			unclesData := append([]byte("no-uncles-for-block-"), prevHash...)
-			unclesHash = common.SpxHash(unclesData)
-		} else {
-			unclesHash = common.SpxHash([]byte("no-uncles"))
-		}
-	}
-
-	// FIX: Ensure extraData is never nil
+	// Ensure extraData is never nil
 	if extraData == nil {
 		extraData = []byte{}
 	}
 
-	// FIX: Ensure miner is never nil
+	// Ensure miner is never nil
 	if miner == nil {
 		miner = make([]byte, 20) // Default zero address
+	}
+
+	// For genesis block, parentHash should be empty
+	if height == 0 && len(parentHash) == 0 {
+		parentHash = make([]byte, 32) // Empty hash for genesis
 	}
 
 	return &BlockHeader{
@@ -83,7 +67,7 @@ func NewBlockHeader(height uint64, prevHash []byte, difficulty *big.Int, txsRoot
 		Block:      height,
 		Height:     height,
 		Timestamp:  timestamp,
-		PrevHash:   prevHash,
+		ParentHash: parentHash, // Main chain continuity
 		Hash:       []byte{},
 		Difficulty: difficulty,
 		Nonce:      uint64(0),
@@ -91,24 +75,20 @@ func NewBlockHeader(height uint64, prevHash []byte, difficulty *big.Int, txsRoot
 		StateRoot:  stateRoot,
 		GasLimit:   gasLimit,
 		GasUsed:    gasUsed,
-		ParentHash: parentHash, // Now properly set for all blocks
-		UnclesHash: unclesHash, // Now meaningful for all blocks
+		UnclesHash: unclesHash, // References side blocks
 		ExtraData:  extraData,
 		Miner:      miner,
 	}
 }
 
-// NewBlockBody creates a new BlockBody with a list of transactions and uncles hash.
-func NewBlockBody(txsList []*Transaction, unclesHash []byte) *BlockBody {
-	// FIX: Always set a meaningful uncles hash if empty
-	if len(unclesHash) == 0 {
-		// Create a meaningful uncles hash based on current timestamp
-		timestampData := []byte(fmt.Sprintf("uncles-%d", time.Now().UnixNano()))
-		unclesHash = common.SpxHash(timestampData)
-	}
+// NewBlockBody creates a new BlockBody with transactions and actual uncle blocks
+func NewBlockBody(txsList []*Transaction, uncles []*BlockHeader) *BlockBody {
+	// Calculate uncles hash from actual uncle blocks
+	unclesHash := CalculateUnclesHash(uncles)
 
 	return &BlockBody{
 		TxsList:    txsList,
+		Uncles:     uncles,
 		UnclesHash: unclesHash,
 	}
 }
@@ -121,11 +101,98 @@ func NewBlock(header *BlockHeader, body *BlockBody) *Block {
 	}
 }
 
-// GenerateBlockHash generates the hash of the block using the BlockHeader's fields and SphinxHash.
-// GenerateBlockHash generates the hash of the block and ALWAYS returns hex-encoded string
+// CalculateUnclesHash calculates the Merkle root of uncle block headers
+func CalculateUnclesHash(uncles []*BlockHeader) []byte {
+	if len(uncles) == 0 {
+		// Standard empty uncles hash
+		return common.SpxHash([]byte{})
+	}
+
+	// Calculate Merkle root of uncle block headers
+	var uncleHashes [][]byte
+	for _, uncle := range uncles {
+		if uncle != nil && len(uncle.Hash) > 0 {
+			uncleHashes = append(uncleHashes, uncle.Hash)
+		}
+	}
+
+	if len(uncleHashes) == 0 {
+		return common.SpxHash([]byte{})
+	}
+
+	return CalculateMerkleRootFromHashes(uncleHashes)
+}
+
+// CalculateMerkleRootFromHashes calculates Merkle root from a list of hashes
+func CalculateMerkleRootFromHashes(hashes [][]byte) []byte {
+	if len(hashes) == 0 {
+		return common.SpxHash([]byte{})
+	}
+	if len(hashes) == 1 {
+		return hashes[0]
+	}
+
+	// Build Merkle tree from hashes
+	var nodes []*MerkleNode
+	for _, hash := range hashes {
+		nodes = append(nodes, &MerkleNode{Hash: hash, IsLeaf: true})
+	}
+
+	for len(nodes) > 1 {
+		var newLevel []*MerkleNode
+		for i := 0; i < len(nodes); i += 2 {
+			if i+1 < len(nodes) {
+				// Hash concatenation of left and right
+				combined := append(nodes[i].Hash, nodes[i+1].Hash...)
+				newNode := &MerkleNode{
+					Left:  nodes[i],
+					Right: nodes[i+1],
+					Hash:  common.SpxHash(combined),
+				}
+				newLevel = append(newLevel, newNode)
+			} else {
+				// Odd number, duplicate the last one
+				combined := append(nodes[i].Hash, nodes[i].Hash...)
+				newNode := &MerkleNode{
+					Left:  nodes[i],
+					Right: &MerkleNode{Hash: nodes[i].Hash},
+					Hash:  common.SpxHash(combined),
+				}
+				newLevel = append(newLevel, newNode)
+			}
+		}
+		nodes = newLevel
+	}
+
+	return nodes[0].Hash
+}
+
+// GenerateBlockHash generates the block hash with proper parent-uncle relationships
 func (b *Block) GenerateBlockHash() []byte {
 	if b.Header == nil {
 		return []byte{}
+	}
+
+	// Ensure UnclesHash is calculated from actual uncle blocks
+	calculatedUnclesHash := CalculateUnclesHash(b.Body.Uncles)
+	if !bytes.Equal(b.Header.UnclesHash, calculatedUnclesHash) {
+		log.Printf("WARNING: UnclesHash doesn't match calculated uncles, updating UnclesHash")
+		b.Header.UnclesHash = calculatedUnclesHash
+	}
+
+	// Ensure TxsRoot is calculated from Merkle tree
+	if len(b.Body.TxsList) > 0 {
+		calculatedMerkleRoot := b.CalculateTxsRoot()
+		if !bytes.Equal(b.Header.TxsRoot, calculatedMerkleRoot) {
+			log.Printf("WARNING: TxsRoot doesn't match calculated Merkle root, updating TxsRoot")
+			b.Header.TxsRoot = calculatedMerkleRoot
+		}
+	} else {
+		// For empty blocks, ensure TxsRoot is the hash of empty data
+		emptyHash := common.SpxHash([]byte{})
+		if len(b.Header.TxsRoot) == 0 || !bytes.Equal(b.Header.TxsRoot, emptyHash) {
+			b.Header.TxsRoot = emptyHash
+		}
 	}
 
 	// Convert numeric fields to byte arrays
@@ -141,74 +208,44 @@ func (b *Block) GenerateBlockHash() []byte {
 	nonceBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(nonceBytes, b.Header.Nonce)
 
-	// ENSURE TxsRoot is always calculated from Merkle tree before hash generation
-	if len(b.Body.TxsList) > 0 {
-		// Always recalculate TxsRoot to ensure it matches MerkleRoot
-		calculatedMerkleRoot := b.CalculateTxsRoot()
-		if !bytes.Equal(b.Header.TxsRoot, calculatedMerkleRoot) {
-			log.Printf("WARNING: TxsRoot doesn't match calculated Merkle root, updating TxsRoot")
-			b.Header.TxsRoot = calculatedMerkleRoot
-		}
-	} else {
-		// For empty blocks, ensure TxsRoot is the hash of empty data
-		emptyHash := common.SpxHash([]byte{})
-		if len(b.Header.TxsRoot) == 0 || !bytes.Equal(b.Header.TxsRoot, emptyHash) {
-			b.Header.TxsRoot = emptyHash
-		}
-	}
-
 	// Include ALL important header fields in the hash calculation
 	headerData := versionBytes                                      // Version
 	headerData = append(headerData, blockNumBytes...)               // Block number/height
 	headerData = append(headerData, timestampBytes...)              // Timestamp
-	headerData = append(headerData, b.Header.PrevHash...)           // Previous block hash
+	headerData = append(headerData, b.Header.ParentHash...)         // Parent hash (main chain continuity)
 	headerData = append(headerData, b.Header.TxsRoot...)            // Transactions Merkle root
 	headerData = append(headerData, b.Header.StateRoot...)          // State Merkle root
 	headerData = append(headerData, nonceBytes...)                  // Nonce
 	headerData = append(headerData, b.Header.Difficulty.Bytes()...) // Difficulty
 	headerData = append(headerData, b.Header.GasLimit.Bytes()...)   // Gas limit
 	headerData = append(headerData, b.Header.GasUsed.Bytes()...)    // Gas used
-	headerData = append(headerData, b.Header.ParentHash...)         // Parent hash
-	headerData = append(headerData, b.Header.UnclesHash...)         // Uncles hash
+	headerData = append(headerData, b.Header.UnclesHash...)         // Uncles hash (side blocks reference)
 	headerData = append(headerData, b.Header.ExtraData...)          // Extra data
 	headerData = append(headerData, b.Header.Miner...)              // Miner address
 
 	// Use common.SpxHash to hash the concatenated data
 	hashBytes := common.SpxHash(headerData)
 
-	// CRITICAL FIX: ALWAYS return hex-encoded hash to avoid non-printable characters
+	// ALWAYS return hex-encoded hash to avoid non-printable characters
 	hexHash := hex.EncodeToString(hashBytes)
 
 	// SPECIAL CASE: Only for genesis block (height 0), prefix with "GENESIS_"
 	if b.Header.Height == 0 {
 		genesisHash := "GENESIS_" + hexHash
 		log.Printf("🔷 Genesis block hash created: %s", genesisHash)
+		log.Printf("🔷 Genesis ParentHash: %x (empty)", b.Header.ParentHash)
+		log.Printf("🔷 Genesis UnclesHash: %x", b.Header.UnclesHash)
 		return []byte(genesisHash)
 	}
 
 	// For all other blocks, return hex-encoded hash
-	log.Printf("🔷 Normal block hash created (hex): %s", hexHash)
+	log.Printf("🔷 Normal block %d hash created", b.Header.Height)
+	log.Printf("🔷 ParentHash: %x", b.Header.ParentHash)
+	log.Printf("🔷 UnclesHash: %x (%d uncles)", b.Header.UnclesHash, len(b.Body.Uncles))
 	return []byte(hexHash)
 }
 
-// generateGenesisHash creates a genesis block hash that starts with "GENESIS_"
-// This is ONLY used for the genesis block (height 0)
-func (b *Block) generateGenesisHash(originalHash []byte) []byte {
-	// Convert the hash to hex string (full length, not truncated)
-	fullHexHash := hex.EncodeToString(originalHash)
-
-	// Create the final genesis hash: "GENESIS_" + full_hex_hash
-	genesisHash := "GENESIS_" + fullHexHash
-
-	log.Printf("🔷 Genesis block hash created: %s", genesisHash)
-	log.Printf("🔷 Genesis hash length: %d characters", len(genesisHash))
-
-	// Return as byte array - this should preserve the text format
-	return []byte(genesisHash)
-}
-
 // GetHash returns the block hash as string
-// GetHash returns the block hash as string - now always returns printable string
 func (b *Block) GetHash() string {
 	if b.Header == nil || len(b.Header.Hash) == 0 {
 		return ""
@@ -264,19 +301,22 @@ func (b *Block) IsGenesisHash() bool {
 	return len(hash) > 8 && hash[:8] == "GENESIS_"
 }
 
-// CalculateTxsRoot calculates the Merkle root of all transactions in the block using proper Merkle tree
+// CalculateTxsRoot calculates the Merkle root of all transactions in the block
 func (b *Block) CalculateTxsRoot() []byte {
 	return CalculateMerkleRoot(b.Body.TxsList)
 }
 
-// FinalizeHash ensures TxsRoot is properly set before finalizing the block hash
-// FinalizeHash ensures TxsRoot is properly set before finalizing the block hash
+// FinalizeHash ensures all roots are properly set before finalizing the block hash
 func (b *Block) FinalizeHash() {
 	if b.Header == nil {
 		return
 	}
+
 	// Ensure TxsRoot is calculated before generating the final hash
 	b.Header.TxsRoot = b.CalculateTxsRoot()
+
+	// Ensure UnclesHash is calculated from actual uncle blocks
+	b.Header.UnclesHash = CalculateUnclesHash(b.Body.Uncles)
 
 	// Generate the hash (this now returns hex-encoded bytes)
 	hashBytes := b.GenerateBlockHash()
@@ -293,7 +333,37 @@ func (b *Block) FinalizeHash() {
 	}
 
 	b.Header.Hash = hashBytes
-	log.Printf("✅ Finalized block hash: %s (length: %d)", string(hashBytes), len(hashBytes))
+	log.Printf("✅ Finalized block %d hash: %s", b.Header.Height, string(hashBytes))
+	log.Printf("✅ ParentHash: %x", b.Header.ParentHash)
+	log.Printf("✅ UnclesHash: %x (%d uncle blocks)", b.Header.UnclesHash, len(b.Body.Uncles))
+}
+
+// ValidateUnclesHash validates that UnclesHash matches the calculated uncles
+func (b *Block) ValidateUnclesHash() error {
+	if b.Header == nil {
+		return fmt.Errorf("block header is nil")
+	}
+
+	calculatedUnclesHash := CalculateUnclesHash(b.Body.Uncles)
+	if !bytes.Equal(b.Header.UnclesHash, calculatedUnclesHash) {
+		return fmt.Errorf("UnclesHash validation failed: expected %x, got %x (uncles count: %d)",
+			calculatedUnclesHash, b.Header.UnclesHash, len(b.Body.Uncles))
+	}
+	return nil
+}
+
+// AddUncle adds an uncle block to the block
+func (b *Block) AddUncle(uncle *BlockHeader) {
+	if uncle != nil {
+		b.Body.Uncles = append(b.Body.Uncles, uncle)
+		// Recalculate uncles hash
+		b.Header.UnclesHash = CalculateUnclesHash(b.Body.Uncles)
+	}
+}
+
+// GetUncles returns the list of uncle blocks
+func (b *Block) GetUncles() []*BlockHeader {
+	return b.Body.Uncles
 }
 
 // ValidateTxsRoot validates that TxsRoot matches the calculated Merkle root
@@ -315,7 +385,7 @@ func (b *Block) AddTxs(tx *Transaction) {
 	b.Body.TxsList = append(b.Body.TxsList, tx)
 }
 
-// Example of a function to create a transaction
+// NewTxs creates a new transaction and adds it to the block
 func NewTxs(to, from string, fee float64, storage string, nonce uint64, gasLimit, gasPrice *big.Int, block *Block, key string) error {
 	// Create a new Note
 	note, err := NewNote(to, from, fee, storage, key)
@@ -345,22 +415,20 @@ func (b *Block) Validate() error {
 	return b.SanityCheck()
 }
 
-// GetFormattedTimestamps returns both local and UTC formatted timestamps using centralized service
+// GetFormattedTimestamps returns both local and UTC formatted timestamps
 func (b *Block) GetFormattedTimestamps() (localTime, utcTime string) {
 	return common.FormatTimestamp(b.Header.Timestamp)
 }
 
-// GetTimeInfo returns comprehensive time information using centralized service
+// GetTimeInfo returns comprehensive time information
 func (b *Block) GetTimeInfo() *common.TimeInfo {
 	return common.GetTimeService().GetTimeInfo(b.Header.Timestamp)
 }
 
-// MarshalJSON custom marshaling for BlockHeader to prevent base64 encoding
+// MarshalJSON custom marshaling for BlockHeader
 func (h *BlockHeader) MarshalJSON() ([]byte, error) {
 	type Alias BlockHeader
-
 	return json.Marshal(&struct {
-		PrevHash   string `json:"prev_hash"`
 		Hash       string `json:"hash"`
 		TxsRoot    string `json:"txs_root"`
 		StateRoot  string `json:"state_root"`
@@ -370,8 +438,7 @@ func (h *BlockHeader) MarshalJSON() ([]byte, error) {
 		Miner      string `json:"miner"`
 		*Alias
 	}{
-		PrevHash:   hex.EncodeToString(h.PrevHash),
-		Hash:       string(h.Hash), // This should already be a printable string
+		Hash:       string(h.Hash),
 		TxsRoot:    hex.EncodeToString(h.TxsRoot),
 		StateRoot:  hex.EncodeToString(h.StateRoot),
 		ParentHash: hex.EncodeToString(h.ParentHash),
@@ -386,7 +453,6 @@ func (h *BlockHeader) MarshalJSON() ([]byte, error) {
 func (h *BlockHeader) UnmarshalJSON(data []byte) error {
 	type Alias BlockHeader
 	aux := &struct {
-		PrevHash   string `json:"prev_hash"`
 		Hash       string `json:"hash"`
 		TxsRoot    string `json:"txs_root"`
 		StateRoot  string `json:"state_root"`
@@ -404,36 +470,24 @@ func (h *BlockHeader) UnmarshalJSON(data []byte) error {
 	}
 
 	var err error
-
-	h.PrevHash, err = hex.DecodeString(aux.PrevHash)
-	if err != nil {
-		return fmt.Errorf("failed to decode prev_hash: %w", err)
-	}
-
 	h.Hash = []byte(aux.Hash)
-
 	h.TxsRoot, err = hex.DecodeString(aux.TxsRoot)
 	if err != nil {
 		return fmt.Errorf("failed to decode txs_root: %w", err)
 	}
-
 	h.StateRoot, err = hex.DecodeString(aux.StateRoot)
 	if err != nil {
 		return fmt.Errorf("failed to decode state_root: %w", err)
 	}
-
 	h.ParentHash, err = hex.DecodeString(aux.ParentHash)
 	if err != nil {
 		return fmt.Errorf("failed to decode parent_hash: %w", err)
 	}
-
 	h.UnclesHash, err = hex.DecodeString(aux.UnclesHash)
 	if err != nil {
 		return fmt.Errorf("failed to decode uncles_hash: %w", err)
 	}
-
 	h.ExtraData = []byte(aux.ExtraData)
-
 	h.Miner, err = hex.DecodeString(aux.Miner)
 	if err != nil {
 		return fmt.Errorf("failed to decode miner: %w", err)
@@ -442,11 +496,9 @@ func (h *BlockHeader) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Custom JSON marshaling for Block to prevent base64 encoding
+// MarshalJSON for Block
 func (b *Block) MarshalJSON() ([]byte, error) {
 	type Alias Block
-
-	// Create a custom structure that converts all []byte fields to hex strings
 	return json.Marshal(&struct {
 		Header *BlockHeader `json:"header"`
 		Body   *BlockBody   `json:"body"`
@@ -458,7 +510,7 @@ func (b *Block) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// Custom JSON unmarshaling for Block
+// UnmarshalJSON for Block
 func (b *Block) UnmarshalJSON(data []byte) error {
 	type Alias Block
 	aux := &struct {
@@ -478,24 +530,26 @@ func (b *Block) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Custom JSON marshaling for BlockBody to prevent base64 encoding
+// MarshalJSON for BlockBody
 func (b *BlockBody) MarshalJSON() ([]byte, error) {
 	type Alias BlockBody
-
 	return json.Marshal(&struct {
-		UnclesHash string `json:"uncles_hash"`
+		Uncles     []*BlockHeader `json:"uncles"`
+		UnclesHash string         `json:"uncles_hash"`
 		*Alias
 	}{
+		Uncles:     b.Uncles,
 		UnclesHash: hex.EncodeToString(b.UnclesHash),
 		Alias:      (*Alias)(b),
 	})
 }
 
-// Custom JSON unmarshaling for BlockBody
+// UnmarshalJSON for BlockBody
 func (b *BlockBody) UnmarshalJSON(data []byte) error {
 	type Alias BlockBody
 	aux := &struct {
-		UnclesHash string `json:"uncles_hash"`
+		Uncles     []*BlockHeader `json:"uncles"`
+		UnclesHash string         `json:"uncles_hash"`
 		*Alias
 	}{
 		Alias: (*Alias)(b),
@@ -505,6 +559,7 @@ func (b *BlockBody) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
+	b.Uncles = aux.Uncles
 	var err error
 	b.UnclesHash, err = hex.DecodeString(aux.UnclesHash)
 	if err != nil {
@@ -514,7 +569,7 @@ func (b *BlockBody) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Enhanced SanityCheck that validates TxsRoot = MerkleRoot with centralized time service
+// Enhanced SanityCheck that validates both TxsRoot and UnclesHash
 func (b *Block) SanityCheck() error {
 	if b.Header == nil {
 		return fmt.Errorf("block header is nil")
@@ -525,9 +580,9 @@ func (b *Block) SanityCheck() error {
 		return fmt.Errorf("invalid block timestamp: %w", err)
 	}
 
-	// Ensure PrevHash is not empty (except for the genesis block)
-	if b.Header.Height > 0 && len(b.Header.PrevHash) == 0 {
-		return fmt.Errorf("previous hash is missing for block number: %d", b.Header.Height)
+	// Ensure ParentHash is not empty (except for the genesis block)
+	if b.Header.Height > 0 && len(b.Header.ParentHash) == 0 {
+		return fmt.Errorf("parent hash is missing for block number: %d", b.Header.Height)
 	}
 
 	// Check if Difficulty is non-negative
@@ -538,6 +593,11 @@ func (b *Block) SanityCheck() error {
 	// VALIDATE THAT TxsRoot = MerkleRoot
 	if err := b.ValidateTxsRoot(); err != nil {
 		return fmt.Errorf("transaction root validation failed: %w", err)
+	}
+
+	// VALIDATE THAT UnclesHash matches actual uncles
+	if err := b.ValidateUnclesHash(); err != nil {
+		return fmt.Errorf("uncles hash validation failed: %w", err)
 	}
 
 	// Check GasUsed does not exceed GasLimit
@@ -552,13 +612,20 @@ func (b *Block) SanityCheck() error {
 		}
 	}
 
-	log.Printf("✓ Block %d TxsRoot validated: TxsRoot = MerkleRoot = %x",
-		b.Header.Height, b.Header.TxsRoot)
+	// Validate uncle blocks
+	for i, uncle := range b.Body.Uncles {
+		if uncle == nil {
+			return fmt.Errorf("uncle block %d is nil", i)
+		}
+		if len(uncle.Hash) == 0 {
+			return fmt.Errorf("uncle block %d has empty hash", i)
+		}
+	}
 
-	// Log timestamp information using centralized service
-	localTime, utcTime := common.FormatTimestamp(b.Header.Timestamp)
-	log.Printf("✓ Block %d Timestamp: Local=%s, UTC=%s",
-		b.Header.Height, localTime, utcTime)
+	log.Printf("✓ Block %d validation passed:", b.Header.Height)
+	log.Printf("  TxsRoot = MerkleRoot = %x", b.Header.TxsRoot)
+	log.Printf("  UnclesHash validated with %d uncle blocks", len(b.Body.Uncles))
+	log.Printf("  ParentHash: %x", b.Header.ParentHash)
 
 	return nil
 }

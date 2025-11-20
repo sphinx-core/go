@@ -24,10 +24,12 @@
 package core
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/sphinx-core/go/src/consensus"
 	types "github.com/sphinx-core/go/src/core/transaction"
+	storage "github.com/sphinx-core/go/src/state"
 )
 
 // NewBlockHelper creates a new adapter for types.Block
@@ -71,4 +73,26 @@ func (a *BlockHelper) GetDifficulty() *big.Int {
 // GetUnderlyingBlock returns the underlying types.Block
 func (a *BlockHelper) GetUnderlyingBlock() *types.Block {
 	return a.block
+}
+
+// In core/block_helper.go or wherever BlockHelper is defined
+func (b *BlockHelper) GetMerkleRoot() string {
+	if b.block != nil && b.block.Header != nil {
+		return fmt.Sprintf("%x", b.block.Header.TxsRoot)
+	}
+	return ""
+}
+
+func (b *BlockHelper) ExtractMerkleRoot() string {
+	if b.block != nil && b.block.Header != nil {
+		return fmt.Sprintf("%x", b.block.Header.TxsRoot)
+	}
+	return ""
+}
+
+// GetStateMachine returns the state machine instance
+func (bc *Blockchain) GetStateMachine() *storage.StateMachine {
+	bc.lock.RLock()
+	defer bc.lock.RUnlock()
+	return bc.stateMachine
 }

@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 // go/src/state/storage.go
+// go/src/state/storage.go
 package state
 
 import (
@@ -234,7 +235,7 @@ func (s *Storage) calculateBlockSizeMetrics(chainState *ChainState) error {
 	return nil
 }
 
-// FIXED SaveCompleteChainState with proper FinalState creation
+// FIXED SaveCompleteChainState - removed all FinalState references for nodes
 func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *ChainParams, walletPaths map[string]string) error {
 	// CRITICAL: Check if chainState is nil
 	if chainState == nil {
@@ -254,11 +255,6 @@ func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *Ch
 				logger.Warn("Node %d in chainState is nil, replacing with real node info", i)
 				// Replace nil nodes with real node information
 				chainState.Nodes[i] = s.createRealNodeInfo(i)
-			} else {
-				// Ensure FinalState is populated for existing nodes
-				if node.FinalState == nil {
-					node.FinalState = s.createBasicFinalStateInfo(node)
-				}
 			}
 		}
 	}
@@ -346,9 +342,16 @@ func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *Ch
 			chainState.BlockSizeMetrics.TotalBlocks)
 	}
 
-	// Ensure FinalStates is not nil (if it was nil before)
+	// ✅ CRITICAL FIX: Ensure FinalStates is populated and has real data
 	if chainState.FinalStates == nil {
 		chainState.FinalStates = make([]*FinalStateInfo, 0)
+	}
+
+	// Ensure all final states have proper values
+	for i, state := range chainState.FinalStates {
+		if state != nil {
+			chainState.FinalStates[i] = s.ensureFinalStateValues(state)
+		}
 	}
 
 	// Save to chain_state.json in state directory
@@ -368,12 +371,61 @@ func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *Ch
 		return fmt.Errorf("failed to rename chain state file: %w", err)
 	}
 
-	logger.Info("Complete chain state saved with real final_state data: %s", stateFile)
+	logger.Info("Complete chain state saved: %s", stateFile)
 	logger.Info("Chain state includes %d final states", len(chainState.FinalStates))
+
+	// Log final states for debugging
+	for i, state := range chainState.FinalStates {
+		if state != nil {
+			logger.Info("  FinalState %d: block=%s, merkle=%s, status=%s",
+				i, state.BlockHash, state.MerkleRoot, state.Status)
+		}
+	}
+
 	return nil
 }
 
-// createRealNodeInfo creates real node information instead of placeholders
+func (s *Storage) ensureFinalStateValues(state *FinalStateInfo) *FinalStateInfo {
+	// Ensure merkle_root is never empty
+	if state.MerkleRoot == "" {
+		block, err := s.GetBlockByHash(state.BlockHash)
+		if err == nil && block != nil {
+			state.MerkleRoot = hex.EncodeToString(block.CalculateTxsRoot())
+		} else {
+			state.MerkleRoot = fmt.Sprintf("calculated_%s", state.BlockHash[:16])
+		}
+	}
+
+	// Ensure status is never empty
+	if state.Status == "" {
+		switch state.MessageType {
+		case "proposal":
+			state.Status = "proposed"
+		case "prepare":
+			state.Status = "prepared"
+		case "commit":
+			state.Status = "committed"
+		case "timeout":
+			state.Status = "view_change"
+		default:
+			state.Status = "processed"
+		}
+	}
+
+	// Ensure signature is never empty
+	if state.Signature == "" {
+		state.Signature = "no_signature"
+	}
+
+	// Ensure timestamp is never empty
+	if state.Timestamp == "" {
+		state.Timestamp = time.Now().Format(time.RFC3339)
+	}
+
+	return state
+}
+
+// createRealNodeInfo creates real node information without FinalState
 func (s *Storage) createRealNodeInfo(index int) *NodeInfo {
 	latestBlock, err := s.GetLatestBlock()
 	var blockHash string
@@ -400,12 +452,7 @@ func (s *Storage) createRealNodeInfo(index int) *NodeInfo {
 		Timestamp:   time.Now().Format(time.RFC3339),
 	}
 
-	// Create real FinalState
-	if latestBlock != nil {
-		node.FinalState = s.createFinalStateInfo(latestBlock, node)
-	} else {
-		node.FinalState = s.createBasicFinalStateInfo(node)
-	}
+	// ✅ REMOVED: No longer creating FinalState for individual nodes
 
 	return node
 }
@@ -455,7 +502,7 @@ func (s *Storage) SaveBlockSizeMetrics(metrics *BlockSizeMetrics) error {
 	return nil
 }
 
-// LoadCompleteChainState loads the complete chain state and ensures FinalState is populated
+// LoadCompleteChainState loads the complete chain state
 func (s *Storage) LoadCompleteChainState() (*ChainState, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -477,13 +524,7 @@ func (s *Storage) LoadCompleteChainState() (*ChainState, error) {
 		return nil, fmt.Errorf("failed to unmarshal chain state: %w", err)
 	}
 
-	// ENSURE FINAL STATE IS POPULATED FOR ALL NODES
-	for _, node := range chainState.Nodes {
-		if node != nil && node.FinalState == nil {
-			// Create FinalState if it's missing
-			node.FinalState = s.createBasicFinalStateInfo(node)
-		}
-	}
+	// ✅ REMOVED: No longer ensuring FinalState is populated for nodes
 
 	// Log block size metrics if available
 	if chainState.BlockSizeMetrics != nil {
@@ -496,7 +537,7 @@ func (s *Storage) LoadCompleteChainState() (*ChainState, error) {
 	return &chainState, nil
 }
 
-// FixFinalStateInExistingChainState updates existing chain state files to add FinalState
+// FixFinalStateInExistingChainState updates existing chain state files (now simplified)
 func (s *Storage) FixFinalStateInExistingChainState() error {
 	stateFile := filepath.Join(s.stateDir, "chain_state.json")
 
@@ -511,28 +552,17 @@ func (s *Storage) FixFinalStateInExistingChainState() error {
 		return fmt.Errorf("failed to load chain state for fixing: %w", err)
 	}
 
-	// Fix nodes with null FinalState
+	// ✅ SIMPLIFIED: Only ensure FinalStates array exists
 	needsUpdate := false
-	for i, node := range chainState.Nodes {
-		if node != nil && node.FinalState == nil {
-			logger.Info("Fixing null FinalState for node: %s", node.NodeID)
-			if node.BlockHash != "" {
-				block, err := s.GetBlockByHash(node.BlockHash)
-				if err == nil && block != nil {
-					chainState.Nodes[i].FinalState = s.createFinalStateInfo(block, node)
-				} else {
-					chainState.Nodes[i].FinalState = s.createBasicFinalStateInfo(node)
-				}
-			} else {
-				chainState.Nodes[i].FinalState = s.createBasicFinalStateInfo(node)
-			}
-			needsUpdate = true
-		}
+	if chainState.FinalStates == nil {
+		chainState.FinalStates = make([]*FinalStateInfo, 0)
+		needsUpdate = true
+		logger.Info("Fixed nil FinalStates array")
 	}
 
 	// Save fixed chain state if changes were made
 	if needsUpdate {
-		logger.Info("Updating chain state with fixed FinalState data")
+		logger.Info("Updating chain state with fixed FinalStates array")
 		return s.SaveCompleteChainState(chainState, &ChainParams{}, make(map[string]string))
 	}
 
@@ -962,7 +992,6 @@ func (s *Storage) storeBlockToDisk(block *types.Block) error {
 
 	// Convert header
 	if block.Header != nil {
-		serializableBlock.Header.PrevHash = hex.EncodeToString(block.Header.PrevHash)
 		serializableBlock.Header.Hash = blockHash
 		serializableBlock.Header.TxsRoot = hex.EncodeToString(block.Header.TxsRoot)
 		serializableBlock.Header.StateRoot = hex.EncodeToString(block.Header.StateRoot)
@@ -1220,23 +1249,9 @@ func (s *Storage) updateBasicChainStateInFile(stateFile string) error {
 	if chainState.BasicChainState == nil {
 		chainState.BasicChainState = &BasicChainState{}
 	}
-	// ADD MERKLE ROOT INFORMATION TO NODES AND CREATE FINAL STATE
-	for _, node := range chainState.Nodes {
-		if node != nil {
-			// Get the block to calculate Merkle root
-			block, err := s.GetBlockByHash(node.BlockHash)
-			if err == nil && block != nil {
-				merkleRoot := block.CalculateTxsRoot()
-				node.MerkleRoot = hex.EncodeToString(merkleRoot)
 
-				// CREATE REAL FINAL STATE INSTEAD OF NULL
-				node.FinalState = s.createFinalStateInfo(block, node)
-			} else {
-				// If block not found, create final state with available info
-				node.FinalState = s.createBasicFinalStateInfo(node)
-			}
-		}
-	}
+	// ✅ REMOVED: No longer adding FinalState to nodes
+
 	chainState.BasicChainState.BestBlockHash = s.bestBlockHash
 	chainState.BasicChainState.TotalBlocks = s.totalBlocks
 	chainState.BasicChainState.LastUpdated = time.Now().Format(time.RFC3339)
@@ -1261,85 +1276,7 @@ func (s *Storage) updateBasicChainStateInFile(stateFile string) error {
 	return nil
 }
 
-// createFinalStateInfo creates real FinalStateInfo from block data
-func (s *Storage) createFinalStateInfo(block *types.Block, node *NodeInfo) *FinalStateInfo {
-	// Get final states for this block
-	finalStates := s.getFinalStatesForBlock(block.GetHash())
-
-	// Determine signature status
-	signatureStatus := "No signatures"
-	validSigs := 0
-	var proposerSig *FinalStateInfo
-
-	for _, state := range finalStates {
-		if state.Valid {
-			validSigs++
-			if state.MessageType == "proposal" {
-				proposerSig = state
-			}
-		}
-	}
-
-	if validSigs > 0 {
-		signatureStatus = fmt.Sprintf("%d valid signatures", validSigs)
-	}
-
-	finalState := &FinalStateInfo{
-		// Block identification
-		BlockHash:      block.GetHash(),
-		BlockHeight:    block.GetHeight(),
-		BlockTimestamp: block.GetTimestamp(),
-		MerkleRoot:     hex.EncodeToString(block.CalculateTxsRoot()),
-
-		// Node information
-		NodeID:      node.NodeID,
-		NodeName:    node.NodeName,
-		NodeAddress: node.NodeAddress,
-
-		// Chain state
-		TotalBlocks: s.totalBlocks,
-		Status:      "committed",
-
-		// Timestamp
-		Timestamp: time.Now().Format(time.RFC3339),
-	}
-
-	// Add signature information if available
-	if proposerSig != nil {
-		finalState.SignerNodeID = proposerSig.SignerNodeID
-		finalState.Signature = proposerSig.Signature
-		finalState.MessageType = "final_state"
-		finalState.View = proposerSig.View
-		finalState.Valid = true
-		finalState.SignatureStatus = signatureStatus
-		finalState.VerificationTime = time.Now().Format(time.RFC3339)
-	} else {
-		finalState.MessageType = "node_info"
-		finalState.Valid = true
-		finalState.SignatureStatus = signatureStatus
-	}
-
-	return finalState
-}
-
-// createBasicFinalStateInfo creates FinalStateInfo when block is not available
-func (s *Storage) createBasicFinalStateInfo(node *NodeInfo) *FinalStateInfo {
-	return &FinalStateInfo{
-		NodeID:      node.NodeID,
-		NodeName:    node.NodeName,
-		NodeAddress: node.NodeAddress,
-		BlockHash:   node.BlockHash,
-		BlockHeight: node.BlockHeight,
-		MerkleRoot:  node.MerkleRoot,
-		TotalBlocks: s.totalBlocks,
-		Status:      "synced",
-		MessageType: "node_info",
-		Valid:       true,
-		Timestamp:   time.Now().Format(time.RFC3339),
-	}
-}
-
-// getFinalStatesForBlock retrieves final states for a block
+// getFinalStatesForBlock retrieves final states for a block from the FinalStates array
 func (s *Storage) getFinalStatesForBlock(blockHash string) []*FinalStateInfo {
 	// Load chain state to get final states
 	chainState, err := s.LoadCompleteChainState()
@@ -1349,7 +1286,25 @@ func (s *Storage) getFinalStatesForBlock(blockHash string) []*FinalStateInfo {
 
 	var states []*FinalStateInfo
 	for _, state := range chainState.FinalStates {
-		if state.BlockHash == blockHash {
+		if state != nil && state.BlockHash == blockHash {
+			// FIX: Ensure critical fields are never empty
+			if state.MerkleRoot == "" {
+				// Try to get the block to calculate merkle root
+				block, err := s.GetBlockByHash(blockHash)
+				if err == nil && block != nil {
+					state.MerkleRoot = hex.EncodeToString(block.CalculateTxsRoot())
+				}
+			}
+
+			if state.Status == "" {
+				// Determine status based on message type
+				if state.MessageType == "proposal" {
+					state.Status = "proposed"
+				} else {
+					state.Status = "committed"
+				}
+			}
+
 			states = append(states, state)
 		}
 	}

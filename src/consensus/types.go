@@ -47,6 +47,11 @@ type Block interface {
 	GetDifficulty() *big.Int // Returns the block difficulty
 }
 
+// MerkleRootExtractor is a separate interface for blocks that can provide merkle roots
+type MerkleRootExtractor interface {
+	ExtractMerkleRoot() string
+}
+
 // BlockWithBody extends the basic Block interface for blocks that have bodies
 type BlockWithBody interface {
 	Block
@@ -81,6 +86,12 @@ type BlockChain interface {
 	ValidateBlock(block Block) error  // Validates a block against chain rules
 	CommitBlock(block Block) error    // Permanently adds a block to the chain
 	GetBlockByHash(hash string) Block // Retrieves a block by its hash
+}
+
+// Add to consensus/types.go
+type ConsensusWithForcePopulation interface {
+	GetConsensusSignatures() []*ConsensusSignature
+	ForcePopulateAllSignatures()
 }
 
 // NodeManager interface to abstract network functionality
@@ -166,11 +177,11 @@ type Consensus struct {
 	// View change and timing control
 	lastBlockTime time.Time // Last time a block was committed
 
-	consensusSignatures []*ConsensusSignature
+	// ADD THESE CACHE FIELDS:
+	merkleRootCache     map[string]string
+	cacheMutex          sync.RWMutex
 	signatureMutex      sync.RWMutex
-
-	// Add this field to track pending proposals for recovery
-	pendingProposal *Proposal
+	consensusSignatures []*ConsensusSignature
 }
 
 // SigningService handles cryptographic signing for consensus messages
@@ -205,6 +216,8 @@ type ConsensusSignature struct {
 	View         uint64 `json:"view"`
 	Timestamp    string `json:"timestamp"`
 	Valid        bool   `json:"valid"`
+	MerkleRoot   string `json:"merkle_root"` // ADD THIS - MUST BE INCLUDED
+	Status       string `json:"status"`      // ADD THIS - MUST BE INCLUDED
 }
 
 // SignatureValidation contains statistics about signature validation

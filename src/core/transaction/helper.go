@@ -35,12 +35,12 @@ func (b *Block) GetHeight() uint64 {
 
 // GetPrevHash returns the previous block hash as printable string
 func (b *Block) GetPrevHash() string {
-	if b.Header == nil || len(b.Header.PrevHash) == 0 {
+	if b.Header == nil || len(b.Header.ParentHash) == 0 {
 		return ""
 	}
 
 	// Check if it's already a valid string
-	prevHashStr := string(b.Header.PrevHash)
+	prevHashStr := string(b.Header.ParentHash)
 
 	// If it's a genesis hash in text format, return as-is
 	if len(prevHashStr) > 8 && prevHashStr[:8] == "GENESIS_" {
@@ -51,7 +51,7 @@ func (b *Block) GetPrevHash() string {
 	for _, r := range prevHashStr {
 		if r < 32 || r > 126 {
 			// Contains non-printable chars, convert to hex
-			return hex.EncodeToString(b.Header.PrevHash)
+			return hex.EncodeToString(b.Header.ParentHash)
 		}
 	}
 

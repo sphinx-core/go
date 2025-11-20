@@ -172,7 +172,7 @@ type ChainState struct {
 	// Signature validation section (now simplified)
 	SignatureValidation *SignatureValidation `json:"signature_validation,omitempty"`
 
-	// REPLACED: ConsensusSignatures with FinalStateInfo array
+	// ✅ CORRECT: Only one final_states array
 	FinalStates []*FinalStateInfo `json:"final_states,omitempty"`
 }
 
@@ -283,9 +283,6 @@ type NodeInfo struct {
 	BlockHash   string                 `json:"block_hash"`
 	MerkleRoot  string                 `json:"merkle_root"`
 	Timestamp   string                 `json:"timestamp"`
-
-	// UPDATED: FinalState is now a single FinalStateInfo instead of separate struct
-	FinalState *FinalStateInfo `json:"final_state"`
 }
 
 // BlockInfo represents detailed block information

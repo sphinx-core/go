@@ -30,37 +30,37 @@ import (
 
 // BlockHeader represents the metadata for a block in the blockchain.
 type BlockHeader struct {
-	Version    uint64   `json:"version"`   // Block version
-	Block      uint64   `json:"nblock"`    // The position of the block in the blockchain (index)
-	Height     uint64   `json:"height"`    // Block height (same as Block)
-	Timestamp  int64    `json:"timestamp"` // The timestamp when the block is mined
-	PrevHash   []byte   `json:"prev_hash"` // Hash of the previous block (direct predecessor)
-	Hash       []byte   `json:"hash"`
+	Version    uint64   `json:"version"`     // Block version
+	Block      uint64   `json:"nblock"`      // The position of the block in the blockchain (index)
+	Height     uint64   `json:"height"`      // Block height (same as Block)
+	Timestamp  int64    `json:"timestamp"`   // The timestamp when the block is mined
+	ParentHash []byte   `json:"parent_hash"` // Hash of the previous block (main chain continuity)
+	Hash       []byte   `json:"hash"`        // This block's hash
 	Difficulty *big.Int `json:"difficulty"`  // Difficulty level of mining the block
 	Nonce      uint64   `json:"nonce"`       // The nonce used in mining
 	TxsRoot    []byte   `json:"txs_root"`    // Merkle root of the transactions in the block
 	StateRoot  []byte   `json:"state_root"`  // Merkle root of the state (EVM-like state)
 	GasLimit   *big.Int `json:"gas_limit"`   // The maximum gas that can be used in the block
 	GasUsed    *big.Int `json:"gas_used"`    // The actual gas used by the transactions
-	ParentHash []byte   `json:"parent_hash"` // The hash of the parent block (alternative to PrevHash)
-	UnclesHash []byte   `json:"uncles_hash"` // The hash of the uncles (previous block headers, also known as ommers)
+	UnclesHash []byte   `json:"uncles_hash"` // Hash of the uncles (references side blocks)
 	ExtraData  []byte   `json:"extra_data"`  // Extra data field for additional information
 	Miner      []byte   `json:"miner"`       // Miner address (20 bytes)
 }
 
-// BlockBody represents the transactions and other data inside the block.
+// BlockBody represents the transactions and uncle blocks.
 type BlockBody struct {
 	TxsList    []*Transaction `json:"txs_list"`    // A list of transactions in the block
-	UnclesHash []byte         `json:"uncles_hash"` // Hash representing uncles (previous block headers, ommers)
+	Uncles     []*BlockHeader `json:"uncles"`      // Actual uncle blocks (side chains)
+	UnclesHash []byte         `json:"uncles_hash"` // Hash representing uncles (calculated from uncles)
 }
 
 // Block represents the entire block structure including the header and body.
 type Block struct {
-	Header *BlockHeader `json:"header"` // Changed to pointer for consistency
+	Header *BlockHeader `json:"header"`
 	Body   BlockBody    `json:"body"`
 }
 
-// Transaction and other types remain the same...
+// Transaction represents a blockchain transaction
 type Transaction struct {
 	ID        string   `json:"id"`
 	Sender    string   `json:"sender"`

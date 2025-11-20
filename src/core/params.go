@@ -46,8 +46,9 @@ func (m *MockChainParamsProvider) GetWalletDerivationPaths() map[string]string {
 }
 
 // GetSphinxChainParams returns the mainnet parameters
+// GetSphinxChainParams returns the mainnet parameters
 func GetSphinxChainParams() *SphinxChainParameters {
-	// Use the consistent genesis hash
+	// Use the STANDARDIZED genesis hash that all nodes will use
 	genesisHash := GetGenesisHash()
 
 	return &SphinxChainParameters{
@@ -55,13 +56,15 @@ func GetSphinxChainParams() *SphinxChainParameters {
 		ChainID:       7331,
 		ChainName:     "Sphinx Mainnet",
 		Symbol:        "SPX",
-		GenesisTime:   1732070400, // Fixed genesis timestamp
+		GenesisTime:   1732070400, // Fixed genesis timestamp - MUST MATCH genesisBlockDefinition
 		GenesisHash:   genesisHash,
 		Version:       "1.0.0",
 		MagicNumber:   0x53504858, // "SPHX"
 		DefaultPort:   32307,
 		BIP44CoinType: 7331,
 		LedgerName:    "Sphinx",
+
+		// ... rest of your existing code remains the same ...
 		Denominations: map[string]*big.Int{
 			"nSPX": big.NewInt(1),    // Base unit
 			"uSPX": big.NewInt(1e3),  // Micro SPX
@@ -77,12 +80,12 @@ func GetSphinxChainParams() *SphinxChainParameters {
 		BlockGasLimit:      big.NewInt(10000000),   // 10 million gas
 		BaseBlockReward:    big.NewInt(5000000000), // 5 SPX in base units
 
-		// Genesis-specific configuration
+		// Genesis-specific configuration - MUST MATCH genesisBlockDefinition
 		GenesisConfig: &GenesisConfig{
 			InitialDifficulty: big.NewInt(17179869184),
 			InitialGasLimit:   big.NewInt(5000),
 			GenesisNonce:      66,
-			GenesisExtraData:  []byte("Sphinx Network Genesis Block - Humanity Future"),
+			GenesisExtraData:  []byte("Sphinx Network Genesis Block - Decentralized Future"),
 		},
 
 		// Mempool Configuration

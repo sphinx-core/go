@@ -34,7 +34,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"
 	"github.com/sphinx-core/go/src/common"
 	"github.com/sphinx-core/go/src/consensus"
 	"github.com/sphinx-core/go/src/core"
@@ -52,53 +51,6 @@ import (
 	"github.com/sphinx-core/go/src/state"
 	"github.com/syndtr/goleveldb/leveldb"
 )
-
-// Add this function to exchange public keys between nodes
-// Enhanced key exchange function
-func exchangePublicKeys(signingServices map[string]*consensus.SigningService, nodeIDs []string) {
-	logger.Info("=== EXCHANGING PUBLIC KEYS BETWEEN %d NODES ===", len(nodeIDs))
-
-	// First, collect all public keys
-	publicKeys := make(map[string]*sphincs.SPHINCS_PK)
-	for _, nodeID := range nodeIDs {
-		signingService := signingServices[nodeID]
-		if signingService == nil {
-			logger.Warn("No signing service for node %s", nodeID)
-			continue
-		}
-
-		publicKey := signingService.GetPublicKeyObject()
-		if publicKey == nil {
-			logger.Warn("No public key for node %s", nodeID)
-			continue
-		}
-
-		publicKeys[nodeID] = publicKey
-		logger.Info("Collected public key for node %s", nodeID)
-	}
-
-	// Then register all public keys with all nodes
-	for _, nodeID := range nodeIDs {
-		signingService := signingServices[nodeID]
-		if signingService == nil {
-			continue
-		}
-
-		registeredCount := 0
-		for otherNodeID, publicKey := range publicKeys {
-			if nodeID == otherNodeID {
-				continue // Don't register our own key
-			}
-
-			signingService.RegisterPublicKey(otherNodeID, publicKey)
-			registeredCount++
-		}
-
-		logger.Info("Node %s registered %d public keys", nodeID, registeredCount)
-	}
-
-	logger.Info("✅ Public key exchange completed: %d nodes exchanged keys", len(nodeIDs))
-}
 
 // Updated CallConsensus function using only network addresses
 // Updated CallConsensus function using only network addresses
@@ -755,12 +707,47 @@ func CallConsensus(numNodes int) error {
 		logger.Info("✅ All %d nodes collected successfully", validCount)
 	}
 
-	// Save to all nodes with proper error handling and delays
 	logger.Info("=== SAVING CHAIN STATE TO ALL NODES ===")
 
 	for i := 0; i < numNodes; i++ {
 		nodeID := validatorIDs[i]
 		logger.Info("--- Saving chain state for %s ---", nodeID)
+
+		// ✅ ADD FINAL STATE INITIALIZATION HERE - USING PROPER METHOD
+		stateMachine := blockchains[i].GetStateMachine()
+		if stateMachine == nil {
+			logger.Warn("%s: No state machine available, creating one...", nodeID)
+			// Try to create if it doesn't exist
+			// If GetOrCreateStateMachine method exists, use it:
+			// stateMachine = blockchains[i].GetOrCreateStateMachine()
+
+			// If not, skip final state initialization for this node
+			logger.Warn("%s: Skipping final state initialization", nodeID)
+		} else {
+			logger.Info("Initializing final states for %s", nodeID)
+
+			// Force populate final states
+			if err := stateMachine.ForcePopulateFinalStates(); err != nil {
+				logger.Warn("%s: Failed to populate final states: %v", nodeID, err)
+			} else {
+				logger.Info("%s: Successfully force populated final states", nodeID)
+			}
+
+			// Sync with consensus
+			stateMachine.SyncFinalStatesNow()
+			logger.Info("%s: Synced final states with consensus", nodeID)
+
+			finalStates := stateMachine.GetFinalStates()
+			logger.Info("%s: Final states ready - %d entries", nodeID, len(finalStates))
+
+			// Log the final states for debugging
+			for j, state := range finalStates {
+				if state != nil {
+					logger.Info("  %s FinalState %d: block=%s, merkle=%s, status=%s",
+						nodeID, j, state.BlockHash, state.MerkleRoot, state.Status)
+				}
+			}
+		}
 
 		// Add small delay between saves to avoid race conditions
 		if i > 0 {
@@ -923,7 +910,6 @@ func PrintBlockchainData(bc *core.Blockchain, nodeID string) {
 		logger.Info("MerkleRoot (calculated): %s", calculatedMerkleRoot)
 		logger.Info("TxsRoot = MerkleRoot: %v", rootsMatch)
 		logger.Info("Magic Number: 0x%x", chainParams.MagicNumber)
-		logger.Info("Previous Hash: %s", hex.EncodeToString(underlyingBlock.Header.PrevHash))
 		logger.Info("Timestamp: %d", underlyingBlock.Header.Timestamp)
 		logger.Info("Difficulty: %s", underlyingBlock.Header.Difficulty.String())
 		logger.Info("Nonce: %d", underlyingBlock.Header.Nonce)
