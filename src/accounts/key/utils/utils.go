@@ -20,8 +20,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/account/key/util/util.go
-package util
+// go/src/account/key/util/utils.go
+package utils
 
 import (
 	"fmt"
@@ -34,32 +34,32 @@ import (
 )
 
 const (
-	StorageTypeHot StorageType = "hot"
-	StorageTypeUSB StorageType = "usb"
+	StorageTypeDisk StorageType = "disk" // Changed from StorageTypeHot
+	StorageTypeUSB  StorageType = "usb"
 )
 
 // NewStorageManager creates a new storage manager
 func NewStorageManager() (*StorageManager, error) {
-	hotStore, err := disk.NewHotKeyStore("")
+	diskStore, err := disk.NewDiskKeyStore("") // Changed from NewHotKeyStore
 	if err != nil {
-		return nil, fmt.Errorf("failed to create hot storage: %w", err)
+		return nil, fmt.Errorf("failed to create disk storage: %w", err) // Updated error message
 	}
 
 	return &StorageManager{
-		hotStore: hotStore,
-		usbStore: usb.NewUSBKeyStore(),
+		diskStore: diskStore, // Changed from hotStore
+		usbStore:  usb.NewUSBKeyStore(),
 	}, nil
 }
 
 // GetStorage returns the appropriate storage based on type
 func (sm *StorageManager) GetStorage(storageType StorageType) interface{} {
 	switch storageType {
-	case StorageTypeHot:
-		return sm.hotStore
+	case StorageTypeDisk: // Changed from StorageTypeHot
+		return sm.diskStore // Changed from hotStore
 	case StorageTypeUSB:
 		return sm.usbStore
 	default:
-		return sm.hotStore
+		return sm.diskStore // Changed from hotStore
 	}
 }
 
@@ -83,20 +83,20 @@ func (sm *StorageManager) InitializeUSBStorage(usbPath string) error {
 	return sm.usbStore.InitializeUSB(usbPath)
 }
 
-// BackupToUSB creates a backup of hot wallet to USB
+// BackupToUSB creates a backup of disk wallet to USB  // Updated comment
 func (sm *StorageManager) BackupToUSB(passphrase string) error {
 	if !sm.IsUSBMounted() {
 		return fmt.Errorf("USB device not mounted")
 	}
-	return sm.usbStore.BackupFromHot(sm.hotStore, passphrase)
+	return sm.usbStore.BackupFromDisk(sm.diskStore, passphrase) // Changed from BackupFromHot
 }
 
-// RestoreFromUSB restores keys from USB to hot wallet
+// RestoreFromUSB restores keys from USB to disk wallet  // Updated comment
 func (sm *StorageManager) RestoreFromUSB(passphrase string) (int, error) {
 	if !sm.IsUSBMounted() {
 		return 0, fmt.Errorf("USB device not mounted")
 	}
-	keys, err := sm.usbStore.RestoreToHot(sm.hotStore, passphrase)
+	keys, err := sm.usbStore.RestoreToDisk(sm.diskStore, passphrase) // Changed from RestoreToHot
 	if err != nil {
 		return 0, err
 	}
@@ -107,13 +107,13 @@ func (sm *StorageManager) RestoreFromUSB(passphrase string) (int, error) {
 func (sm *StorageManager) GetStorageInfo() map[StorageType]interface{} {
 	info := make(map[StorageType]interface{})
 
-	// Hot storage info
-	hotInfo := sm.hotStore.GetWalletInfo()
-	info[StorageTypeHot] = map[string]interface{}{
-		"type":          "hot",
-		"key_count":     hotInfo.KeyCount,
-		"last_accessed": hotInfo.LastAccessed,
-		"storage_path":  getDefaultHotStoragePath(),
+	// Disk storage info  // Updated comment
+	diskInfo := sm.diskStore.GetWalletInfo()        // Changed from hotStore
+	info[StorageTypeDisk] = map[string]interface{}{ // Changed from StorageTypeHot
+		"type":          "disk", // Changed from "hot"
+		"key_count":     diskInfo.KeyCount,
+		"last_accessed": diskInfo.LastAccessed,
+		"storage_path":  getDefaultDiskStoragePath(), // Changed from getDefaultHotStoragePath
 	}
 
 	// USB storage info
@@ -130,10 +130,10 @@ func (sm *StorageManager) GetStorageInfo() map[StorageType]interface{} {
 
 // CreateDefaultDirectories creates all necessary directories for Sphinx keystore
 func CreateDefaultDirectories() error {
-	// Create hot storage directory
-	hotPath := getDefaultHotStoragePath()
-	if err := os.MkdirAll(filepath.Join(hotPath, "keys"), 0700); err != nil {
-		return fmt.Errorf("failed to create hot storage directory: %w", err)
+	// Create disk storage directory  // Updated comment
+	diskPath := getDefaultDiskStoragePath() // Changed from getDefaultHotStoragePath
+	if err := os.MkdirAll(filepath.Join(diskPath, "keys"), 0700); err != nil {
+		return fmt.Errorf("failed to create disk storage directory: %w", err) // Updated error message
 	}
 
 	// Create backup directory
@@ -154,21 +154,21 @@ func CreateDefaultDirectories() error {
 // GetRecommendedStorage returns the recommended storage type based on system
 func GetRecommendedStorage() StorageType {
 	// For production use, recommend USB for better security
-	// For development, use hot storage for convenience
+	// For development, use disk storage for convenience  // Updated comment
 	if isProductionEnvironment() {
 		return StorageTypeUSB
 	}
-	return StorageTypeHot
+	return StorageTypeDisk // Changed from StorageTypeHot
 }
 
 // Helper functions
 
-func getDefaultHotStoragePath() string {
+func getDefaultDiskStoragePath() string { // Renamed from getDefaultHotStoragePath
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return "./sphinx-hot-keystore"
+		return "./sphinx-disk-keystore" // Changed from "./sphinx-hot-keystore"
 	}
-	return filepath.Join(homeDir, ".sphinx", "hot-keystore")
+	return filepath.Join(homeDir, ".sphinx", "disk-keystore") // Changed from "hot-keystore"
 }
 
 func getDefaultBackupPath() string {

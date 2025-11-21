@@ -213,13 +213,13 @@ func (ks *USBKeyStore) RemoveKey(keyID string) error {
 	return nil
 }
 
-// BackupToUSB creates a backup of hot wallet keys to USB
-func (ks *USBKeyStore) BackupFromHot(hotStore interface{ ListKeys() []*key.KeyPair }, passphrase string) error {
+// BackupFromDisk creates a backup of disk wallet keys to USB  // Renamed from BackupFromHot
+func (ks *USBKeyStore) BackupFromDisk(diskStore interface{ ListKeys() []*key.KeyPair }, passphrase string) error {
 	if !ks.isMounted {
 		return fmt.Errorf("USB device not mounted")
 	}
 
-	hotKeys := hotStore.ListKeys()
+	diskKeys := diskStore.ListKeys() // Changed from hotKeys
 	backupPath := filepath.Join(ks.mountPath, "backup", time.Now().Format("2006-01-02_15-04-05"))
 
 	if err := os.MkdirAll(backupPath, 0700); err != nil {
@@ -230,8 +230,8 @@ func (ks *USBKeyStore) BackupFromHot(hotStore interface{ ListKeys() []*key.KeyPa
 	manifest := map[string]interface{}{
 		"version":     "1.0",
 		"backup_time": time.Now().Format(time.RFC3339),
-		"key_count":   len(hotKeys),
-		"backup_type": "hot_to_usb",
+		"key_count":   len(diskKeys),
+		"backup_type": "disk_to_usb", // Changed from "hot_to_usb"
 		"encrypted":   passphrase != "",
 	}
 
@@ -241,11 +241,24 @@ func (ks *USBKeyStore) BackupFromHot(hotStore interface{ ListKeys() []*key.KeyPa
 		return fmt.Errorf("failed to write backup manifest: %w", err)
 	}
 
+	// Backup each key individually
+	for _, keyPair := range diskKeys {
+		keyData, err := json.MarshalIndent(keyPair, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal key %s: %w", keyPair.ID, err)
+		}
+
+		keyFile := filepath.Join(backupPath, keyPair.ID+".json")
+		if err := os.WriteFile(keyFile, keyData, 0600); err != nil {
+			return fmt.Errorf("failed to write key file %s: %w", keyPair.ID, err)
+		}
+	}
+
 	return nil
 }
 
-// RestoreToHot restores keys from USB to hot wallet
-func (ks *USBKeyStore) RestoreToHot(hotStore interface{ StoreKey(*key.KeyPair) error }, passphrase string) ([]*key.KeyPair, error) {
+// RestoreToDisk restores keys from USB to disk wallet  // Renamed from RestoreToHot
+func (ks *USBKeyStore) RestoreToDisk(diskStore interface{ StoreKey(*key.KeyPair) error }, passphrase string) ([]*key.KeyPair, error) {
 	if !ks.isMounted {
 		return nil, fmt.Errorf("USB device not mounted")
 	}
@@ -254,7 +267,7 @@ func (ks *USBKeyStore) RestoreToHot(hotStore interface{ StoreKey(*key.KeyPair) e
 	var restoredKeys []*key.KeyPair
 
 	for _, keyPair := range usbKeys {
-		if err := hotStore.StoreKey(keyPair); err != nil {
+		if err := diskStore.StoreKey(keyPair); err != nil {
 			return nil, fmt.Errorf("failed to restore key %s: %w", keyPair.ID, err)
 		}
 		restoredKeys = append(restoredKeys, keyPair)
@@ -271,11 +284,17 @@ func (ks *USBKeyStore) InitializeUSB(usbPath string) error {
 		return fmt.Errorf("failed to initialize USB keystore: %w", err)
 	}
 
+	// Create backup directory
+	if err := os.MkdirAll(filepath.Join(keystorePath, "backup"), 0700); err != nil {
+		return fmt.Errorf("failed to create backup directory: %w", err)
+	}
+
 	// Create USB info file
 	info := map[string]interface{}{
 		"version":     "1.0",
 		"created_at":  time.Now().Format(time.RFC3339),
 		"device_type": "sphinx-usb-keystore",
+		"purpose":     "disk_wallet_backup", // Added purpose clarification
 	}
 
 	infoData, _ := json.MarshalIndent(info, "", "  ")
@@ -296,6 +315,96 @@ func (ks *USBKeyStore) GetWalletInfo() *key.WalletInfo {
 		LastAccessed: time.Now(),
 		KeyCount:     len(keys),
 	}
+}
+
+// EncryptData encrypts data with a passphrase for USB storage
+func (ks *USBKeyStore) EncryptData(data []byte, passphrase string) ([]byte, error) {
+	salt := ks.generateSalt(passphrase)
+
+	if !ks.crypt.SetKeyFromPassphrase([]byte(passphrase), salt, 1000) {
+		return nil, fmt.Errorf("failed to set encryption key")
+	}
+
+	encryptedData, err := ks.crypt.Encrypt(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt data: %w", err)
+	}
+
+	return encryptedData, nil
+}
+
+// DecryptKey decrypts a key pair's secret key from USB storage
+func (ks *USBKeyStore) DecryptKey(keyPair *key.KeyPair, passphrase string) ([]byte, error) {
+	salt := ks.generateSalt(passphrase)
+
+	if !ks.crypt.SetKeyFromPassphrase([]byte(passphrase), salt, 1000) {
+		return nil, fmt.Errorf("failed to set decryption key")
+	}
+
+	decryptedSK, err := ks.crypt.Decrypt(keyPair.EncryptedSK)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt secret key: %w", err)
+	}
+
+	return decryptedSK, nil
+}
+
+// ChangePassphrase changes the encryption passphrase for a USB key
+func (ks *USBKeyStore) ChangePassphrase(keyID string, oldPassphrase string, newPassphrase string) error {
+	keyPair, err := ks.GetKey(keyID)
+	if err != nil {
+		return err
+	}
+
+	decryptedSK, err := ks.DecryptKey(keyPair, oldPassphrase)
+	if err != nil {
+		return fmt.Errorf("failed to decrypt with old passphrase: %w", err)
+	}
+
+	newEncryptedSK, err := ks.EncryptData(decryptedSK, newPassphrase)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt with new passphrase: %w", err)
+	}
+
+	keyPair.EncryptedSK = newEncryptedSK
+	return ks.StoreKey(keyPair)
+}
+
+// ExportKey exports a key pair from USB for backup or transfer
+func (ks *USBKeyStore) ExportKey(keyID string, includePrivate bool, passphrase string) ([]byte, error) {
+	keyPair, err := ks.GetKey(keyID)
+	if err != nil {
+		return nil, err
+	}
+
+	exportData := map[string]interface{}{
+		"version":         "1.0",
+		"key_id":          keyPair.ID,
+		"public_key":      keyPair.PublicKey,
+		"address":         keyPair.Address,
+		"key_type":        keyPair.KeyType,
+		"wallet_type":     keyPair.WalletType,
+		"chain_id":        keyPair.ChainID,
+		"created_at":      keyPair.CreatedAt,
+		"metadata":        keyPair.Metadata,
+		"derivation_path": keyPair.DerivationPath,
+		"storage_type":    "usb",
+	}
+
+	if includePrivate {
+		if passphrase == "" {
+			return nil, fmt.Errorf("passphrase required to export private key from USB")
+		}
+
+		_, err := ks.DecryptKey(keyPair, passphrase)
+		if err != nil {
+			return nil, fmt.Errorf("invalid passphrase for key export: %w", err)
+		}
+
+		exportData["encrypted_secret_key"] = keyPair.EncryptedSK
+	}
+
+	return json.MarshalIndent(exportData, "", "  ")
 }
 
 // Helper functions

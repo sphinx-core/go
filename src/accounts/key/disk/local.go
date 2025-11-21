@@ -39,18 +39,18 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 )
 
-// NewHotKeyStore creates a new hot keystore instance
-func NewHotKeyStore(storagePath string) (*HotKeyStore, error) {
+// NewDiskKeyStore creates a new disk keystore instance  // Changed from NewHotKeyStore
+func NewDiskKeyStore(storagePath string) (*DiskKeyStore, error) { // Changed return type
 	if storagePath == "" {
-		storagePath = getDefaultHotStoragePath()
+		storagePath = getDefaultDiskStoragePath() // Changed from getDefaultHotStoragePath
 	}
 
 	// Create storage directory if it doesn't exist
 	if err := os.MkdirAll(storagePath, 0700); err != nil {
-		return nil, fmt.Errorf("failed to create hot keystore directory: %w", err)
+		return nil, fmt.Errorf("failed to create disk keystore directory: %w", err) // Updated error message
 	}
 
-	ks := &HotKeyStore{
+	ks := &DiskKeyStore{ // Changed from HotKeyStore
 		storagePath: storagePath,
 		keys:        make(map[string]*key.KeyPair),
 		crypt:       &crypter.CCrypter{},
@@ -65,7 +65,7 @@ func NewHotKeyStore(storagePath string) (*HotKeyStore, error) {
 }
 
 // StoreKey stores a key pair to the local keystore
-func (ks *HotKeyStore) StoreKey(keyPair *key.KeyPair) error {
+func (ks *DiskKeyStore) StoreKey(keyPair *key.KeyPair) error { // Changed receiver type
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
 
@@ -81,7 +81,7 @@ func (ks *HotKeyStore) StoreKey(keyPair *key.KeyPair) error {
 }
 
 // StoreEncryptedKey stores an already encrypted key pair
-func (ks *HotKeyStore) StoreEncryptedKey(encryptedSK, publicKey []byte, address string, walletType key.HardwareWalletType, chainID uint64, derivationPath string, metadata map[string]interface{}) (*key.KeyPair, error) {
+func (ks *DiskKeyStore) StoreEncryptedKey(encryptedSK, publicKey []byte, address string, walletType key.HardwareWalletType, chainID uint64, derivationPath string, metadata map[string]interface{}) (*key.KeyPair, error) { // Changed receiver type
 	keyPair := &key.KeyPair{
 		ID:             ks.generateKeyID(),
 		EncryptedSK:    encryptedSK,
@@ -100,7 +100,7 @@ func (ks *HotKeyStore) StoreEncryptedKey(encryptedSK, publicKey []byte, address 
 	}
 	keyPair.Metadata["encrypted"] = true
 	keyPair.Metadata["algorithm"] = "SPHINCS+"
-	keyPair.Metadata["storage"] = "hot"
+	keyPair.Metadata["storage"] = "disk" // Changed from "hot"
 
 	if err := ks.StoreKey(keyPair); err != nil {
 		return nil, err
@@ -110,7 +110,7 @@ func (ks *HotKeyStore) StoreEncryptedKey(encryptedSK, publicKey []byte, address 
 }
 
 // StoreRawKey stores a raw key pair and encrypts it with the provided passphrase
-func (ks *HotKeyStore) StoreRawKey(secretKey, publicKey []byte, address string, walletType key.HardwareWalletType, chainID uint64, derivationPath string, passphrase string, metadata map[string]interface{}) (*key.KeyPair, error) {
+func (ks *DiskKeyStore) StoreRawKey(secretKey, publicKey []byte, address string, walletType key.HardwareWalletType, chainID uint64, derivationPath string, passphrase string, metadata map[string]interface{}) (*key.KeyPair, error) { // Changed receiver type
 	// Encrypt the secret key
 	encryptedSK, err := ks.EncryptData(secretKey, passphrase)
 	if err != nil {
@@ -121,7 +121,7 @@ func (ks *HotKeyStore) StoreRawKey(secretKey, publicKey []byte, address string, 
 }
 
 // GetKey retrieves a key pair by ID
-func (ks *HotKeyStore) GetKey(keyID string) (*key.KeyPair, error) {
+func (ks *DiskKeyStore) GetKey(keyID string) (*key.KeyPair, error) { // Changed receiver type
 	ks.mu.RLock()
 	defer ks.mu.RUnlock()
 
@@ -134,7 +134,7 @@ func (ks *HotKeyStore) GetKey(keyID string) (*key.KeyPair, error) {
 }
 
 // GetKeyByAddress retrieves a key pair by address
-func (ks *HotKeyStore) GetKeyByAddress(address string) (*key.KeyPair, error) {
+func (ks *DiskKeyStore) GetKeyByAddress(address string) (*key.KeyPair, error) { // Changed receiver type
 	ks.mu.RLock()
 	defer ks.mu.RUnlock()
 
@@ -148,7 +148,7 @@ func (ks *HotKeyStore) GetKeyByAddress(address string) (*key.KeyPair, error) {
 }
 
 // ListKeys returns all keys in the keystore
-func (ks *HotKeyStore) ListKeys() []*key.KeyPair {
+func (ks *DiskKeyStore) ListKeys() []*key.KeyPair { // Changed receiver type
 	ks.mu.RLock()
 	defer ks.mu.RUnlock()
 
@@ -161,7 +161,7 @@ func (ks *HotKeyStore) ListKeys() []*key.KeyPair {
 }
 
 // ListKeysByType returns keys filtered by wallet type
-func (ks *HotKeyStore) ListKeysByType(walletType key.HardwareWalletType) []*key.KeyPair {
+func (ks *DiskKeyStore) ListKeysByType(walletType key.HardwareWalletType) []*key.KeyPair { // Changed receiver type
 	ks.mu.RLock()
 	defer ks.mu.RUnlock()
 
@@ -176,7 +176,7 @@ func (ks *HotKeyStore) ListKeysByType(walletType key.HardwareWalletType) []*key.
 }
 
 // UpdateKeyMetadata updates metadata for a specific key
-func (ks *HotKeyStore) UpdateKeyMetadata(keyID string, metadata map[string]interface{}) error {
+func (ks *DiskKeyStore) UpdateKeyMetadata(keyID string, metadata map[string]interface{}) error { // Changed receiver type
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
 
@@ -193,7 +193,7 @@ func (ks *HotKeyStore) UpdateKeyMetadata(keyID string, metadata map[string]inter
 }
 
 // RemoveKey removes a key from the keystore
-func (ks *HotKeyStore) RemoveKey(keyID string) error {
+func (ks *DiskKeyStore) RemoveKey(keyID string) error { // Changed receiver type
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
 
@@ -208,7 +208,7 @@ func (ks *HotKeyStore) RemoveKey(keyID string) error {
 }
 
 // EncryptData encrypts data with a passphrase
-func (ks *HotKeyStore) EncryptData(data []byte, passphrase string) ([]byte, error) {
+func (ks *DiskKeyStore) EncryptData(data []byte, passphrase string) ([]byte, error) { // Changed receiver type
 	salt := ks.generateSalt(passphrase)
 
 	if !ks.crypt.SetKeyFromPassphrase([]byte(passphrase), salt, 1000) {
@@ -224,7 +224,7 @@ func (ks *HotKeyStore) EncryptData(data []byte, passphrase string) ([]byte, erro
 }
 
 // DecryptKey decrypts a key pair's secret key
-func (ks *HotKeyStore) DecryptKey(keyPair *key.KeyPair, passphrase string) ([]byte, error) {
+func (ks *DiskKeyStore) DecryptKey(keyPair *key.KeyPair, passphrase string) ([]byte, error) { // Changed receiver type
 	salt := ks.generateSalt(passphrase)
 
 	if !ks.crypt.SetKeyFromPassphrase([]byte(passphrase), salt, 1000) {
@@ -240,7 +240,7 @@ func (ks *HotKeyStore) DecryptKey(keyPair *key.KeyPair, passphrase string) ([]by
 }
 
 // ChangePassphrase changes the encryption passphrase for a key
-func (ks *HotKeyStore) ChangePassphrase(keyID string, oldPassphrase string, newPassphrase string) error {
+func (ks *DiskKeyStore) ChangePassphrase(keyID string, oldPassphrase string, newPassphrase string) error { // Changed receiver type
 	keyPair, err := ks.GetKey(keyID)
 	if err != nil {
 		return err
@@ -261,7 +261,7 @@ func (ks *HotKeyStore) ChangePassphrase(keyID string, oldPassphrase string, newP
 }
 
 // ExportKey exports a key pair for backup or transfer
-func (ks *HotKeyStore) ExportKey(keyID string, includePrivate bool, passphrase string) ([]byte, error) {
+func (ks *DiskKeyStore) ExportKey(keyID string, includePrivate bool, passphrase string) ([]byte, error) { // Changed receiver type
 	keyPair, err := ks.GetKey(keyID)
 	if err != nil {
 		return nil, err
@@ -278,7 +278,7 @@ func (ks *HotKeyStore) ExportKey(keyID string, includePrivate bool, passphrase s
 		"created_at":      keyPair.CreatedAt,
 		"metadata":        keyPair.Metadata,
 		"derivation_path": keyPair.DerivationPath,
-		"storage_type":    "hot",
+		"storage_type":    "disk", // Changed from "hot"
 	}
 
 	if includePrivate {
@@ -298,13 +298,13 @@ func (ks *HotKeyStore) ExportKey(keyID string, includePrivate bool, passphrase s
 }
 
 // GetWalletInfo returns information about the wallet
-func (ks *HotKeyStore) GetWalletInfo() *key.WalletInfo {
+func (ks *DiskKeyStore) GetWalletInfo() *key.WalletInfo { // Changed receiver type
 	keys := ks.ListKeys()
 
 	return &key.WalletInfo{
 		ID:           ks.generateKeyID(),
-		Name:         "Sphinx Hot Wallet",
-		WalletType:   key.WalletTypeHot,
+		Name:         "Sphinx Disk Wallet", // Changed from "Sphinx Hot Wallet"
+		WalletType:   key.WalletTypeDisk,   // You might want to create this constant
 		Storage:      key.StorageLocal,
 		CreatedAt:    time.Now(),
 		LastAccessed: time.Now(),
@@ -314,18 +314,18 @@ func (ks *HotKeyStore) GetWalletInfo() *key.WalletInfo {
 
 // Helper functions
 
-func (ks *HotKeyStore) generateKeyID() string {
+func (ks *DiskKeyStore) generateKeyID() string { // Changed receiver type
 	timestamp := time.Now().UnixNano()
 	randomBytes := make([]byte, 8)
 	io.ReadFull(rand.Reader, randomBytes)
-	return fmt.Sprintf("hot_key_%d_%x", timestamp, randomBytes)
+	return fmt.Sprintf("disk_key_%d_%x", timestamp, randomBytes) // Changed from "hot_key_"
 }
 
-func (ks *HotKeyStore) generateSalt(passphrase string) []byte {
-	return pbkdf2.Key([]byte(passphrase), []byte("sphinx-hot-keystore-salt"), 1, crypter.WALLET_CRYPTO_IV_SIZE, sha256.New)
+func (ks *DiskKeyStore) generateSalt(passphrase string) []byte { // Changed receiver type
+	return pbkdf2.Key([]byte(passphrase), []byte("sphinx-disk-keystore-salt"), 1, crypter.WALLET_CRYPTO_IV_SIZE, sha256.New) // Changed salt
 }
 
-func (ks *HotKeyStore) validateKeyPair(keyPair *key.KeyPair) error {
+func (ks *DiskKeyStore) validateKeyPair(keyPair *key.KeyPair) error { // Changed receiver type
 	if keyPair.ID == "" {
 		return fmt.Errorf("key ID cannot be empty")
 	}
@@ -341,7 +341,7 @@ func (ks *HotKeyStore) validateKeyPair(keyPair *key.KeyPair) error {
 	return nil
 }
 
-func (ks *HotKeyStore) loadKeys() error {
+func (ks *DiskKeyStore) loadKeys() error { // Changed receiver type
 	keysDir := filepath.Join(ks.storagePath, "keys")
 	if err := os.MkdirAll(keysDir, 0700); err != nil {
 		return err
@@ -369,7 +369,7 @@ func (ks *HotKeyStore) loadKeys() error {
 	return nil
 }
 
-func (ks *HotKeyStore) saveKeyToDisk(keyPair *key.KeyPair) error {
+func (ks *DiskKeyStore) saveKeyToDisk(keyPair *key.KeyPair) error { // Changed receiver type
 	keysDir := filepath.Join(ks.storagePath, "keys")
 	if err := os.MkdirAll(keysDir, 0700); err != nil {
 		return err
@@ -384,10 +384,10 @@ func (ks *HotKeyStore) saveKeyToDisk(keyPair *key.KeyPair) error {
 	return os.WriteFile(keyFile, data, 0600)
 }
 
-func getDefaultHotStoragePath() string {
+func getDefaultDiskStoragePath() string { // Renamed from getDefaultHotStoragePath
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return "./sphinx-hot-keystore"
+		return "./sphinx-disk-keystore" // Changed from "./sphinx-hot-keystore"
 	}
-	return filepath.Join(homeDir, ".sphinx", "hot-keystore")
+	return filepath.Join(homeDir, ".sphinx", "disk-keystore") // Changed from "hot-keystore"
 }

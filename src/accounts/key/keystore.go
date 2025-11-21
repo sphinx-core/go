@@ -57,6 +57,7 @@ func (k *KeystoreConfig) initializeDefaultPaths() {
 		WalletTypeBIP84:  fmt.Sprintf("m/84'/%d'/0'/0/0", k.BIP44CoinType),
 		WalletTypeLedger: fmt.Sprintf("m/44'/%d'/0'", k.BIP44CoinType),
 		WalletTypeTrezor: fmt.Sprintf("m/44'/%d'/0'/0/0", k.BIP44CoinType),
+		WalletTypeDisk:   fmt.Sprintf("m/44'/%d'/0'/0/0", k.BIP44CoinType), // Added Disk wallet derivation path
 	}
 }
 
@@ -161,6 +162,37 @@ func (k *KeystoreConfig) GenerateTrezorHeaders(operation string, amount float64,
 		address,
 		memo,
 		trezorPath,
+		time.Now().Unix(),
+	)
+}
+
+// GenerateDiskHeaders generates headers specifically formatted for Disk wallet operations
+func (k *KeystoreConfig) GenerateDiskHeaders(operation string, amount float64, address string, memo string) string {
+	diskPath := k.DerivationPaths[WalletTypeDisk]
+	if diskPath == "" {
+		diskPath = fmt.Sprintf("m/44'/%d'/0'/0/0", k.BIP44CoinType)
+	}
+
+	return fmt.Sprintf(
+		"=== SPHINX DISK OPERATION ===\n"+
+			"Chain: %s\n"+
+			"Chain ID: %d\n"+
+			"Operation: %s\n"+
+			"Amount: %.6f %s\n"+
+			"Address: %s\n"+
+			"Memo: %s\n"+
+			"Derivation: %s\n"+
+			"Timestamp: %d\n"+
+			"Storage: disk\n"+
+			"========================",
+		k.ChainName,
+		k.ChainID,
+		operation,
+		amount,
+		k.Symbol,
+		address,
+		memo,
+		diskPath,
 		time.Now().Unix(),
 	)
 }

@@ -30,8 +30,8 @@ import (
 	"github.com/sphinx-core/go/src/core/wallet/crypter"
 )
 
-// HotKeyStore represents local disk storage for key pairs
-type HotKeyStore struct {
+// DiskKeyStore represents local disk storage for key pairs  // Changed from HotKeyStore
+type DiskKeyStore struct { // Changed from HotKeyStore
 	mu          sync.RWMutex
 	storagePath string
 	keys        map[string]*key.KeyPair // In-memory cache

@@ -37,7 +37,7 @@ const (
 	WalletTypeBIP44    HardwareWalletType = "BIP44"
 	WalletTypeBIP49    HardwareWalletType = "BIP49"
 	WalletTypeBIP84    HardwareWalletType = "BIP84"
-	WalletTypeHot      HardwareWalletType = "HotWallet"
+	WalletTypeDisk     HardwareWalletType = "DiskWallet" // Changed from WalletTypeHot
 	WalletTypeCold     HardwareWalletType = "ColdWallet"
 	WalletTypeSoftware HardwareWalletType = "Software"
 	WalletTypeUSB      HardwareWalletType = "USB"

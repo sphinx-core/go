@@ -43,7 +43,7 @@ type WalletGUI struct {
 	app        fyne.App
 	window     fyne.Window
 	storageMgr *util.StorageManager
-	hotStore   *disk.HotKeyStore
+	diskStore  *disk.DiskKeyStore // Changed from hotStore
 	currentTab string
 }
 
@@ -60,13 +60,13 @@ func NewWalletGUI() *WalletGUI {
 		log.Printf("Warning: Failed to create directories: %v", err)
 	}
 
-	// Get hot storage
-	hotStore := storageMgr.GetStorage(util.StorageTypeHot).(*disk.HotKeyStore)
+	// Get disk storage  // Updated comment
+	diskStore := storageMgr.GetStorage(util.StorageTypeDisk).(*disk.DiskKeyStore) // Changed from StorageTypeHot and HotKeyStore
 
 	return &WalletGUI{
 		app:        app.NewWithID("com.sphinx.wallet"),
 		storageMgr: storageMgr,
-		hotStore:   hotStore,
+		diskStore:  diskStore, // Changed from hotStore
 	}
 }
 
@@ -164,7 +164,7 @@ func (wg *WalletGUI) createDashboardTab() fyne.CanvasObject {
 // createOverviewCard creates wallet overview card
 func (wg *WalletGUI) createOverviewCard() *widget.Card {
 	// Get wallet info
-	walletInfo := wg.hotStore.GetWalletInfo()
+	walletInfo := wg.diskStore.GetWalletInfo() // Changed from hotStore
 
 	// Create overview content
 	content := widget.NewForm(
@@ -313,7 +313,7 @@ func (wg *WalletGUI) createReceiveTab() fyne.CanvasObject {
 // createKeysTab creates the key management tab
 func (wg *WalletGUI) createKeysTab() fyne.CanvasObject {
 	// List of keys
-	keys := wg.hotStore.ListKeys()
+	keys := wg.diskStore.ListKeys() // Changed from hotStore
 
 	// Create key list
 	keyList := widget.NewList(
@@ -391,13 +391,13 @@ func (wg *WalletGUI) createStorageTab() fyne.CanvasObject {
 
 	// Storage info
 	info := wg.storageMgr.GetStorageInfo()
-	hotInfo := info[util.StorageTypeHot].(map[string]interface{})
+	diskInfo := info[util.StorageTypeDisk].(map[string]interface{}) // Changed from StorageTypeHot
 	usbInfo := info[util.StorageTypeUSB].(map[string]interface{})
 
 	infoForm := widget.NewForm(
-		widget.NewFormItem("🔥 Hot Storage Keys", widget.NewLabel(fmt.Sprintf("%v", hotInfo["key_count"]))),
+		widget.NewFormItem("💿 Disk Storage Keys", widget.NewLabel(fmt.Sprintf("%v", diskInfo["key_count"]))), // Changed from "Hot Storage Keys"
 		widget.NewFormItem("📀 USB Status", usbStatus),
-		widget.NewFormItem("💿 USB Keys", widget.NewLabel(fmt.Sprintf("%v", usbInfo["key_count"]))),
+		widget.NewFormItem("💾 USB Keys", widget.NewLabel(fmt.Sprintf("%v", usbInfo["key_count"]))),
 	)
 
 	actions := container.NewVBox(
@@ -540,7 +540,7 @@ func (wg *WalletGUI) showImportKeyDialog() {
 
 func (wg *WalletGUI) showExportKeyDialog() {
 	// Get available keys
-	keys := wg.hotStore.ListKeys()
+	keys := wg.diskStore.ListKeys() // Changed from hotStore
 	if len(keys) == 0 {
 		dialog.ShowInformation("ℹ️ Info", "No keys available to export", wg.window)
 		return
@@ -638,7 +638,7 @@ func (wg *WalletGUI) showRestoreFromUSBDialog() {
 	password := widget.NewPasswordEntry()
 
 	dialog.ShowConfirm("⚠️ Restore from USB",
-		"WARNING: This will overwrite existing keys in your hot wallet.\n\nAre you sure you want to continue?",
+		"WARNING: This will overwrite existing keys in your disk wallet.\n\nAre you sure you want to continue?", // Updated warning message
 		func(confirmed bool) {
 			if confirmed {
 				dialog.ShowForm("📥 Restore from USB", "Restore", "Cancel",
