@@ -20,8 +20,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/cli/cli/utils.go
-package cli
+// go/src/cli/utils/utils.go
+package utils
 
 import (
 	"github.com/kasperdi/SPHINCSPLUS-golang/sphincs"

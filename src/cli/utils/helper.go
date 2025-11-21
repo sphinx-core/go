@@ -20,8 +20,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/cli/cli/helper.go
-package cli
+// go/src/cli/utils/helper.go
+package utils
 
 import (
 	"context"

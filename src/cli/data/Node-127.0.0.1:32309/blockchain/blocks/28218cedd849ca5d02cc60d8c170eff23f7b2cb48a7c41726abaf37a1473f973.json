@@ -1,8 +1,8 @@
 {
   "header": {
-    "hash": "64a8abb0ae6edb20c165cabca7375a409c6fd114f3726b4de328a2fa4db3c1ea",
-    "txs_root": "852d099aca0276517753f6f8700ab95b64c3bb096ba0fbc9f887225791a4e699",
-    "state_root": "0211f18eb662956b10efb0c1b94c8f60f1625f3738c294e8849c34732b471014",
+    "hash": "28218cedd849ca5d02cc60d8c170eff23f7b2cb48a7c41726abaf37a1473f973",
+    "txs_root": "ee5a4a4dd43f83856324fa7726c2ac2b151a7b4bc57f8a8570fd83ed38ec0db4",
+    "state_root": "46f366ac0b9788ea1fd7d33501de456159bb371bfa149f2e8427cb4a36620cdb",
     "parent_hash": "GENESIS_05308057e5628dfbf6924d0eb79346cae80b566218332903eee66f846698e28a",
     "uncles_hash": "c20f4bc14267aad693be2bb6e9799675ec4c494c654a6ad275b3124ae3182782",
     "extra_data": "Sphinx Network Block",
@@ -10,7 +10,7 @@
     "version": 1,
     "nblock": 1,
     "height": 1,
-    "timestamp": 1763708692,
+    "timestamp": 1763709224,
     "difficulty": "1",
     "nonce": 0,
     "gas_limit": "10000000",
@@ -19,7 +19,7 @@
   "body": {
     "txs_list": [
       {
-        "id": "4d36e46c77c165d8553117ad3255dfff7cbc197e387a66ec7d444066f2c014d6",
+        "id": "58e8bf8fc1dd3a5d0c10360fd2d4f3180cfafb568b2c3f7f2cc5bae84476025c",
         "sender": "bob",
         "receiver": "alice",
         "amount": 1000,

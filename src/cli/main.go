@@ -27,7 +27,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/sphinx-core/go/src/cli/cli"
+	cli "github.com/sphinx-core/go/src/cli/utils"
 )
 
 func main() {
