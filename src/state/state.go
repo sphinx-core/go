@@ -27,6 +27,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"sort"
@@ -149,7 +150,7 @@ func (s *Storage) GetAllBlocks() ([]*types.Block, error) {
 					return blocks[i].GetHeight() < blocks[j].GetHeight()
 				})
 
-				logger.Debug("GetAllBlocks: Found %d blocks via disk index", len(blocks))
+				logger.Debug("GetAllBlocks: Processing %d blocks with ParentHash chain validation", len(blocks))
 				return blocks, nil
 			}
 		}
@@ -340,9 +341,31 @@ func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *Ch
 			chainState.BlockSizeMetrics.TotalBlocks)
 	}
 
-	// Ensure FinalStates is populated and has real data
-	if chainState.FinalStates == nil {
-		chainState.FinalStates = make([]*FinalStateInfo, 0)
+	// VALIDATE AND FIX FINAL STATES BEFORE SAVING
+	if chainState.FinalStates != nil {
+		fixedCount := 0
+		for i, state := range chainState.FinalStates {
+			if state != nil && state.BlockHeight == 0 {
+				// Get actual genesis block
+				genesisBlock, err := s.GetBlockByHeight(0)
+				if err == nil && genesisBlock != nil {
+					actualGenesisHash := genesisBlock.GetHash()
+
+					// Fix genesis hash if it's incorrect
+					if state.BlockHash != actualGenesisHash {
+						oldHash := state.BlockHash
+						state.BlockHash = actualGenesisHash
+						fixedCount++
+						logger.Info("🔄 Fixed genesis block hash in final state %d: %s -> %s",
+							i, oldHash, actualGenesisHash)
+					}
+				}
+			}
+			chainState.FinalStates[i] = s.ensureFinalStateValues(state)
+		}
+		if fixedCount > 0 {
+			logger.Info("✅ Fixed %d genesis block hashes in final states", fixedCount)
+		}
 	}
 
 	// Ensure all final states have proper values
@@ -544,7 +567,8 @@ func (s *Storage) StoreBlock(block *types.Block) error {
 	blockHash := block.GetHash()
 	height := block.GetHeight()
 
-	logger.Info("Storing block: height=%d, hash=%s", height, blockHash)
+	logger.Info("Storing block: height=%d, hash=%s, ParentHash=%x",
+		height, blockHash, block.Header.ParentHash)
 
 	// SPECIAL HANDLING FOR GENESIS BLOCK
 	if height == 0 {
@@ -679,7 +703,7 @@ func (s *Storage) ValidateChain() error {
 	}
 
 	// Start from genesis and validate each block links to the previous
-	var prevBlock *types.Block
+	var previousBlock *types.Block
 	for height := uint64(0); height < s.totalBlocks; height++ {
 		block, err := s.GetBlockByHeight(height)
 		if err != nil {
@@ -693,14 +717,22 @@ func (s *Storage) ValidateChain() error {
 
 		// Validate chain linkage (except genesis)
 		if height > 0 {
-			if block.GetPrevHash() != prevBlock.GetHash() {
-				return fmt.Errorf("chain broken at height %d", height)
+			currentParentHash := block.GetPrevHash()
+			expectedParentHash := previousBlock.GetHash()
+
+			if currentParentHash != expectedParentHash {
+				return fmt.Errorf("chain broken at height %d: ParentHash %s does not match previous block hash %s",
+					height, currentParentHash, expectedParentHash)
 			}
+
+			logger.Debug("Chain validation: height=%d, ParentHash=%s matches previous block hash=%s",
+				height, currentParentHash, expectedParentHash)
 		}
 
-		prevBlock = block
+		previousBlock = block
 	}
 
+	logger.Info("Chain validation completed successfully: %d blocks validated with consistent ParentHash links", s.totalBlocks)
 	return nil
 }
 
@@ -919,43 +951,54 @@ func (s *Storage) storeBlockToDisk(block *types.Block) error {
 	sanitizedHash := s.sanitizeFilename(blockHash)
 	filename := filepath.Join(s.blocksDir, sanitizedHash+".json")
 
-	logger.Info("Storing block to disk: original_hash=%s, sanitized_filename=%s",
-		blockHash, sanitizedHash)
+	logger.Info("Storing block to disk: original_hash=%s, sanitized_filename=%s, ParentHash=%x",
+		blockHash, sanitizedHash, block.Header.ParentHash)
 
-	// Create a custom serialization structure to FORCE hex encoding
+	// Create a custom serialization structure
 	type SerializableBlock struct {
 		Header struct {
-			PrevHash   string `json:"prev_hash"`
-			Hash       string `json:"hash"`
-			TxsRoot    string `json:"txs_root"`
-			StateRoot  string `json:"state_root"`
-			ParentHash string `json:"parent_hash"`
-			UnclesHash string `json:"uncles_hash"`
-			ExtraData  string `json:"extra_data"`
-			Miner      string `json:"miner"`
-			Version    uint64 `json:"version"`
-			NBlock     uint64 `json:"nblock"`
-			Height     uint64 `json:"height"`
-			Timestamp  int64  `json:"timestamp"`
-			Difficulty string `json:"difficulty"`
-			Nonce      uint64 `json:"nonce"`
-			GasLimit   string `json:"gas_limit"`
-			GasUsed    string `json:"gas_used"`
+			Hash       string `json:"hash"`        // This block's hash
+			TxsRoot    string `json:"txs_root"`    // Merkle root of transactions
+			StateRoot  string `json:"state_root"`  // State Merkle root
+			ParentHash string `json:"parent_hash"` // Hash of the previous block (chain continuity)
+			UnclesHash string `json:"uncles_hash"` // Hash of uncle blocks
+			ExtraData  string `json:"extra_data"`  // Additional block data
+			Miner      string `json:"miner"`       // Miner address
+			Version    uint64 `json:"version"`     // Block version
+			NBlock     uint64 `json:"nblock"`      // Block number/height
+			Height     uint64 `json:"height"`      // Block height
+			Timestamp  int64  `json:"timestamp"`   // Block timestamp
+			Difficulty string `json:"difficulty"`  // Mining difficulty
+			Nonce      uint64 `json:"nonce"`       // Mining nonce
+			GasLimit   string `json:"gas_limit"`   // Gas limit
+			GasUsed    string `json:"gas_used"`    // Gas used
 		} `json:"header"`
 		Body struct {
-			TxsList    []*types.Transaction `json:"txs_list"`
-			UnclesHash string               `json:"uncles_hash"`
+			TxsList    []*types.Transaction `json:"txs_list"`    // List of transactions
+			UnclesHash string               `json:"uncles_hash"` // Hash of uncles in body
 		} `json:"body"`
 	}
 
 	var serializableBlock SerializableBlock
 
-	// Convert header
+	// Convert header - handle ParentHash specially to preserve GENESIS_ prefix
 	if block.Header != nil {
 		serializableBlock.Header.Hash = blockHash
 		serializableBlock.Header.TxsRoot = hex.EncodeToString(block.Header.TxsRoot)
 		serializableBlock.Header.StateRoot = hex.EncodeToString(block.Header.StateRoot)
-		serializableBlock.Header.ParentHash = hex.EncodeToString(block.Header.ParentHash)
+
+		// FIX: Handle ParentHash specially - check if it's a genesis hash
+		parentHashStr := string(block.Header.ParentHash)
+		if strings.HasPrefix(parentHashStr, "GENESIS_") {
+			// It's a genesis hash, store as string to preserve the prefix
+			serializableBlock.Header.ParentHash = parentHashStr
+			logger.Info("DEBUG: ParentHash is genesis hash, storing as string: %s", parentHashStr)
+		} else {
+			// Normal hash, store as hex
+			serializableBlock.Header.ParentHash = hex.EncodeToString(block.Header.ParentHash)
+			logger.Info("DEBUG: ParentHash is normal hash, storing as hex: %s", serializableBlock.Header.ParentHash)
+		}
+
 		serializableBlock.Header.UnclesHash = hex.EncodeToString(block.Header.UnclesHash)
 		serializableBlock.Header.ExtraData = string(block.Header.ExtraData)
 		serializableBlock.Header.Miner = hex.EncodeToString(block.Header.Miner)
@@ -969,11 +1012,9 @@ func (s *Storage) storeBlockToDisk(block *types.Block) error {
 		serializableBlock.Header.GasUsed = block.Header.GasUsed.String()
 	}
 
-	// Convert body - FORCE hex encoding
+	// Convert body
 	serializableBlock.Body.TxsList = block.Body.TxsList
 	serializableBlock.Body.UnclesHash = hex.EncodeToString(block.Body.UnclesHash)
-
-	logger.Info("DEBUG: Body uncles_hash being written as hex: %s", serializableBlock.Body.UnclesHash)
 
 	data, err := json.MarshalIndent(serializableBlock, "", "  ")
 	if err != nil {
@@ -990,12 +1031,11 @@ func (s *Storage) storeBlockToDisk(block *types.Block) error {
 		return fmt.Errorf("failed to rename block file: %w", err)
 	}
 
-	logger.Info("Block successfully written to disk: %s", filename)
+	logger.Info("Block successfully written to disk with ParentHash: %s", serializableBlock.Header.ParentHash)
 	return nil
 }
 
-// loadBlockFromDisk loads a block from disk, handling text format genesis hashes
-// loadBlockFromDisk loads a block from disk, handling sanitized filenames
+// loadBlockFromDisk loads a block from disk, handling both string and hex ParentHash formats
 func (s *Storage) loadBlockFromDisk(hash string) (*types.Block, error) {
 	// Try both original hash and sanitized version
 	filenames := []string{
@@ -1021,31 +1061,133 @@ func (s *Storage) loadBlockFromDisk(hash string) (*types.Block, error) {
 		return nil, fmt.Errorf("block file does not exist for hash: %s", hash)
 	}
 
-	var block types.Block
-	if err := json.Unmarshal(data, &block); err != nil {
+	// First, unmarshal into a temporary structure to handle ParentHash conversion
+	type TempBlock struct {
+		Header struct {
+			Hash       string `json:"hash"`
+			TxsRoot    string `json:"txs_root"`
+			StateRoot  string `json:"state_root"`
+			ParentHash string `json:"parent_hash"` // This could be string or hex
+			UnclesHash string `json:"uncles_hash"`
+			ExtraData  string `json:"extra_data"`
+			Miner      string `json:"miner"`
+			Version    uint64 `json:"version"`
+			NBlock     uint64 `json:"nblock"`
+			Height     uint64 `json:"height"`
+			Timestamp  int64  `json:"timestamp"`
+			Difficulty string `json:"difficulty"`
+			Nonce      uint64 `json:"nonce"`
+			GasLimit   string `json:"gas_limit"`
+			GasUsed    string `json:"gas_used"`
+		} `json:"header"`
+		Body struct {
+			TxsList    []*types.Transaction `json:"txs_list"`
+			UnclesHash string               `json:"uncles_hash"`
+		} `json:"body"`
+	}
+
+	var tempBlock TempBlock
+	if err := json.Unmarshal(data, &tempBlock); err != nil {
 		logger.Warn("Failed to unmarshal block file %s: %v, file content: %s",
 			usedFilename, err, string(data[:min(100, len(data))]))
 		return nil, fmt.Errorf("failed to unmarshal block: %w", err)
 	}
 
-	// Fix the hash if it was hex-encoded during storage
-	if block.Header != nil && len(block.Header.Hash) > 0 {
-		hashStr := string(block.Header.Hash)
-		// If it's a genesis hash that got hex-encoded, fix it
-		if isHexEncodedGenesis(hashStr) {
-			decoded, err := hex.DecodeString(hashStr)
-			if err == nil {
-				decodedStr := string(decoded)
-				if len(decodedStr) > 8 && decodedStr[:8] == "GENESIS_" {
-					block.Header.Hash = []byte(decodedStr)
-				}
+	// Now convert to types.Block
+	var block types.Block
+	block.Header = &types.BlockHeader{
+		Version:   tempBlock.Header.Version,
+		Block:     tempBlock.Header.NBlock,
+		Height:    tempBlock.Header.Height,
+		Timestamp: tempBlock.Header.Timestamp,
+		Hash:      []byte(tempBlock.Header.Hash),
+		// Handle ParentHash conversion - check if it's hex-encoded genesis
+		ParentHash: s.decodeParentHash(tempBlock.Header.ParentHash),
+		// Convert other fields from hex
+		TxsRoot:    s.decodeHexField(tempBlock.Header.TxsRoot),
+		StateRoot:  s.decodeHexField(tempBlock.Header.StateRoot),
+		UnclesHash: s.decodeHexField(tempBlock.Header.UnclesHash),
+		ExtraData:  []byte(tempBlock.Header.ExtraData),
+		Miner:      s.decodeHexField(tempBlock.Header.Miner),
+	}
+
+	// Convert difficulty
+	difficulty, ok := new(big.Int).SetString(tempBlock.Header.Difficulty, 10)
+	if !ok {
+		difficulty = big.NewInt(1)
+	}
+	block.Header.Difficulty = difficulty
+
+	// Convert gas limit
+	gasLimit, ok := new(big.Int).SetString(tempBlock.Header.GasLimit, 10)
+	if !ok {
+		gasLimit = big.NewInt(0)
+	}
+	block.Header.GasLimit = gasLimit
+
+	// Convert gas used
+	gasUsed, ok := new(big.Int).SetString(tempBlock.Header.GasUsed, 10)
+	if !ok {
+		gasUsed = big.NewInt(0)
+	}
+	block.Header.GasUsed = gasUsed
+
+	block.Header.Nonce = tempBlock.Header.Nonce
+
+	// Set body
+	block.Body.TxsList = tempBlock.Body.TxsList
+	block.Body.UnclesHash = s.decodeHexField(tempBlock.Body.UnclesHash)
+
+	// Log ParentHash information for debugging
+	logger.Debug("Block loaded from disk: height=%d, hash=%s, ParentHash=%s, file=%s",
+		block.GetHeight(), block.GetHash(), string(block.Header.ParentHash), usedFilename)
+
+	return &block, nil
+}
+
+// decodeParentHash handles ParentHash conversion, specifically handling hex-encoded genesis hashes
+func (s *Storage) decodeParentHash(parentHashStr string) []byte {
+	// Check if it's a hex-encoded genesis hash
+	if isHexEncodedGenesis(parentHashStr) {
+		// Decode the hex string back to the original GENESIS_ format
+		decoded, err := hex.DecodeString(parentHashStr)
+		if err == nil {
+			decodedStr := string(decoded)
+			if strings.HasPrefix(decodedStr, "GENESIS_") {
+				logger.Debug("Converted hex-encoded genesis ParentHash back to string: %s", decodedStr)
+				return []byte(decodedStr)
 			}
 		}
 	}
 
-	logger.Debug("Block loaded from disk: height=%d, hash=%s, file=%s",
-		block.GetHeight(), block.GetHash(), usedFilename)
-	return &block, nil
+	// If it's already a string (like GENESIS_...), return as bytes
+	if strings.HasPrefix(parentHashStr, "GENESIS_") {
+		return []byte(parentHashStr)
+	}
+
+	// Otherwise decode as hex for normal hashes
+	data, err := hex.DecodeString(parentHashStr)
+	if err != nil {
+		// If it's not valid hex, return as bytes
+		return []byte(parentHashStr)
+	}
+	return data
+}
+
+// decodeHexField decodes hex fields, handling both hex and string formats
+func (s *Storage) decodeHexField(field string) []byte {
+	// If it's already a string (like GENESIS_...), return as bytes
+	if strings.HasPrefix(field, "GENESIS_") {
+		return []byte(field)
+	}
+
+	// Otherwise decode as hex
+	data, err := hex.DecodeString(field)
+	if err != nil {
+		// If it's not valid hex, return as bytes
+		return []byte(field)
+	}
+	return data
 }
 
 // isHexEncodedGenesis checks if a string is a hex-encoded genesis hash

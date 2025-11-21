@@ -33,22 +33,23 @@ func (b *Block) GetHeight() uint64 {
 	return b.Header.Block
 }
 
-// GetPrevHash returns the previous block hash as printable string
+// GetPrevHash returns the parent block hash as printable string
+// This method provides the parent hash for chain continuity verification
 func (b *Block) GetPrevHash() string {
 	if b.Header == nil || len(b.Header.ParentHash) == 0 {
 		return ""
 	}
 
 	// Check if it's already a valid string
-	prevHashStr := string(b.Header.ParentHash)
+	parentHashStr := string(b.Header.ParentHash)
 
 	// If it's a genesis hash in text format, return as-is
-	if len(prevHashStr) > 8 && prevHashStr[:8] == "GENESIS_" {
-		return prevHashStr
+	if len(parentHashStr) > 8 && parentHashStr[:8] == "GENESIS_" {
+		return parentHashStr
 	}
 
 	// Otherwise, check if it contains non-printable characters
-	for _, r := range prevHashStr {
+	for _, r := range parentHashStr {
 		if r < 32 || r > 126 {
 			// Contains non-printable chars, convert to hex
 			return hex.EncodeToString(b.Header.ParentHash)
@@ -56,7 +57,7 @@ func (b *Block) GetPrevHash() string {
 	}
 
 	// It's already a printable string
-	return prevHashStr
+	return parentHashStr
 }
 
 func (b *Block) GetTimestamp() int64 {

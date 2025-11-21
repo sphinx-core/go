@@ -63,11 +63,11 @@ func NewBlockHeader(height uint64, parentHash []byte, difficulty *big.Int, txsRo
 	}
 
 	return &BlockHeader{
-		Version:    1, // Default version
+		Version:    1,
 		Block:      height,
 		Height:     height,
 		Timestamp:  timestamp,
-		ParentHash: parentHash, // Main chain continuity
+		ParentHash: parentHash, // Main chain continuity - using ParentHash consistently
 		Hash:       []byte{},
 		Difficulty: difficulty,
 		Nonce:      uint64(0),

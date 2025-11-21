@@ -701,10 +701,10 @@ func (bc *Blockchain) ImportBlock(block *types.Block) BlockImportResult {
 		return ImportInvalid
 	}
 
-	// Verify block links to current chain
+	// Verify block links to current chain using ParentHash
 	latestBlock := bc.GetLatestBlock()
 	if latestBlock != nil && block.GetPrevHash() != latestBlock.GetHash() {
-		logger.Info("Block does not extend current chain: expected prevHash=%s, got prevHash=%s",
+		logger.Info("Block does not extend current chain: expected ParentHash=%s, got ParentHash=%s",
 			latestBlock.GetHash(), block.GetPrevHash())
 		return ImportedSide
 	}
@@ -716,8 +716,8 @@ func (bc *Blockchain) ImportBlock(block *types.Block) BlockImportResult {
 		return ImportError
 	}
 
-	logger.Info("Block imported successfully: height=%d, hash=%s",
-		block.GetHeight(), block.GetHash())
+	logger.Info("Block imported successfully: height=%d, hash=%s, ParentHash=%s",
+		block.GetHeight(), block.GetHash(), block.GetPrevHash())
 	return ImportedBest
 }
 
@@ -973,21 +973,21 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 		return nil, fmt.Errorf("no previous block found: %v", err)
 	}
 
-	// Get previous hash
-	prevHash := prevBlock.GetHash()
-	var prevHashBytes []byte
+	// Get previous hash - rename variable for consistency
+	parentHash := prevBlock.GetHash()
+	var parentHashBytes []byte
 
-	if strings.HasPrefix(prevHash, "GENESIS_") {
-		prevHashBytes = []byte(prevHash)
-		logger.Info("Using genesis-style previous hash: %s (stored as %d bytes)",
-			prevHash, len(prevHashBytes))
+	if strings.HasPrefix(parentHash, "GENESIS_") {
+		parentHashBytes = []byte(parentHash)
+		logger.Info("Using genesis-style parent hash: %s (stored as %d bytes)",
+			parentHash, len(parentHashBytes))
 	} else {
-		prevHashBytes, err = hex.DecodeString(prevHash)
+		parentHashBytes, err = hex.DecodeString(parentHash)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode previous hash: %w", err)
+			return nil, fmt.Errorf("failed to decode parent hash: %w", err)
 		}
-		logger.Info("Using normal previous hash: %s (stored as %d bytes)",
-			prevHash, len(prevHashBytes))
+		logger.Info("Using normal parent hash: %s (stored as %d bytes)",
+			parentHash, len(parentHashBytes))
 	}
 
 	pendingTxs := bc.mempool.GetPendingTransactions()
@@ -1034,7 +1034,7 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 
 	newHeader := types.NewBlockHeader(
 		prevBlock.GetHeight()+1,
-		prevHashBytes,
+		parentHashBytes, // Use consistent variable name
 		big.NewInt(1),
 		txsRoot,
 		stateRoot,
@@ -1732,7 +1732,7 @@ func (bc *Blockchain) Close() error {
 }
 
 // ValidateBlock validates a block including TxsRoot = MerkleRoot verification
-// ValidateBlock - handle raw bytes in previous hash
+// ValidateBlock - handle raw bytes in ParentHash
 func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 	var b *types.Block
 	switch blk := block.(type) {
@@ -1742,29 +1742,29 @@ func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 		return fmt.Errorf("invalid block type")
 	}
 
-	// FIX: Use the new GetPrevHash method which handles genesis hashes properly
+	// Validate ParentHash chain linkage (except for genesis block)
 	if b.Header.Height > 0 {
-		prev := bc.GetLatestBlock()
-		if prev != nil {
-			expectedPrevHash := prev.GetHash()
-			currentPrevHash := b.GetPrevHash() // This now handles genesis hashes
+		previousBlock := bc.GetLatestBlock()
+		if previousBlock != nil {
+			expectedParentHash := previousBlock.GetHash()
+			currentParentHash := b.GetPrevHash()
 
-			logger.Info("🔍 DEBUG: PrevHash validation - expected: %s, current: %s",
-				expectedPrevHash, currentPrevHash)
+			logger.Info("🔍 DEBUG: ParentHash validation - expected: %s, current: %s",
+				expectedParentHash, currentParentHash)
 
 			// For comparison, we need to normalize both hashes
-			decodedExpected, err := bc.DecodeBlockHash(expectedPrevHash)
+			decodedExpected, err := bc.DecodeBlockHash(expectedParentHash)
 			if err != nil {
-				return fmt.Errorf("failed to decode expected prev hash '%s': %w", expectedPrevHash, err)
+				return fmt.Errorf("failed to decode expected parent hash '%s': %w", expectedParentHash, err)
 			}
 
-			decodedCurrent, err := bc.DecodeBlockHash(currentPrevHash)
+			decodedCurrent, err := bc.DecodeBlockHash(currentParentHash)
 			if err != nil {
-				return fmt.Errorf("failed to decode current prev hash '%s': %w", currentPrevHash, err)
+				return fmt.Errorf("failed to decode current parent hash '%s': %w", currentParentHash, err)
 			}
 
 			if !bytes.Equal(decodedExpected, decodedCurrent) {
-				return fmt.Errorf("invalid prev hash: expected %x, got %x",
+				return fmt.Errorf("invalid parent hash: expected %x, got %x",
 					decodedExpected, decodedCurrent)
 			}
 		}
@@ -1797,22 +1797,22 @@ func (bc *Blockchain) ValidateBlock(block consensus.Block) error {
 		return fmt.Errorf("invalid block hash: expected %x, got %x", expectedHash, b.Header.Hash)
 	}
 
-	// 5. Links to previous block - USE THE CORRECT DECODING METHOD
-	prev := bc.GetLatestBlock()
-	if prev != nil {
+	// 5. Links to previous block using ParentHash
+	previousBlock := bc.GetLatestBlock()
+	if previousBlock != nil {
 		// Use your existing DecodeBlockHash method that handles genesis hashes
-		prevHashBytes, err := bc.DecodeBlockHash(prev.GetHash())
+		parentHashBytes, err := bc.DecodeBlockHash(previousBlock.GetHash())
 		if err != nil {
-			return fmt.Errorf("failed to decode previous block hash '%s': %w", prev.GetHash(), err)
+			return fmt.Errorf("failed to decode previous block hash '%s': %w", previousBlock.GetHash(), err)
 		}
 
-		currentPrevHashBytes, err := bc.DecodeBlockHash(b.GetPrevHash())
+		currentParentHashBytes, err := bc.DecodeBlockHash(b.GetPrevHash())
 		if err != nil {
-			return fmt.Errorf("failed to decode current prev hash '%s': %w", b.GetPrevHash(), err)
+			return fmt.Errorf("failed to decode current parent hash '%s': %w", b.GetPrevHash(), err)
 		}
 
-		if !bytes.Equal(prevHashBytes, currentPrevHashBytes) {
-			return fmt.Errorf("invalid prev hash: expected %s, got %s", prev.GetHash(), b.GetPrevHash())
+		if !bytes.Equal(parentHashBytes, currentParentHashBytes) {
+			return fmt.Errorf("invalid parent hash: expected %s, got %s", previousBlock.GetHash(), b.GetPrevHash())
 		}
 	}
 

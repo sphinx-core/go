@@ -280,17 +280,60 @@ func (sm *StateMachine) syncFinalStates() {
 		// CRITICAL: Ensure merkle_root and status are NEVER empty
 		finalState = sm.FinalStatePopulated(finalState)
 
+		// CRITICAL FIX: Ensure genesis block has correct GENESIS_ hash
+		finalState = sm.fixGenesisBlockHash(finalState)
+
 		sm.finalStates = append(sm.finalStates, finalState)
 
-		logger.Info("✅ SMR: Final state - block=%s, merkle=%s, status=%s, type=%s",
-			finalState.BlockHash, finalState.MerkleRoot, finalState.Status, finalState.MessageType)
+		logger.Info("✅ SMR: Final state - block=%s, height=%d, merkle=%s, status=%s, type=%s",
+			finalState.BlockHash, finalState.BlockHeight, finalState.MerkleRoot, finalState.Status, finalState.MessageType)
 	}
 
 	logger.Info("✅ SMR: Successfully synced %d final states", len(sm.finalStates))
 }
 
+// fixGenesisBlockHash ensures genesis block has correct GENESIS_ prefix hash
+func (sm *StateMachine) fixGenesisBlockHash(state *FinalStateInfo) *FinalStateInfo {
+	if state.BlockHeight == 0 {
+		// Get the actual genesis block from storage
+		genesisBlock, err := sm.storage.GetBlockByHeight(0)
+		if err == nil && genesisBlock != nil {
+			actualGenesisHash := genesisBlock.GetHash()
+
+			// If the stored hash doesn't match the actual genesis hash, fix it
+			if state.BlockHash != actualGenesisHash {
+				logger.Warn("🔄 Fixing genesis block hash in final state: %s -> %s",
+					state.BlockHash, actualGenesisHash)
+				state.BlockHash = actualGenesisHash
+
+				// Also update the merkle root to match the actual genesis block
+				state.MerkleRoot = hex.EncodeToString(genesisBlock.CalculateTxsRoot())
+			}
+
+			// Ensure the genesis hash has GENESIS_ prefix
+			if !strings.HasPrefix(state.BlockHash, "GENESIS_") {
+				logger.Warn("🔄 Adding GENESIS_ prefix to genesis block hash: %s", state.BlockHash)
+				// Get the actual genesis hash from storage
+				if strings.HasPrefix(actualGenesisHash, "GENESIS_") {
+					state.BlockHash = actualGenesisHash
+				} else {
+					state.BlockHash = "GENESIS_" + state.BlockHash
+				}
+			}
+		} else {
+			logger.Warn("⚠️ Could not load genesis block to verify hash: %v", err)
+		}
+	}
+	return state
+}
+
 // convertToFinalStateInfo converts ConsensusSignature to FinalStateInfo
 func (sm *StateMachine) convertToFinalStateInfo(sig *consensus.ConsensusSignature) *FinalStateInfo {
+	// SPECIAL HANDLING FOR GENESIS BLOCK
+	if sig.BlockHeight == 0 {
+		return sm.createGenesisFinalState(sig)
+	}
+
 	// Get the actual block to extract proper information
 	block, err := sm.storage.GetBlockByHash(sig.BlockHash)
 	var merkleRoot string
@@ -338,6 +381,108 @@ func (sm *StateMachine) convertToFinalStateInfo(sig *consensus.ConsensusSignatur
 		// Timestamps
 		Timestamp: sig.Timestamp,
 	}
+}
+
+// createGenesisFinalState creates a final state specifically for genesis block
+func (sm *StateMachine) createGenesisFinalState(sig *consensus.ConsensusSignature) *FinalStateInfo {
+	// Get the actual genesis block from storage
+	genesisBlock, err := sm.storage.GetBlockByHeight(0)
+	var actualGenesisHash string
+	var merkleRoot string
+	var blockTimestamp int64
+
+	if err == nil && genesisBlock != nil {
+		actualGenesisHash = genesisBlock.GetHash()
+		merkleRoot = sm.extractMerkleRootFromBlock(genesisBlock)
+		blockTimestamp = genesisBlock.GetTimestamp()
+
+		// Ensure the genesis hash has GENESIS_ prefix
+		if !strings.HasPrefix(actualGenesisHash, "GENESIS_") {
+			logger.Warn("⚠️ Genesis block hash missing GENESIS_ prefix: %s", actualGenesisHash)
+			actualGenesisHash = "GENESIS_" + actualGenesisHash
+		}
+	} else {
+		logger.Warn("⚠️ Could not load genesis block: %v", err)
+		actualGenesisHash = "GENESIS_unknown"
+		merkleRoot = "genesis_not_found"
+		blockTimestamp = 0
+	}
+
+	// Use the actual genesis hash, not the one from the signature
+	blockHash := actualGenesisHash
+
+	// Determine proper status
+	status := sm.determineFinalStateStatus(sig.MessageType, sig.Valid)
+
+	return &FinalStateInfo{
+		// Block identification - USE ACTUAL GENESIS HASH
+		BlockHash:      blockHash,
+		BlockHeight:    0,
+		MerkleRoot:     merkleRoot,
+		BlockTimestamp: blockTimestamp,
+
+		// Node information
+		NodeID:      sig.SignerNodeID,
+		NodeName:    fmt.Sprintf("Node-%s", sig.SignerNodeID),
+		NodeAddress: fmt.Sprintf("127.0.0.1:%s", sig.SignerNodeID),
+
+		// Chain state
+		TotalBlocks: sm.storage.GetTotalBlocks(),
+
+		// Signature information
+		SignerNodeID: sig.SignerNodeID,
+		Signature:    sig.Signature,
+		MessageType:  sig.MessageType,
+		View:         sig.View,
+		Valid:        sig.Valid,
+		Status:       status,
+
+		// Additional context
+		ProposerID:       sig.SignerNodeID,
+		SignatureStatus:  sm.mapValidToSignatureStatus(sig.Valid),
+		VerificationTime: time.Now().Format(time.RFC3339),
+
+		// Timestamps
+		Timestamp: sig.Timestamp,
+	}
+}
+
+// ValidateAndFixFinalStates validates all final states and fixes any inconsistencies
+func (sm *StateMachine) ValidateAndFixFinalStates() error {
+	sm.stateMutex.Lock()
+	defer sm.stateMutex.Unlock()
+
+	logger.Info("🔄 Validating and fixing final states...")
+
+	fixedCount := 0
+	for i, state := range sm.finalStates {
+		if state == nil {
+			continue
+		}
+
+		originalHash := state.BlockHash
+		originalMerkle := state.MerkleRoot
+
+		// Fix genesis block hashes
+		if state.BlockHeight == 0 {
+			state = sm.fixGenesisBlockHash(state)
+		}
+
+		// Ensure all states are properly populated
+		state = sm.FinalStatePopulated(state)
+
+		// Check if anything was fixed
+		if state.BlockHash != originalHash || state.MerkleRoot != originalMerkle {
+			fixedCount++
+			logger.Info("✅ Fixed final state %d: block=%s->%s, merkle=%s->%s",
+				i, originalHash, state.BlockHash, originalMerkle, state.MerkleRoot)
+		}
+
+		sm.finalStates[i] = state
+	}
+
+	logger.Info("✅ Validated and fixed %d final states out of %d", fixedCount, len(sm.finalStates))
+	return nil
 }
 
 // ForcePopulateFinalStates manually populates final states with real data
