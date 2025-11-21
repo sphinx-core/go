@@ -26,6 +26,8 @@ package commit
 import (
 	"fmt"
 	"time"
+
+	"github.com/sphinx-core/go/src/accounts/key"
 )
 
 // SphinxChainParams returns the mainnet parameters for Sphinx blockchain
@@ -51,6 +53,8 @@ func TestnetChainParams() *ChainParameters {
 	params.ChainName = "Sphinx Testnet"
 	params.GenesisHash = "sphinx-testnet-genesis"
 	params.MagicNumber = 0x74504858 // "tPHX"
+	params.BIP44CoinType = 1        // Testnet uses different BIP44 coin type
+	params.LedgerName = "Sphinx Testnet"
 	return params
 }
 
@@ -61,6 +65,8 @@ func RegtestChainParams() *ChainParameters {
 	params.ChainName = "Sphinx Regtest"
 	params.GenesisHash = "sphinx-regtest-genesis"
 	params.MagicNumber = 0x72504858 // "rPHX"
+	params.BIP44CoinType = 1        // Regtest uses testnet BIP44 coin type
+	params.LedgerName = "Sphinx Regtest"
 	return params
 }
 
@@ -81,28 +87,35 @@ func GenerateHeaders(ledger, asset string, amount float64, address string) strin
 }
 
 // GenerateLedgerHeaders generates headers specifically formatted for Ledger hardware
+// Now delegates to the centralized keystore package
 func GenerateLedgerHeaders(operation string, amount float64, address string, memo string) string {
 	params := SphinxChainParams()
 
-	return fmt.Sprintf(
-		"=== SPHINX LEDGER OPERATION ===\n"+
-			"Chain: %s\n"+
-			"Chain ID: %d\n"+
-			"Operation: %s\n"+
-			"Amount: %.6f SPX\n"+
-			"Address: %s\n"+
-			"Memo: %s\n"+
-			"BIP44: 44'/7331'/0'/0/0\n"+
-			"Timestamp: %d\n"+
-			"========================",
-		params.ChainName,
+	// Create appropriate keystore config based on chain parameters
+	keystoreConfig := key.NewKeystoreConfig(
 		params.ChainID,
-		operation,
-		amount,
-		address,
-		memo,
-		time.Now().Unix(),
+		params.ChainName,
+		params.BIP44CoinType,
+		params.LedgerName,
+		params.Symbol,
 	)
+
+	return keystoreConfig.GenerateLedgerHeaders(operation, amount, address, memo)
+}
+
+// GenerateTestnetLedgerHeaders generates headers for testnet Ledger operations
+func GenerateTestnetLedgerHeaders(operation string, amount float64, address string, memo string) string {
+	params := TestnetChainParams()
+
+	keystoreConfig := key.NewKeystoreConfig(
+		params.ChainID,
+		params.ChainName,
+		params.BIP44CoinType,
+		params.LedgerName,
+		params.Symbol,
+	)
+
+	return keystoreConfig.GenerateLedgerHeaders(operation, amount, address, memo)
 }
 
 // ValidateChainID validates if a chain ID belongs to Sphinx network
@@ -224,4 +237,28 @@ func GenerateForkHeader(forkName string) string {
 // Helper function to get soft forks (duplicate for internal use)
 func GetSoftForkParameters() map[string]*SoftForkParameters {
 	return GetSoftForks()
+}
+
+// GetKeystoreConfig returns the appropriate keystore configuration for these chain parameters
+func (p *ChainParameters) GetKeystoreConfig() *key.KeystoreConfig {
+	switch p.ChainID {
+	case 7331:
+		if p.ChainName == "Sphinx Mainnet" {
+			return key.GetMainnetKeystoreConfig()
+		}
+		return key.GetDevnetKeystoreConfig()
+	case 17331:
+		return key.GetTestnetKeystoreConfig()
+	case 27331:
+		// For regtest, create a custom config
+		return key.NewKeystoreConfig(
+			p.ChainID,
+			p.ChainName,
+			p.BIP44CoinType,
+			p.LedgerName,
+			p.Symbol,
+		)
+	default:
+		return key.GetMainnetKeystoreConfig()
+	}
 }

@@ -1,8 +1,0 @@
-=============== Jul 9, 2025 (WIB) ===============
-14:04:32.805463 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
-14:04:32.831746 db@open opening
-14:04:32.832521 version@stat F·[] S·0B[] Sc·[]
-14:04:32.841919 db@janitor F·2 G·0
-14:04:32.841992 db@open done T·10.207053ms
-14:04:35.448907 db@close closing
-14:04:35.449043 db@close done T·133.584µs

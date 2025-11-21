@@ -28,6 +28,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/sphinx-core/go/src/accounts/key"
 	"github.com/sphinx-core/go/src/pool"
 )
 
@@ -35,17 +36,25 @@ func (m *MockChainParamsProvider) GetChainParams() *SphinxChainParameters {
 	return m.params
 }
 
+// GetWalletDerivationPaths now delegates to the centralized keystore package
 func (m *MockChainParamsProvider) GetWalletDerivationPaths() map[string]string {
-	return map[string]string{
-		"BIP44":  fmt.Sprintf("m/44'/%d'/0'/0/0", m.params.BIP44CoinType),
-		"BIP49":  fmt.Sprintf("m/49'/%d'/0'/0/0", m.params.BIP44CoinType),
-		"BIP84":  fmt.Sprintf("m/84'/%d'/0'/0/0", m.params.BIP44CoinType),
-		"Ledger": fmt.Sprintf("m/44'/%d'/0'", m.params.BIP44CoinType),
-		"Trezor": fmt.Sprintf("m/44'/%d'/0'/0/0", m.params.BIP44CoinType),
+	// Get the appropriate keystore config based on chain parameters
+	var keystoreConfig *key.KeystoreConfig
+	switch {
+	case m.params.IsMainnet():
+		keystoreConfig = key.GetMainnetKeystoreConfig()
+	case m.params.IsTestnet():
+		keystoreConfig = key.GetTestnetKeystoreConfig()
+	case m.params.IsDevnet():
+		keystoreConfig = key.GetDevnetKeystoreConfig()
+	default:
+		// Fallback to mainnet
+		keystoreConfig = key.GetMainnetKeystoreConfig()
 	}
+
+	return keystoreConfig.GetWalletDerivationPaths()
 }
 
-// GetSphinxChainParams returns the mainnet parameters
 // GetSphinxChainParams returns the mainnet parameters
 func GetSphinxChainParams() *SphinxChainParameters {
 	// Use the STANDARDIZED genesis hash that all nodes will use
@@ -64,7 +73,6 @@ func GetSphinxChainParams() *SphinxChainParameters {
 		BIP44CoinType: 7331,
 		LedgerName:    "Sphinx",
 
-		// ... rest of your existing code remains the same ...
 		Denominations: map[string]*big.Int{
 			"nSPX": big.NewInt(1),    // Base unit
 			"uSPX": big.NewInt(1e3),  // Micro SPX
@@ -270,4 +278,25 @@ func (p *SphinxChainParameters) ConvertFromBaseUnits(amount *big.Int, toDenom st
 		return nil, fmt.Errorf("unknown denomination: %s", toDenom)
 	}
 	return new(big.Int).Div(amount, multiplier), nil
+}
+
+// GetKeystoreConfig returns the appropriate keystore configuration for these chain parameters
+func (p *SphinxChainParameters) GetKeystoreConfig() *key.KeystoreConfig {
+	switch {
+	case p.IsMainnet():
+		return key.GetMainnetKeystoreConfig()
+	case p.IsTestnet():
+		return key.GetTestnetKeystoreConfig()
+	case p.IsDevnet():
+		return key.GetDevnetKeystoreConfig()
+	default:
+		return key.GetMainnetKeystoreConfig()
+	}
+}
+
+// GenerateLedgerHeaders generates headers specifically formatted for Ledger hardware
+// This method now delegates to the centralized keystore package
+func (p *SphinxChainParameters) GenerateLedgerHeaders(operation string, amount float64, address string, memo string) string {
+	keystoreConfig := p.GetKeystoreConfig()
+	return keystoreConfig.GenerateLedgerHeaders(operation, amount, address, memo)
 }
