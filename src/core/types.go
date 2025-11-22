@@ -142,5 +142,4 @@ type Blockchain struct {
 	chainParams     *SphinxChainParameters
 
 	merkleRootCache map[string]string // Add this field
-	cacheMutex      sync.RWMutex      // Add this mutex
 }

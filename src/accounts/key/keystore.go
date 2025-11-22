@@ -29,6 +29,30 @@ import (
 	"time"
 )
 
+// Global storage manager instance
+var globalStorageManager StorageManagerInterface
+var storageOnce sync.Once
+
+// SetStorageManager sets the global storage manager instance
+func SetStorageManager(manager StorageManagerInterface) {
+	storageOnce.Do(func() {
+		globalStorageManager = manager
+	})
+}
+
+// GetStorageManager returns the global storage manager
+func GetStorageManager() StorageManagerInterface {
+	return globalStorageManager
+}
+
+// GetDiskStorage returns the disk storage instance
+func GetDiskStorage() StorageInterface {
+	if globalStorageManager != nil {
+		return globalStorageManager.GetStorage("disk")
+	}
+	return nil
+}
+
 // NewKeystoreConfig creates a new keystore configuration
 func NewKeystoreConfig(chainID uint64, chainName string, bip44CoinType uint32, ledgerName string, symbol string) *KeystoreConfig {
 	config := &KeystoreConfig{

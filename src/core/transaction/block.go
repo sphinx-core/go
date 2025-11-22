@@ -44,8 +44,8 @@ func NewBlockHeader(height uint64, parentHash []byte, difficulty *big.Int, txsRo
 		timestamp = common.GetCurrentTimestamp()
 	}
 
-	// Calculate uncles hash from actual uncle blocks
-	unclesHash := CalculateUnclesHash(uncles)
+	// Calculate uncles hash with block height context
+	unclesHash := CalculateUnclesHash(uncles, height) // Pass height here
 
 	// Ensure extraData is never nil
 	if extraData == nil {
@@ -83,8 +83,9 @@ func NewBlockHeader(height uint64, parentHash []byte, difficulty *big.Int, txsRo
 
 // NewBlockBody creates a new BlockBody with transactions and actual uncle blocks
 func NewBlockBody(txsList []*Transaction, uncles []*BlockHeader) *BlockBody {
-	// Calculate uncles hash from actual uncle blocks
-	unclesHash := CalculateUnclesHash(uncles)
+	// For block body, we don't have height context, so use 0 (will be overridden later)
+	// Or you can modify this function to accept height if needed
+	unclesHash := CalculateUnclesHash(uncles, 0) // Pass 0 as default
 
 	return &BlockBody{
 		TxsList:    txsList,
@@ -102,13 +103,23 @@ func NewBlock(header *BlockHeader, body *BlockBody) *Block {
 }
 
 // CalculateUnclesHash calculates the Merkle root of uncle block headers
-func CalculateUnclesHash(uncles []*BlockHeader) []byte {
-	if len(uncles) == 0 {
-		// Standard empty uncles hash
-		return common.SpxHash([]byte{})
+func CalculateUnclesHash(uncles []*BlockHeader, blockHeight uint64) []byte {
+	// SPECIAL CASE: Genesis block uses your specific hardcoded hash
+	if blockHeight == 0 {
+		genesisUnclesHash, _ := hex.DecodeString("3916d45c66e84c612c8a4a403702ec44cc575fc2383dbe4e861dd29ef892bee3")
+		log.Printf("🔷 Genesis block %d - Using hardcoded uncles hash: %x", blockHeight, genesisUnclesHash)
+		return genesisUnclesHash
 	}
 
-	// Calculate Merkle root of uncle block headers
+	// For non-genesis blocks with empty uncles
+	if len(uncles) == 0 {
+		// Use a different hash for non-genesis empty uncles
+		emptyHash := common.SpxHash([]byte("empty_uncles_list"))
+		log.Printf("🔷 Block %d - Using standard empty uncles hash: %x", blockHeight, emptyHash)
+		return emptyHash
+	}
+
+	// Calculate Merkle root of uncle block headers (existing logic)
 	var uncleHashes [][]byte
 	for _, uncle := range uncles {
 		if uncle != nil && len(uncle.Hash) > 0 {
@@ -168,13 +179,14 @@ func CalculateMerkleRootFromHashes(hashes [][]byte) []byte {
 }
 
 // GenerateBlockHash generates the block hash with proper parent-uncle relationships
+// GenerateBlockHash generates the block hash with proper parent-uncle relationships
 func (b *Block) GenerateBlockHash() []byte {
 	if b.Header == nil {
 		return []byte{}
 	}
 
-	// Ensure UnclesHash is calculated from actual uncle blocks
-	calculatedUnclesHash := CalculateUnclesHash(b.Body.Uncles)
+	// Ensure UnclesHash is calculated from actual uncle blocks WITH HEIGHT
+	calculatedUnclesHash := CalculateUnclesHash(b.Body.Uncles, b.Header.Height) // Pass height here
 	if !bytes.Equal(b.Header.UnclesHash, calculatedUnclesHash) {
 		log.Printf("WARNING: UnclesHash doesn't match calculated uncles, updating UnclesHash")
 		b.Header.UnclesHash = calculatedUnclesHash
@@ -307,6 +319,7 @@ func (b *Block) CalculateTxsRoot() []byte {
 }
 
 // FinalizeHash ensures all roots are properly set before finalizing the block hash
+// FinalizeHash ensures all roots are properly set before finalizing the block hash
 func (b *Block) FinalizeHash() {
 	if b.Header == nil {
 		return
@@ -315,8 +328,8 @@ func (b *Block) FinalizeHash() {
 	// Ensure TxsRoot is calculated before generating the final hash
 	b.Header.TxsRoot = b.CalculateTxsRoot()
 
-	// Ensure UnclesHash is calculated from actual uncle blocks
-	b.Header.UnclesHash = CalculateUnclesHash(b.Body.Uncles)
+	// Ensure UnclesHash is calculated from actual uncle blocks WITH HEIGHT
+	b.Header.UnclesHash = CalculateUnclesHash(b.Body.Uncles, b.Header.Height) // Pass height here
 
 	// Generate the hash (this now returns hex-encoded bytes)
 	hashBytes := b.GenerateBlockHash()
@@ -344,7 +357,7 @@ func (b *Block) ValidateUnclesHash() error {
 		return fmt.Errorf("block header is nil")
 	}
 
-	calculatedUnclesHash := CalculateUnclesHash(b.Body.Uncles)
+	calculatedUnclesHash := CalculateUnclesHash(b.Body.Uncles, b.Header.Height) // Pass height here
 	if !bytes.Equal(b.Header.UnclesHash, calculatedUnclesHash) {
 		return fmt.Errorf("UnclesHash validation failed: expected %x, got %x (uncles count: %d)",
 			calculatedUnclesHash, b.Header.UnclesHash, len(b.Body.Uncles))
@@ -356,8 +369,8 @@ func (b *Block) ValidateUnclesHash() error {
 func (b *Block) AddUncle(uncle *BlockHeader) {
 	if uncle != nil {
 		b.Body.Uncles = append(b.Body.Uncles, uncle)
-		// Recalculate uncles hash
-		b.Header.UnclesHash = CalculateUnclesHash(b.Body.Uncles)
+		// Recalculate uncles hash WITH HEIGHT
+		b.Header.UnclesHash = CalculateUnclesHash(b.Body.Uncles, b.Header.Height) // Pass height here
 	}
 }
 

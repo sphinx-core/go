@@ -154,12 +154,15 @@ func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo) error {
 		return fmt.Errorf("chain parameters not initialized")
 	}
 
-	// Convert blockchain params to storage.ChainParams
+	// Convert genesis_time to ISO RFC format for output
+	genesisTimeISO := common.GetTimeService().GetTimeInfo(bc.chainParams.GenesisTime).ISOUTC
+
+	// Convert blockchain params to storage.ChainParams with ISO format
 	chainParams := &storage.ChainParams{
 		ChainID:       bc.chainParams.ChainID,
 		ChainName:     bc.chainParams.ChainName,
 		Symbol:        bc.chainParams.Symbol,
-		GenesisTime:   bc.chainParams.GenesisTime,
+		GenesisTime:   genesisTimeISO, // Now this works - string to string
 		GenesisHash:   bc.chainParams.GenesisHash,
 		Version:       bc.chainParams.Version,
 		MagicNumber:   bc.chainParams.MagicNumber,
@@ -203,7 +206,7 @@ func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo) error {
 			TotalSignatures:   len(finalStates),
 			ValidSignatures:   validCount,
 			InvalidSignatures: len(finalStates) - validCount,
-			ValidationTime:    common.GetTimeService().GetCurrentTimeInfo().ISOLocal,
+			ValidationTime:    common.GetTimeService().GetCurrentTimeInfo().ISOUTC, // Use ISOUTC here too
 		}
 
 		logger.Info("Storing %d consensus signatures (%d valid) in chain state as final states",
@@ -212,10 +215,10 @@ func (bc *Blockchain) StoreChainState(nodes []*storage.NodeInfo) error {
 
 	// Create chain state with signature data
 	chainState := &storage.ChainState{
-		Nodes:               nodes, // This can be nil or empty for individual nodes
-		Timestamp:           common.GetTimeService().GetCurrentTimeInfo().ISOLocal,
+		Nodes:               nodes,
+		Timestamp:           common.GetTimeService().GetCurrentTimeInfo().ISOUTC, // Use ISOUTC
 		SignatureValidation: signatureValidation,
-		FinalStates:         finalStates, // Use FinalStates instead of ConsensusSignatures
+		FinalStates:         finalStates,
 	}
 
 	// Save chain state with actual parameters and signatures
@@ -459,6 +462,7 @@ func (bc *Blockchain) GetChainParams() *SphinxChainParameters {
 }
 
 // GetChainInfo returns formatted chain information with actual genesis hash
+// GetChainInfo returns formatted chain information with actual genesis hash
 func (bc *Blockchain) GetChainInfo() map[string]interface{} {
 	params := bc.GetChainParams()
 	latestBlock := bc.GetLatestBlock()
@@ -473,11 +477,15 @@ func (bc *Blockchain) GetChainInfo() map[string]interface{} {
 	// Use the correct network name based on chain parameters
 	networkName := params.GetNetworkName()
 
+	// Convert genesis_time from Unix timestamp to ISO RFC format for output
+	// Use ISOUTC field which is already in RFC3339 format
+	genesisTimeISO := common.GetTimeService().GetTimeInfo(params.GenesisTime).ISOUTC
+
 	return map[string]interface{}{
 		"chain_id":        params.ChainID,
 		"chain_name":      params.ChainName,
 		"symbol":          params.Symbol,
-		"genesis_time":    params.GenesisTime,
+		"genesis_time":    genesisTimeISO, // Now in ISO RFC format: "2024-11-20T00:00:00Z"
 		"genesis_hash":    params.GenesisHash,
 		"version":         params.Version,
 		"magic_number":    fmt.Sprintf("0x%x", params.MagicNumber),
@@ -486,7 +494,7 @@ func (bc *Blockchain) GetChainInfo() map[string]interface{} {
 		"ledger_name":     params.LedgerName,
 		"current_height":  blockHeight,
 		"latest_block":    blockHash,
-		"network":         networkName, // Use the correct network name
+		"network":         networkName,
 	}
 }
 

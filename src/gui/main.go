@@ -24,34 +24,9 @@
 package main
 
 import (
-	"log"
-	"os"
-
 	"github.com/sphinx-core/go/src/gui/utils"
 )
 
 func main() {
-	// Set up logging
-	logFile, err := os.OpenFile("sphinx-wallet.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err != nil {
-		log.Fatal("Failed to open log file:", err)
-	}
-	defer logFile.Close()
-
-	log.SetOutput(logFile)
-	log.Println("Sphinx Wallet GUI starting...")
-
-	// Create and start the GUI
-	walletGUI := utils.NewWalletGUI()
-
-	// Handle graceful shutdown
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("Wallet GUI panic recovered: %v", r)
-		}
-		log.Println("Sphinx Wallet GUI stopped")
-	}()
-
-	// Start the GUI
-	walletGUI.Start()
+	utils.RunGUI()
 }

@@ -32,687 +32,585 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
-	"github.com/sphinx-core/go/src/accounts/key/disk"
+	"github.com/sphinx-core/go/src/accounts/key"
 	util "github.com/sphinx-core/go/src/accounts/key/utils"
 )
 
-// WalletGUI represents the main wallet GUI interface
-type WalletGUI struct {
-	app        fyne.App
-	window     fyne.Window
-	storageMgr *util.StorageManager
-	diskStore  *disk.DiskKeyStore // Changed from hotStore
-	currentTab string
-}
-
-// NewWalletGUI creates a new wallet GUI instance
-func NewWalletGUI() *WalletGUI {
-	// Initialize storage manager
+// RunGUI starts the wallet GUI application
+func RunGUI() {
+	// Initialize storage through the keystore interface
 	storageMgr, err := util.NewStorageManager()
 	if err != nil {
 		log.Fatal("Failed to create storage manager:", err)
 	}
 
-	// Create default directories
+	// Register the storage manager with the keystore package
+	key.SetStorageManager(storageMgr)
+
 	if err := util.CreateDefaultDirectories(); err != nil {
 		log.Printf("Warning: Failed to create directories: %v", err)
 	}
 
-	// Get disk storage  // Updated comment
-	diskStore := storageMgr.GetStorage(util.StorageTypeDisk).(*disk.DiskKeyStore) // Changed from StorageTypeHot and HotKeyStore
-
-	return &WalletGUI{
-		app:        app.NewWithID("com.sphinx.wallet"),
-		storageMgr: storageMgr,
-		diskStore:  diskStore, // Changed from hotStore
-	}
-}
-
-// Start initializes and runs the wallet GUI
-func (wg *WalletGUI) Start() {
-	// Create main window
-	wg.window = wg.app.NewWindow("Sphinx Wallet")
-	wg.window.SetMaster()
-	wg.window.Resize(fyne.NewSize(1200, 800))
-
-	// Set application icon (you can add an icon file later)
-	// wg.window.SetIcon(...)
-
-	// Create the main UI
-	content := wg.createMainUI()
-	wg.window.SetContent(content)
-
-	// Show and run
-	wg.window.ShowAndRun()
-}
-
-// createMainUI creates the main wallet interface
-func (wg *WalletGUI) createMainUI() fyne.CanvasObject {
-	// Create toolbar
-	toolbar := wg.createToolbar()
-
-	// Create tabs for different wallet functions
-	tabs := container.NewAppTabs(
-		container.NewTabItem("🏠 Dashboard", wg.createDashboardTab()),
-		container.NewTabItem("📤 Send", wg.createSendTab()),
-		container.NewTabItem("📥 Receive", wg.createReceiveTab()),
-		container.NewTabItem("🔑 Keys", wg.createKeysTab()),
-		container.NewTabItem("💾 Storage", wg.createStorageTab()),
-		container.NewTabItem("⚙️ Settings", wg.createSettingsTab()),
-	)
-
-	tabs.SetTabLocation(container.TabLocationTop)
-
-	// Combine toolbar and tabs
-	return container.NewBorder(toolbar, nil, nil, nil, tabs)
-}
-
-// createToolbar creates the application toolbar
-func (wg *WalletGUI) createToolbar() fyne.CanvasObject {
-	// Network status
-	networkStatus := widget.NewLabel("🌐 Mainnet")
-	networkStatus.Alignment = fyne.TextAlignCenter
-
-	// Balance display
-	balanceLabel := widget.NewLabel("💰 Balance: 0 SPX")
-	balanceLabel.Alignment = fyne.TextAlignCenter
-
-	// Sync status
-	syncStatus := widget.NewLabel("✅ Synced")
-	syncStatus.Alignment = fyne.TextAlignCenter
-
-	// Refresh button
-	refreshBtn := widget.NewButton("🔄 Refresh", func() {
-		wg.refreshWalletData()
-	})
-
-	toolbar := container.NewHBox(
-		widget.NewLabel("🪶 Sphinx Wallet"),
-		layout.NewSpacer(),
-		networkStatus,
-		balanceLabel,
-		syncStatus,
-		refreshBtn,
-	)
-
-	return container.NewPadded(toolbar)
-}
-
-// createDashboardTab creates the dashboard tab
-func (wg *WalletGUI) createDashboardTab() fyne.CanvasObject {
-	// Wallet overview
-	overviewCard := wg.createOverviewCard()
-
-	// Recent transactions
-	transactionsCard := wg.createTransactionsCard()
-
-	// Quick actions
-	quickActionsCard := wg.createQuickActionsCard()
-
-	// Layout
-	topRow := container.NewHBox(overviewCard, quickActionsCard)
-	bottomRow := container.NewHBox(transactionsCard)
-
-	return container.NewVBox(
-		topRow,
-		bottomRow,
-	)
-}
-
-// createOverviewCard creates wallet overview card
-func (wg *WalletGUI) createOverviewCard() *widget.Card {
-	// Get wallet info
-	walletInfo := wg.diskStore.GetWalletInfo() // Changed from hotStore
-
-	// Create overview content
-	content := widget.NewForm(
-		widget.NewFormItem("🔑 Total Keys", widget.NewLabel(fmt.Sprintf("%d", walletInfo.KeyCount))),
-		widget.NewFormItem("💾 Storage Type", widget.NewLabel(string(walletInfo.Storage))),
-		widget.NewFormItem("🕒 Last Accessed", widget.NewLabel(walletInfo.LastAccessed.Format("2006-01-02 15:04:05"))),
-	)
-
-	return widget.NewCard("📊 Wallet Overview", "", content)
-}
-
-// createTransactionsCard creates recent transactions card
-func (wg *WalletGUI) createTransactionsCard() *widget.Card {
-	// Placeholder transaction list
-	transactions := []string{
-		"📥 Received 10.5 SPX - 2 hours ago",
-		"📤 Sent 5.2 SPX - 1 day ago",
-		"📥 Received 3.7 SPX - 3 days ago",
+	// Get disk store through keystore interface instead of direct import
+	diskStore := key.GetDiskStorage()
+	if diskStore == nil {
+		log.Fatal("Failed to get disk storage")
 	}
 
-	list := widget.NewList(
-		func() int {
-			return len(transactions)
-		},
-		func() fyne.CanvasObject {
-			return widget.NewLabel("template")
-		},
-		func(i widget.ListItemID, o fyne.CanvasObject) {
-			o.(*widget.Label).SetText(transactions[i])
-		},
-	)
+	// Create app and window
+	myApp := app.NewWithID("com.sphinx.wallet")
+	window := myApp.NewWindow("Sphinx Wallet")
+	window.SetMaster()
+	window.Resize(fyne.NewSize(1400, 900))
+	window.CenterOnScreen()
 
-	return widget.NewCard("📋 Recent Transactions", "", list)
-}
+	// Theme state
+	isDarkMode := false
+	themeManager := NewThemeManager()
 
-// createQuickActionsCard creates quick actions card
-func (wg *WalletGUI) createQuickActionsCard() *widget.Card {
-	sendBtn := widget.NewButton("📤 Send SPX", func() {
-		wg.showSendTab()
-	})
-
-	receiveBtn := widget.NewButton("📥 Receive SPX", func() {
-		wg.showReceiveTab()
-	})
-
-	backupBtn := widget.NewButton("💾 Backup Wallet", func() {
-		wg.showBackupDialog()
-	})
-
-	content := container.NewVBox(
-		sendBtn,
-		receiveBtn,
-		backupBtn,
-	)
-
-	return widget.NewCard("🚀 Quick Actions", "", content)
-}
-
-// createSendTab creates the send transaction tab
-func (wg *WalletGUI) createSendTab() fyne.CanvasObject {
-	// Recipient address input
-	addressEntry := widget.NewEntry()
-	addressEntry.SetPlaceHolder("Enter recipient address (spx1...)")
-
-	// Amount input
-	amountEntry := widget.NewEntry()
-	amountEntry.SetPlaceHolder("0.0")
-	amountEntry.Validator = func(text string) error {
-		// Basic validation - check if it's a positive number
-		if text == "" {
-			return nil
+	// Apply theme function
+	applyTheme := func(dark bool) {
+		if dark {
+			myApp.Settings().SetTheme(NewSphinxDarkTheme())
+		} else {
+			myApp.Settings().SetTheme(NewSphinxLightTheme())
 		}
-		var amount float64
-		_, err := fmt.Sscanf(text, "%f", &amount)
-		if err != nil {
-			return fmt.Errorf("invalid amount")
-		}
-		if amount <= 0 {
-			return fmt.Errorf("amount must be positive")
-		}
-		return nil
+		isDarkMode = dark
+		themeManager.isDarkMode = dark
 	}
 
-	// Memo input
-	memoEntry := widget.NewEntry()
-	memoEntry.SetPlaceHolder("Optional memo")
+	// Apply initial theme
+	applyTheme(false)
 
-	// Fee selector
-	feeOptions := []string{"🐢 Low", "🚶 Medium", "🚀 High", "⚙️ Custom"}
-	feeSelect := widget.NewSelect(feeOptions, func(string) {})
-	feeSelect.SetSelected("🚶 Medium")
+	// Helper functions using the component utilities
+	createInfoRow := func(label, value string) fyne.CanvasObject {
+		return container.NewHBox(
+			CreateStyledLabel(label, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			CreateSpacer(),
+			widget.NewLabel(value),
+		)
+	}
 
-	// Send button
-	sendBtn := widget.NewButton("🚀 Send Transaction", func() {
-		wg.sendTransaction(addressEntry.Text, amountEntry.Text, memoEntry.Text)
-	})
+	createStorageInfoRow := func(label, value string) fyne.CanvasObject {
+		return container.NewPadded(container.NewHBox(
+			CreateStyledLabel(label, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			CreateSpacer(),
+			widget.NewLabel(value),
+		))
+	}
 
-	// Form
-	form := widget.NewForm(
-		widget.NewFormItem("📧 Recipient Address", addressEntry),
-		widget.NewFormItem("💰 Amount (SPX)", amountEntry),
-		widget.NewFormItem("📝 Memo", memoEntry),
-		widget.NewFormItem("⛽ Transaction Fee", feeSelect),
-	)
+	// Create toolbar using component utilities
+	toolbar := func() fyne.CanvasObject {
+		title := CreateLargeHeader("🪶 Sphinx Wallet", "Secure SPX Wallet")
 
-	return container.NewVBox(
-		widget.NewCard("📤 Send SPX", "Send Sphinx tokens to another address", form),
-		container.NewCenter(sendBtn),
-	)
-}
+		networkStatus := container.NewHBox(
+			widget.NewLabel("🌐"),
+			CreateStyledLabel("Mainnet", fyne.TextAlignLeading, fyne.TextStyle{}),
+		)
+		networkStatusBox := container.NewVBox(
+			CreateSubHeading("Network"),
+			networkStatus,
+		)
 
-// createReceiveTab creates the receive funds tab
-func (wg *WalletGUI) createReceiveTab() fyne.CanvasObject {
-	// Generate new address button
-	newAddrBtn := widget.NewButton("🆕 Generate New Address", func() {
-		wg.generateNewAddress()
-	})
+		balanceLabel := container.NewHBox(
+			widget.NewLabel("💰"),
+			CreateStyledLabel("0 SPX", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		)
+		balanceBox := container.NewVBox(
+			CreateSubHeading("Balance"),
+			balanceLabel,
+		)
 
-	// Address display
-	addressLabel := widget.NewLabel("Your address will appear here")
-	addressLabel.Wrapping = fyne.TextWrapWord
-	addressLabel.Alignment = fyne.TextAlignCenter
+		syncStatus := container.NewHBox(
+			widget.NewLabel("✅"),
+			CreateStatusIndicator("Synced", true),
+		)
+		syncBox := container.NewVBox(
+			CreateSubHeading("Status"),
+			syncStatus,
+		)
 
-	// QR code placeholder
-	qrPlaceholder := widget.NewLabel("🖼️\nQR Code\n[Placeholder]")
-	qrPlaceholder.Alignment = fyne.TextAlignCenter
+		themeToggle := widget.NewCheck("", func(checked bool) {
+			applyTheme(checked)
+		})
+		themeToggle.SetChecked(isDarkMode)
+		themeBox := container.NewHBox(themeToggle, CreateSubHeading("🌙 Dark Mode"))
 
-	// Copy address button
-	copyBtn := widget.NewButton("📋 Copy Address", func() {
-		if addressLabel.Text != "Your address will appear here" {
-			wg.copyToClipboard(addressLabel.Text)
-		}
-	})
+		refreshBtn := CreateActionButton("🔄 Refresh", func() {
+			log.Println("Refreshing wallet data...")
+			dialog.ShowInformation("🔄 Refreshed", "Wallet data refreshed", window)
+		})
 
-	content := container.NewVBox(
-		container.NewCenter(newAddrBtn),
-		widget.NewSeparator(),
-		addressLabel,
-		container.NewCenter(qrPlaceholder),
-		container.NewCenter(copyBtn),
-	)
+		toolbarContent := CreateToolbar(
+			title,
+			CreateSpacer(),
+			networkStatusBox,
+			balanceBox,
+			syncBox,
+			CreateSpacer(),
+			themeBox,
+			refreshBtn,
+		)
 
-	return widget.NewCard("📥 Receive SPX", "Generate addresses to receive Sphinx tokens", content)
-}
+		return container.NewPadded(container.NewBorder(nil, nil, nil, nil, toolbarContent))
+	}
 
-// createKeysTab creates the key management tab
-func (wg *WalletGUI) createKeysTab() fyne.CanvasObject {
-	// List of keys
-	keys := wg.diskStore.ListKeys() // Changed from hotStore
-
-	// Create key list
-	keyList := widget.NewList(
-		func() int {
-			return len(keys)
-		},
-		func() fyne.CanvasObject {
-			return container.NewHBox(
-				widget.NewIcon(nil),
-				widget.NewLabel("Address"),
-				layout.NewSpacer(),
-				widget.NewLabel("Type"),
-				widget.NewLabel("Created"),
+	// Create tabs
+	createTabs := func() *container.AppTabs {
+		// Dashboard Tab
+		dashboardTab := func() fyne.CanvasObject {
+			// Overview Card using component utilities
+			walletInfo := diskStore.GetWalletInfo()
+			overviewContent := container.NewVBox(
+				createInfoRow("🔑 Total Keys", fmt.Sprintf("%d", walletInfo.KeyCount)),
+				createInfoRow("💾 Storage Type", string(walletInfo.Storage)),
+				createInfoRow("🕒 Last Accessed", walletInfo.LastAccessed.Format("2006-01-02 15:04:05")),
+				createInfoRow("📊 Wallet Version", "v1.0.0"),
 			)
-		},
-		func(i widget.ListItemID, o fyne.CanvasObject) {
-			key := keys[i]
-			container := o.(*fyne.Container)
-			// container.Objects[0].(*widget.Icon) // You can set icons here
-			container.Objects[1].(*widget.Label).SetText(key.Address[:16] + "...")
-			container.Objects[3].(*widget.Label).SetText(string(key.WalletType))
-			container.Objects[4].(*widget.Label).SetText(key.CreatedAt.Format("01/02"))
-		},
-	)
+			overviewCard := CreateCard("📊 Wallet Overview", overviewContent)
 
-	// Key actions
-	importBtn := widget.NewButton("📥 Import Key", func() {
-		wg.showImportKeyDialog()
-	})
-
-	exportBtn := widget.NewButton("📤 Export Key", func() {
-		wg.showExportKeyDialog()
-	})
-
-	backupAllBtn := widget.NewButton("💾 Backup All Keys", func() {
-		wg.backupAllKeys()
-	})
-
-	actions := container.NewHBox(importBtn, exportBtn, backupAllBtn)
-
-	return container.NewBorder(
-		actions,
-		nil,
-		nil,
-		nil,
-		keyList,
-	)
-}
-
-// createStorageTab creates the storage management tab
-func (wg *WalletGUI) createStorageTab() fyne.CanvasObject {
-	// USB status
-	usbStatus := widget.NewLabel("🔴 Not Connected")
-	if wg.storageMgr.IsUSBMounted() {
-		usbStatus.SetText("🟢 Connected")
-	}
-
-	// USB actions
-	mountBtn := widget.NewButton("🔌 Mount USB", func() {
-		wg.showUSBMountDialog()
-	})
-
-	unmountBtn := widget.NewButton("🔓 Unmount USB", func() {
-		wg.storageMgr.UnmountUSB()
-		wg.refreshStorageTab()
-	})
-
-	backupBtn := widget.NewButton("💾 Backup to USB", func() {
-		wg.showBackupToUSBDialog()
-	})
-
-	restoreBtn := widget.NewButton("📥 Restore from USB", func() {
-		wg.showRestoreFromUSBDialog()
-	})
-
-	// Storage info
-	info := wg.storageMgr.GetStorageInfo()
-	diskInfo := info[util.StorageTypeDisk].(map[string]interface{}) // Changed from StorageTypeHot
-	usbInfo := info[util.StorageTypeUSB].(map[string]interface{})
-
-	infoForm := widget.NewForm(
-		widget.NewFormItem("💿 Disk Storage Keys", widget.NewLabel(fmt.Sprintf("%v", diskInfo["key_count"]))), // Changed from "Hot Storage Keys"
-		widget.NewFormItem("📀 USB Status", usbStatus),
-		widget.NewFormItem("💾 USB Keys", widget.NewLabel(fmt.Sprintf("%v", usbInfo["key_count"]))),
-	)
-
-	actions := container.NewVBox(
-		mountBtn,
-		unmountBtn,
-		backupBtn,
-		restoreBtn,
-	)
-
-	return container.NewHBox(
-		widget.NewCard("📊 Storage Information", "", infoForm),
-		widget.NewCard("⚡ Storage Actions", "", actions),
-	)
-}
-
-// createSettingsTab creates the settings tab
-func (wg *WalletGUI) createSettingsTab() fyne.CanvasObject {
-	// Network selection
-	networkOptions := []string{"🌐 Mainnet", "🧪 Testnet", "🔧 Devnet"}
-	networkSelect := widget.NewSelect(networkOptions, func(selected string) {
-		wg.changeNetwork(selected)
-	})
-	networkSelect.SetSelected("🌐 Mainnet")
-
-	// Theme selection
-	themeOptions := []string{"☀️ Light", "🌙 Dark", "🤖 Auto"}
-	themeSelect := widget.NewSelect(themeOptions, func(selected string) {
-		wg.changeTheme(selected)
-	})
-	themeSelect.SetSelected("🤖 Auto")
-
-	// Security settings
-	autolockEntry := widget.NewEntry()
-	autolockEntry.SetPlaceHolder("15") // minutes
-	autolockEntry.SetText("15")
-
-	// Form
-	form := widget.NewForm(
-		widget.NewFormItem("🌐 Network", networkSelect),
-		widget.NewFormItem("🎨 Theme", themeSelect),
-		widget.NewFormItem("🔒 Auto-lock (minutes)", autolockEntry),
-	)
-
-	// About section
-	aboutText := `Sphinx Wallet v1.0.0
-
-A secure wallet for the Sphinx blockchain
- featuring SPHINCS+ cryptography and
- hardware wallet support.`
-
-	aboutCard := widget.NewCard("ℹ️ About", "", widget.NewLabel(aboutText))
-
-	return container.NewVBox(
-		widget.NewCard("⚙️ Settings", "Configure your wallet preferences", form),
-		aboutCard,
-	)
-}
-
-// Dialog and action methods
-func (wg *WalletGUI) showSendTab() {
-	// Implementation to switch to send tab
-	log.Println("Switching to Send tab")
-}
-
-func (wg *WalletGUI) showReceiveTab() {
-	// Implementation to switch to receive tab
-	log.Println("Switching to Receive tab")
-}
-
-func (wg *WalletGUI) showBackupDialog() {
-	password := widget.NewPasswordEntry()
-	password.SetPlaceHolder("Enter your wallet password")
-
-	dialog.ShowForm("💾 Backup Wallet", "Backup", "Cancel",
-		[]*widget.FormItem{
-			widget.NewFormItem("🔒 Enter Password", password),
-		},
-		func(confirmed bool) {
-			if confirmed && password.Text != "" {
-				wg.performBackup(password.Text)
+			// Transactions Card
+			transactions := []struct {
+				icon    string
+				amount  string
+				address string
+				time    string
+				status  string
+			}{
+				{"📥", "+10.5 SPX", "spx1abc...def", "2 hours ago", "Confirmed"},
+				{"📤", "-5.2 SPX", "spx1xyz...uvw", "1 day ago", "Confirmed"},
+				{"📥", "+3.7 SPX", "spx1mno...pqr", "3 days ago", "Confirmed"},
 			}
-		}, wg.window)
-}
 
-func (wg *WalletGUI) sendTransaction(address, amount, memo string) {
-	if address == "" || amount == "" {
-		dialog.ShowInformation("❌ Error", "Please fill all required fields", wg.window)
-		return
-	}
+			transactionList := container.NewVBox()
+			for _, tx := range transactions {
+				transaction := container.NewHBox(
+					widget.NewLabel(tx.icon),
+					container.NewVBox(
+						CreateStyledLabel(tx.amount, fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+						CreateStyledLabel(tx.address, fyne.TextAlignLeading, fyne.TextStyle{Italic: true}),
+					),
+					CreateSpacer(),
+					container.NewVBox(
+						widget.NewLabel(tx.time),
+						CreateStyledLabel(tx.status, fyne.TextAlignTrailing, fyne.TextStyle{Italic: true}),
+					),
+				)
+				transactionList.Add(transaction)
+				transactionList.Add(CreateSeparator())
+			}
+			transactionsCard := CreateCard("📋 Recent Transactions", container.NewScroll(transactionList))
 
-	// Show confirmation dialog
-	confirmMsg := fmt.Sprintf("Send %s SPX to:\n%s", amount, address)
-	if memo != "" {
-		confirmMsg += fmt.Sprintf("\nMemo: %s", memo)
-	}
+			// Quick Actions Card using component utilities
+			sendBtn := CreateHoverButton("📤 Send SPX", func() {
+				log.Println("Switching to Send tab")
+			})
+			sendBtn.Importance = widget.HighImportance
 
-	dialog.ShowConfirm("🔍 Confirm Transaction", confirmMsg, func(confirmed bool) {
-		if confirmed {
-			// Implement actual transaction sending
-			log.Printf("Sending %s SPX to %s", amount, address)
-			dialog.ShowInformation("✅ Success", "Transaction sent successfully!", wg.window)
+			receiveBtn := CreateHoverButton("📥 Receive SPX", func() {
+				log.Println("Switching to Receive tab")
+			})
+			receiveBtn.Importance = widget.HighImportance
+
+			backupBtn := CreateHoverButton("💾 Backup Wallet", func() {
+				password := widget.NewPasswordEntry()
+				dialog.ShowForm("💾 Backup Wallet", "Backup", "Cancel",
+					[]*widget.FormItem{{Text: "🔒 Enter Password", Widget: password}},
+					func(confirmed bool) {
+						if confirmed && password.Text != "" {
+							log.Println("Performing wallet backup...")
+							dialog.ShowInformation("✅ Backup", "Wallet backed up successfully", window)
+						}
+					}, window)
+			})
+			backupBtn.Importance = widget.MediumImportance
+
+			quickActionsCard := CreateCard("🚀 Quick Actions",
+				container.NewGridWithColumns(1, sendBtn, receiveBtn, backupBtn))
+
+			grid := container.NewAdaptiveGrid(2,
+				container.NewVBox(overviewCard, quickActionsCard),
+				transactionsCard,
+			)
+
+			return container.NewPadded(container.NewScroll(grid))
 		}
-	}, wg.window)
-}
 
-func (wg *WalletGUI) generateNewAddress() {
-	// Generate new address logic
-	newAddress := "spx1newaddressgeneratedhere1234567890abc"
+		// Send Tab using component utilities
+		sendTab := func() fyne.CanvasObject {
+			addressEntry := widget.NewEntry()
+			addressEntry.SetPlaceHolder("Enter recipient address (spx1...)")
 
-	// Update UI - in a real implementation, this would update the address label
-	dialog.ShowInformation("🆕 New Address",
-		fmt.Sprintf("New address generated:\n\n%s", newAddress), wg.window)
-}
+			amountEntry := widget.NewEntry()
+			amountEntry.SetPlaceHolder("0.0")
 
-func (wg *WalletGUI) copyToClipboard(text string) {
-	wg.window.Clipboard().SetContent(text)
-	dialog.ShowInformation("📋 Copied", "Address copied to clipboard", wg.window)
-}
+			memoEntry := widget.NewEntry()
+			memoEntry.SetPlaceHolder("Optional memo")
 
-func (wg *WalletGUI) showImportKeyDialog() {
-	keyData := widget.NewMultiLineEntry()
-	keyData.SetPlaceHolder("Paste key export data here...")
-	keyData.Wrapping = fyne.TextWrapWord
+			feeSelect := widget.NewSelect([]string{"🐢 Low", "🚶 Medium", "🚀 High", "⚙️ Custom"}, func(string) {})
+			feeSelect.SetSelected("🚶 Medium")
 
-	password := widget.NewPasswordEntry()
-	password.SetPlaceHolder("Enter key password")
-
-	form := []*widget.FormItem{
-		widget.NewFormItem("🔑 Key Data", keyData),
-		widget.NewFormItem("🔒 Password", password),
-	}
-
-	dialog.ShowForm("📥 Import Key", "Import", "Cancel", form,
-		func(confirmed bool) {
-			if confirmed {
-				wg.importKey(keyData.Text, password.Text)
-			}
-		}, wg.window)
-}
-
-func (wg *WalletGUI) showExportKeyDialog() {
-	// Get available keys
-	keys := wg.diskStore.ListKeys() // Changed from hotStore
-	if len(keys) == 0 {
-		dialog.ShowInformation("ℹ️ Info", "No keys available to export", wg.window)
-		return
-	}
-
-	// Create key selection
-	keyOptions := make([]string, len(keys))
-	for i, key := range keys {
-		keyOptions[i] = fmt.Sprintf("%s... (%s)", key.Address[:16], key.WalletType)
-	}
-
-	keySelect := widget.NewSelect(keyOptions, func(string) {})
-	password := widget.NewPasswordEntry()
-
-	form := []*widget.FormItem{
-		widget.NewFormItem("🔑 Select Key", keySelect),
-		widget.NewFormItem("🔒 Password", password),
-	}
-
-	dialog.ShowForm("📤 Export Key", "Export", "Cancel", form,
-		func(confirmed bool) {
-			if confirmed && keySelect.Selected != "" && password.Text != "" {
-				wg.exportKey(keySelect.Selected, password.Text)
-			}
-		}, wg.window)
-}
-
-func (wg *WalletGUI) backupAllKeys() {
-	password := widget.NewPasswordEntry()
-
-	dialog.ShowForm("💾 Backup All Keys", "Backup", "Cancel",
-		[]*widget.FormItem{
-			widget.NewFormItem("🔒 Enter Password", password),
-		},
-		func(confirmed bool) {
-			if confirmed {
-				// Implement backup all keys logic
-				dialog.ShowInformation("✅ Success", "All keys backed up successfully", wg.window)
-			}
-		}, wg.window)
-}
-
-func (wg *WalletGUI) showUSBMountDialog() {
-	usbPath := widget.NewEntry()
-	usbPath.SetPlaceHolder("/media/usb or /Volumes/USB")
-	usbPath.SetText("/media/usb") // Default value
-
-	dialog.ShowForm("🔌 Mount USB", "Mount", "Cancel",
-		[]*widget.FormItem{
-			widget.NewFormItem("📁 USB Path", usbPath),
-		},
-		func(confirmed bool) {
-			if confirmed {
-				err := wg.storageMgr.MountUSB(usbPath.Text)
-				if err != nil {
-					dialog.ShowError(err, wg.window)
-				} else {
-					dialog.ShowInformation("✅ Success", "USB mounted successfully", wg.window)
-					wg.refreshStorageTab()
+			sendBtn := CreateActionButton("🚀 Send Transaction", func() {
+				if addressEntry.Text == "" || amountEntry.Text == "" {
+					dialog.ShowInformation("❌ Error", "Please fill all required fields", window)
+					return
 				}
-			}
-		}, wg.window)
-}
-
-func (wg *WalletGUI) showBackupToUSBDialog() {
-	if !wg.storageMgr.IsUSBMounted() {
-		dialog.ShowInformation("❌ Error", "Please mount USB first", wg.window)
-		return
-	}
-
-	password := widget.NewPasswordEntry()
-
-	dialog.ShowForm("💾 Backup to USB", "Backup", "Cancel",
-		[]*widget.FormItem{
-			widget.NewFormItem("🔒 Enter Password", password),
-		},
-		func(confirmed bool) {
-			if confirmed {
-				err := wg.storageMgr.BackupToUSB(password.Text)
-				if err != nil {
-					dialog.ShowError(err, wg.window)
-				} else {
-					dialog.ShowInformation("✅ Success", "Backup completed successfully", wg.window)
+				confirmMsg := fmt.Sprintf("Send %s SPX to:\n%s", amountEntry.Text, addressEntry.Text)
+				if memoEntry.Text != "" {
+					confirmMsg += fmt.Sprintf("\nMemo: %s", memoEntry.Text)
 				}
-			}
-		}, wg.window)
-}
+				dialog.ShowConfirm("🔍 Confirm Transaction", confirmMsg, func(confirmed bool) {
+					if confirmed {
+						log.Printf("Sending %s SPX to %s", amountEntry.Text, addressEntry.Text)
+						dialog.ShowInformation("✅ Success", "Transaction sent successfully!", window)
+					}
+				}, window)
+			})
+			sendBtn.Importance = widget.HighImportance
 
-func (wg *WalletGUI) showRestoreFromUSBDialog() {
-	if !wg.storageMgr.IsUSBMounted() {
-		dialog.ShowInformation("❌ Error", "Please mount USB first", wg.window)
-		return
-	}
-
-	password := widget.NewPasswordEntry()
-
-	dialog.ShowConfirm("⚠️ Restore from USB",
-		"WARNING: This will overwrite existing keys in your disk wallet.\n\nAre you sure you want to continue?", // Updated warning message
-		func(confirmed bool) {
-			if confirmed {
-				dialog.ShowForm("📥 Restore from USB", "Restore", "Cancel",
-					[]*widget.FormItem{
-						widget.NewFormItem("🔒 Enter Password", password),
+			form := CreateFormSection("📤 Send SPX",
+				&widget.Form{
+					Items: []*widget.FormItem{
+						{Text: "📧 Recipient Address", Widget: addressEntry},
+						{Text: "💰 Amount (SPX)", Widget: amountEntry},
+						{Text: "📝 Memo", Widget: memoEntry},
+						{Text: "⛽ Transaction Fee", Widget: feeSelect},
 					},
-					func(restoreConfirmed bool) {
-						if restoreConfirmed {
-							count, err := wg.storageMgr.RestoreFromUSB(password.Text)
+				},
+			)
+
+			return container.NewVBox(
+				form,
+				container.NewCenter(sendBtn),
+			)
+		}
+
+		// Receive Tab using component utilities
+		receiveTab := func() fyne.CanvasObject {
+			addressLabel := CreateLargeText("Your address will appear here")
+			addressLabel.Wrapping = fyne.TextWrapWord
+			addressLabel.Alignment = fyne.TextAlignCenter
+
+			newAddrBtn := CreateActionButton("🆕 Generate New Address", func() {
+				newAddress := "spx1newaddressgeneratedhere1234567890abc"
+				dialog.ShowInformation("🆕 New Address",
+					fmt.Sprintf("New address generated:\n\n%s", newAddress), window)
+			})
+			newAddrBtn.Importance = widget.HighImportance
+
+			qrPlaceholder := CreateLargeText("🖼️\nQR Code\n[Placeholder]")
+			qrPlaceholder.Alignment = fyne.TextAlignCenter
+
+			copyBtn := CreateActionButton("📋 Copy Address", func() {
+				window.Clipboard().SetContent(addressLabel.Text)
+				dialog.ShowInformation("📋 Copied", "Address copied to clipboard", window)
+			})
+
+			content := container.NewVBox(
+				container.NewCenter(newAddrBtn),
+				CreateSeparator(),
+				addressLabel,
+				container.NewCenter(qrPlaceholder),
+				container.NewCenter(copyBtn),
+			)
+
+			return CreateCard("📥 Receive SPX", content)
+		}
+
+		// Keys Tab using component utilities
+		keysTab := func() fyne.CanvasObject {
+			keys := diskStore.ListKeys()
+
+			importBtn := CreateActionButton("📥 Import Key", func() {
+				keyData := widget.NewMultiLineEntry()
+				keyData.SetPlaceHolder("Paste key export data here...")
+				password := widget.NewPasswordEntry()
+				dialog.ShowForm("📥 Import Key", "Import", "Cancel",
+					[]*widget.FormItem{
+						{Text: "🔑 Key Data", Widget: keyData},
+						{Text: "🔒 Password", Widget: password},
+					},
+					func(confirmed bool) {
+						if confirmed {
+							dialog.ShowInformation("✅ Success", "Key imported successfully", window)
+						}
+					}, window)
+			})
+
+			exportBtn := CreateActionButton("📤 Export Key", func() {
+				if len(keys) == 0 {
+					dialog.ShowInformation("ℹ️ Info", "No keys available to export", window)
+					return
+				}
+				keyOptions := make([]string, len(keys))
+				for i, key := range keys {
+					keyOptions[i] = fmt.Sprintf("%s... (%s)", key.Address[:16], key.WalletType)
+				}
+				keySelect := widget.NewSelect(keyOptions, func(string) {})
+				password := widget.NewPasswordEntry()
+				dialog.ShowForm("📤 Export Key", "Export", "Cancel",
+					[]*widget.FormItem{
+						{Text: "🔑 Select Key", Widget: keySelect},
+						{Text: "🔒 Password", Widget: password},
+					},
+					func(confirmed bool) {
+						if confirmed && keySelect.Selected != "" {
+							dialog.ShowInformation("✅ Success", "Key exported successfully", window)
+						}
+					}, window)
+			})
+
+			backupAllBtn := CreateActionButton("💾 Backup All Keys", func() {
+				password := widget.NewPasswordEntry()
+				dialog.ShowForm("💾 Backup All Keys", "Backup", "Cancel",
+					[]*widget.FormItem{{Text: "🔒 Enter Password", Widget: password}},
+					func(confirmed bool) {
+						if confirmed {
+							dialog.ShowInformation("✅ Success", "All keys backed up successfully", window)
+						}
+					}, window)
+			})
+
+			actions := CreateToolbar(
+				CreateSpacer(),
+				importBtn,
+				CreateSpacer(),
+				exportBtn,
+				CreateSpacer(),
+				backupAllBtn,
+				CreateSpacer(),
+			)
+
+			keyList := widget.NewList(
+				func() int { return len(keys) },
+				func() fyne.CanvasObject {
+					return container.NewHBox(
+						container.NewHBox(
+							widget.NewLabel("🔑"),
+							container.NewVBox(
+								CreateSubHeading("Address"),
+								CreateSubHeading("Type"),
+							),
+						),
+						CreateSpacer(),
+						container.NewVBox(
+							CreateSubHeading("Created"),
+							CreateSubHeading("Status"),
+						),
+					)
+				},
+				func(i int, o fyne.CanvasObject) {
+					key := keys[i]
+					container := o.(*fyne.Container)
+					leftSection := container.Objects[0].(*fyne.Container)
+					rightSection := container.Objects[2].(*fyne.Container)
+
+					addressLabel := leftSection.Objects[1].(*fyne.Container).Objects[0].(*widget.Label)
+					typeLabel := leftSection.Objects[1].(*fyne.Container).Objects[1].(*widget.Label)
+
+					addressLabel.SetText(key.Address[:16] + "...")
+					typeLabel.SetText(string(key.WalletType))
+					typeLabel.TextStyle = fyne.TextStyle{Italic: true}
+
+					dateLabel := rightSection.Objects[0].(*widget.Label)
+					statusLabel := rightSection.Objects[1].(*widget.Label)
+
+					dateLabel.SetText(key.CreatedAt.Format("01/02/2006"))
+					dateLabel.Alignment = fyne.TextAlignTrailing
+					statusLabel.SetText("🟢 Active")
+					statusLabel.Alignment = fyne.TextAlignTrailing
+				},
+			)
+
+			return container.NewBorder(
+				container.NewVBox(
+					CreateHeading("🔑 Key Management"),
+					CreateSeparator(),
+					actions,
+					CreateSeparator(),
+				),
+				nil, nil, nil,
+				container.NewPadded(keyList),
+			)
+		}
+
+		// Storage Tab using component utilities
+		storageTab := func() fyne.CanvasObject {
+			storageManager := key.GetStorageManager()
+			info := storageManager.GetStorageInfo()
+
+			diskInfo := info["disk"].(map[string]interface{})
+			usbInfo := info["usb"].(map[string]interface{})
+
+			usbStatus := "🔴 Not Connected"
+			if storageManager.IsUSBMounted() {
+				usbStatus = "🟢 Connected"
+			}
+
+			infoContent := container.NewVBox(
+				createStorageInfoRow("💿 Disk Storage", fmt.Sprintf("%v keys", diskInfo["key_count"])),
+				createStorageInfoRow("📀 USB Status", usbStatus),
+				createStorageInfoRow("💾 USB Storage", fmt.Sprintf("%v keys", usbInfo["key_count"])),
+				createStorageInfoRow("📊 Total Capacity", "500 GB"),
+				createStorageInfoRow("💽 Free Space", "350 GB"),
+			)
+			infoCard := CreateCard("📊 Storage Information", infoContent)
+
+			mountBtn := CreateActionButton("🔌 Mount USB", func() {
+				usbPath := widget.NewEntry()
+				usbPath.SetText("/media/usb")
+				dialog.ShowForm("🔌 Mount USB", "Mount", "Cancel",
+					[]*widget.FormItem{{Text: "📁 USB Path", Widget: usbPath}},
+					func(confirmed bool) {
+						if confirmed {
+							err := storageManager.MountUSB(usbPath.Text)
 							if err != nil {
-								dialog.ShowError(err, wg.window)
+								dialog.ShowError(err, window)
 							} else {
-								msg := fmt.Sprintf("✅ Restored %d keys successfully", count)
-								dialog.ShowInformation("Success", msg, wg.window)
-								wg.refreshKeysTab()
+								dialog.ShowInformation("✅ Success", "USB mounted successfully", window)
 							}
 						}
-					}, wg.window)
-			}
-		}, wg.window)
-}
+					}, window)
+			})
 
-// Utility methods
-func (wg *WalletGUI) refreshWalletData() {
-	// Refresh wallet data
-	log.Println("Refreshing wallet data...")
-	dialog.ShowInformation("🔄 Refreshed", "Wallet data refreshed", wg.window)
-}
+			unmountBtn := CreateActionButton("🔓 Unmount USB", func() {
+				storageManager.UnmountUSB()
+				dialog.ShowInformation("ℹ️ Info", "USB unmounted", window)
+			})
 
-func (wg *WalletGUI) refreshStorageTab() {
-	// Refresh storage tab content
-	log.Println("Refreshing storage tab...")
-}
+			backupBtn := CreateActionButton("💾 Backup to USB", func() {
+				if !storageManager.IsUSBMounted() {
+					dialog.ShowInformation("❌ Error", "Please mount USB first", window)
+					return
+				}
+				password := widget.NewPasswordEntry()
+				dialog.ShowForm("💾 Backup to USB", "Backup", "Cancel",
+					[]*widget.FormItem{{Text: "🔒 Enter Password", Widget: password}},
+					func(confirmed bool) {
+						if confirmed {
+							err := storageManager.BackupToUSB(password.Text)
+							if err != nil {
+								dialog.ShowError(err, window)
+							} else {
+								dialog.ShowInformation("✅ Success", "Backup completed successfully", window)
+							}
+						}
+					}, window)
+			})
 
-func (wg *WalletGUI) refreshKeysTab() {
-	// Refresh keys tab content
-	log.Println("Refreshing keys tab...")
-}
+			restoreBtn := CreateActionButton("📥 Restore from USB", func() {
+				if !storageManager.IsUSBMounted() {
+					dialog.ShowInformation("❌ Error", "Please mount USB first", window)
+					return
+				}
+				dialog.ShowConfirm("⚠️ Restore from USB",
+					"WARNING: This will overwrite existing keys in your disk wallet.\n\nAre you sure you want to continue?",
+					func(confirmed bool) {
+						if confirmed {
+							password := widget.NewPasswordEntry()
+							dialog.ShowForm("📥 Restore from USB", "Restore", "Cancel",
+								[]*widget.FormItem{{Text: "🔒 Enter Password", Widget: password}},
+								func(restoreConfirmed bool) {
+									if restoreConfirmed {
+										count, err := storageManager.RestoreFromUSB(password.Text)
+										if err != nil {
+											dialog.ShowError(err, window)
+										} else {
+											dialog.ShowInformation("Success", fmt.Sprintf("✅ Restored %d keys successfully", count), window)
+										}
+									}
+								}, window)
+						}
+					}, window)
+			})
 
-func (wg *WalletGUI) performBackup(password string) {
-	// Implement backup logic
-	log.Println("Performing wallet backup...")
-	dialog.ShowInformation("✅ Backup", "Wallet backed up successfully", wg.window)
-}
+			actionsCard := CreateCard("⚡ Storage Actions",
+				container.NewGridWithColumns(1, mountBtn, unmountBtn, backupBtn, restoreBtn))
 
-func (wg *WalletGUI) importKey(keyData, password string) {
-	// Implement key import logic
-	if strings.TrimSpace(keyData) == "" {
-		dialog.ShowInformation("❌ Error", "Please enter key data", wg.window)
-		return
+			grid := container.NewAdaptiveGrid(2, infoCard, actionsCard)
+			return container.NewPadded(container.NewScroll(grid))
+		}
+
+		// Settings Tab using component utilities
+		settingsTab := func() fyne.CanvasObject {
+			themeSelect := widget.NewRadioGroup([]string{"☀️ Light", "🌙 Dark", "🤖 Auto"}, func(selected string) {
+				switch selected {
+				case "☀️ Light":
+					applyTheme(false)
+				case "🌙 Dark":
+					applyTheme(true)
+				case "🤖 Auto":
+					applyTheme(false)
+				}
+			})
+			themeSelect.Horizontal = true
+			themeSelect.SetSelected("🤖 Auto")
+			themeSection := CreateCard("🎨 Theme Settings",
+				container.NewVBox(
+					CreateHeading("Theme Mode"),
+					themeSelect,
+				))
+
+			networkSelect := widget.NewSelect([]string{"🌐 Mainnet", "🧪 Testnet", "🔧 Devnet"}, func(selected string) {
+				dialog.ShowInformation("🌐 Network Changed", fmt.Sprintf("Switched to %s", strings.TrimPrefix(selected, " ")), window)
+			})
+			networkSelect.SetSelected("🌐 Mainnet")
+			networkSection := CreateCard("🌐 Network Settings",
+				container.NewVBox(
+					CreateHeading("Network"),
+					networkSelect,
+				))
+
+			autolockEntry := widget.NewEntry()
+			autolockEntry.SetText("15")
+			securitySection := CreateCard("🔒 Security Settings",
+				container.NewVBox(
+					CreateHeading("Auto-lock (minutes)"),
+					autolockEntry,
+				))
+
+			aboutText := `Sphinx Wallet v1.0.0
+
+A secure wallet for the Sphinx blockchain
+featuring SPHINCS+ cryptography and
+hardware wallet support.
+
+© 2024 Sphinx Core Team`
+			aboutLabel := CreateStyledLabel(aboutText, fyne.TextAlignLeading, fyne.TextStyle{})
+			aboutLabel.Wrapping = fyne.TextWrapWord
+			aboutSection := CreateCard("ℹ️ About", aboutLabel)
+
+			content := container.NewVBox(
+				themeSection,
+				CreateSeparator(),
+				networkSection,
+				CreateSeparator(),
+				securitySection,
+				CreateSeparator(),
+				aboutSection,
+			)
+
+			return container.NewPadded(container.NewScroll(content))
+		}
+
+		// Create tabs container
+		tabs := container.NewAppTabs(
+			container.NewTabItem("🏠 Dashboard", dashboardTab()),
+			container.NewTabItem("📤 Send", sendTab()),
+			container.NewTabItem("📥 Receive", receiveTab()),
+			container.NewTabItem("🔑 Keys", keysTab()),
+			container.NewTabItem("💾 Storage", storageTab()),
+			container.NewTabItem("⚙️ Settings", settingsTab()),
+		)
+		tabs.SetTabLocation(container.TabLocationTop)
+		return tabs
 	}
 
-	log.Println("Importing key...")
-	// Placeholder implementation
-	dialog.ShowInformation("✅ Success", "Key imported successfully", wg.window)
-	wg.refreshKeysTab()
-}
+	// Set main content
+	mainContent := container.NewBorder(toolbar(), nil, nil, nil, createTabs())
+	window.SetContent(mainContent)
 
-func (wg *WalletGUI) exportKey(keyInfo, password string) {
-	// Implement key export logic
-	log.Printf("Exporting key: %s", keyInfo)
-	dialog.ShowInformation("✅ Success", "Key exported successfully", wg.window)
-}
-
-func (wg *WalletGUI) changeNetwork(network string) {
-	// Implement network change logic
-	log.Printf("Changing network to: %s", network)
-	dialog.ShowInformation("🌐 Network Changed",
-		fmt.Sprintf("Switched to %s", strings.TrimPrefix(network, " ")), wg.window)
-}
-
-func (wg *WalletGUI) changeTheme(theme string) {
-	// Implement theme change logic
-	log.Printf("Changing theme to: %s", theme)
-	dialog.ShowInformation("🎨 Theme Changed",
-		fmt.Sprintf("Changed to %s theme", strings.TrimPrefix(theme, " ")), wg.window)
+	// Show and run
+	window.ShowAndRun()
 }

@@ -106,7 +106,7 @@ type ChainParams struct {
 	ChainID       uint64
 	ChainName     string
 	Symbol        string
-	GenesisTime   int64
+	GenesisTime   string `json:"genesis_time"` // Changed to string for ISO format
 	GenesisHash   string
 	Version       string
 	MagicNumber   uint32
@@ -269,7 +269,6 @@ type ChainIdentification struct {
 	Timestamp   string                 `json:"timestamp"`
 	ChainParams map[string]interface{} `json:"chain_parameters"`
 	TokenInfo   map[string]interface{} `json:"token_info"`
-	WalletPaths map[string]string      `json:"wallet_derivation_paths"`
 	NetworkInfo map[string]interface{} `json:"network_info"`
 }
 

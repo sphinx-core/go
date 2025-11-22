@@ -31,8 +31,13 @@ import (
 // StorageType represents the type of storage
 type StorageType string
 
+const (
+	StorageTypeDisk StorageType = "disk"
+	StorageTypeUSB  StorageType = "usb"
+)
+
 // StorageManager manages multiple storage types
 type StorageManager struct {
-	diskStore *disk.DiskKeyStore // Changed from hotStore
+	diskStore *disk.DiskKeyStore
 	usbStore  *usb.USBKeyStore
 }

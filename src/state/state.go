@@ -31,6 +31,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -310,7 +311,7 @@ func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *Ch
 			TokenInfo: map[string]interface{}{
 				"ledger_name": chainParams.LedgerName,
 			},
-			WalletPaths: walletPaths,
+
 			NetworkInfo: map[string]interface{}{
 				"network_name": "Sphinx Mainnet",
 				"protocol":     "SPX/1.0.0",
@@ -945,6 +946,8 @@ func (s *Storage) sanitizeFilename(hash string) string {
 	return sanitized
 }
 
+// go/src/state/storage.go
+
 // storeBlockToDisk stores a block to disk with sanitized filenames
 func (s *Storage) storeBlockToDisk(block *types.Block) error {
 	blockHash := block.GetHash()
@@ -954,7 +957,7 @@ func (s *Storage) storeBlockToDisk(block *types.Block) error {
 	logger.Info("Storing block to disk: original_hash=%s, sanitized_filename=%s, ParentHash=%x",
 		blockHash, sanitizedHash, block.Header.ParentHash)
 
-	// Create a custom serialization structure
+	// Create a custom serialization structure with ISO timestamp
 	type SerializableBlock struct {
 		Header struct {
 			Hash       string `json:"hash"`        // This block's hash
@@ -967,15 +970,15 @@ func (s *Storage) storeBlockToDisk(block *types.Block) error {
 			Version    uint64 `json:"version"`     // Block version
 			NBlock     uint64 `json:"nblock"`      // Block number/height
 			Height     uint64 `json:"height"`      // Block height
-			Timestamp  int64  `json:"timestamp"`   // Block timestamp
+			Timestamp  string `json:"timestamp"`   // Block timestamp in ISO RFC format
 			Difficulty string `json:"difficulty"`  // Mining difficulty
 			Nonce      uint64 `json:"nonce"`       // Mining nonce
 			GasLimit   string `json:"gas_limit"`   // Gas limit
 			GasUsed    string `json:"gas_used"`    // Gas used
 		} `json:"header"`
 		Body struct {
-			TxsList    []*types.Transaction `json:"txs_list"`    // List of transactions
-			UnclesHash string               `json:"uncles_hash"` // Hash of uncles in body
+			TxsList    []map[string]interface{} `json:"txs_list"`    // List of transactions as maps with ISO timestamps
+			UnclesHash string                   `json:"uncles_hash"` // Hash of uncles in body
 		} `json:"body"`
 	}
 
@@ -1005,15 +1008,37 @@ func (s *Storage) storeBlockToDisk(block *types.Block) error {
 		serializableBlock.Header.Version = block.Header.Version
 		serializableBlock.Header.NBlock = block.Header.Block
 		serializableBlock.Header.Height = block.Header.Height
-		serializableBlock.Header.Timestamp = block.Header.Timestamp
+
+		// Convert timestamp to ISO RFC format
+		timestampISO := common.GetTimeService().GetTimeInfo(block.Header.Timestamp).ISOUTC
+		serializableBlock.Header.Timestamp = timestampISO
+
 		serializableBlock.Header.Difficulty = block.Header.Difficulty.String()
 		serializableBlock.Header.Nonce = block.Header.Nonce
 		serializableBlock.Header.GasLimit = block.Header.GasLimit.String()
 		serializableBlock.Header.GasUsed = block.Header.GasUsed.String()
 	}
 
-	// Convert body
-	serializableBlock.Body.TxsList = block.Body.TxsList
+	// Convert transactions to maps with ISO timestamps
+	serializableBlock.Body.TxsList = make([]map[string]interface{}, len(block.Body.TxsList))
+	for i, tx := range block.Body.TxsList {
+		timestampISO := common.GetTimeService().GetTimeInfo(tx.Timestamp).ISOUTC
+
+		// Convert transaction to map
+		txMap := map[string]interface{}{
+			"id":        tx.ID,
+			"sender":    tx.Sender,
+			"receiver":  tx.Receiver,
+			"amount":    tx.Amount.String(), // Convert big.Int to string
+			"gas_limit": tx.GasLimit.String(),
+			"gas_price": tx.GasPrice.String(),
+			"nonce":     tx.Nonce,
+			"timestamp": timestampISO, // ISO format
+			"signature": hex.EncodeToString(tx.Signature),
+		}
+		serializableBlock.Body.TxsList[i] = txMap
+	}
+
 	serializableBlock.Body.UnclesHash = hex.EncodeToString(block.Body.UnclesHash)
 
 	data, err := json.MarshalIndent(serializableBlock, "", "  ")
@@ -1031,11 +1056,11 @@ func (s *Storage) storeBlockToDisk(block *types.Block) error {
 		return fmt.Errorf("failed to rename block file: %w", err)
 	}
 
-	logger.Info("Block successfully written to disk with ParentHash: %s", serializableBlock.Header.ParentHash)
+	logger.Info("Block successfully written to disk with ISO timestamp: %s", serializableBlock.Header.Timestamp)
 	return nil
 }
 
-// loadBlockFromDisk loads a block from disk, handling both string and hex ParentHash formats
+// loadBlockFromDisk loads a block from disk, handling both string and hex ParentHash formats and ISO timestamp
 func (s *Storage) loadBlockFromDisk(hash string) (*types.Block, error) {
 	// Try both original hash and sanitized version
 	filenames := []string{
@@ -1061,7 +1086,7 @@ func (s *Storage) loadBlockFromDisk(hash string) (*types.Block, error) {
 		return nil, fmt.Errorf("block file does not exist for hash: %s", hash)
 	}
 
-	// First, unmarshal into a temporary structure to handle ParentHash conversion
+	// First, unmarshal into a temporary structure to handle ParentHash conversion and ISO timestamp
 	type TempBlock struct {
 		Header struct {
 			Hash       string `json:"hash"`
@@ -1074,15 +1099,15 @@ func (s *Storage) loadBlockFromDisk(hash string) (*types.Block, error) {
 			Version    uint64 `json:"version"`
 			NBlock     uint64 `json:"nblock"`
 			Height     uint64 `json:"height"`
-			Timestamp  int64  `json:"timestamp"`
+			Timestamp  string `json:"timestamp"` // This could be ISO string or int64 (for backward compatibility)
 			Difficulty string `json:"difficulty"`
 			Nonce      uint64 `json:"nonce"`
 			GasLimit   string `json:"gas_limit"`
 			GasUsed    string `json:"gas_used"`
 		} `json:"header"`
 		Body struct {
-			TxsList    []*types.Transaction `json:"txs_list"`
-			UnclesHash string               `json:"uncles_hash"`
+			TxsList    []map[string]interface{} `json:"txs_list"` // Transactions as maps
+			UnclesHash string                   `json:"uncles_hash"`
 		} `json:"body"`
 	}
 
@@ -1093,13 +1118,36 @@ func (s *Storage) loadBlockFromDisk(hash string) (*types.Block, error) {
 		return nil, fmt.Errorf("failed to unmarshal block: %w", err)
 	}
 
+	// Convert timestamp from ISO format to Unix timestamp
+	var timestamp int64
+	if tempBlock.Header.Timestamp != "" {
+		// Try to parse as ISO timestamp first
+		t, err := time.Parse(time.RFC3339, tempBlock.Header.Timestamp)
+		if err == nil {
+			timestamp = t.Unix()
+		} else {
+			// Fallback: try to parse as integer (for backward compatibility)
+			if ts, err := strconv.ParseInt(tempBlock.Header.Timestamp, 10, 64); err == nil {
+				timestamp = ts
+			} else {
+				// Use current time as fallback
+				timestamp = time.Now().Unix()
+				logger.Warn("Could not parse timestamp '%s' for block %s, using current time",
+					tempBlock.Header.Timestamp, hash)
+			}
+		}
+	} else {
+		// No timestamp provided, use current time
+		timestamp = time.Now().Unix()
+	}
+
 	// Now convert to types.Block
 	var block types.Block
 	block.Header = &types.BlockHeader{
 		Version:   tempBlock.Header.Version,
 		Block:     tempBlock.Header.NBlock,
 		Height:    tempBlock.Header.Height,
-		Timestamp: tempBlock.Header.Timestamp,
+		Timestamp: timestamp, // Store as Unix timestamp internally
 		Hash:      []byte(tempBlock.Header.Hash),
 		// Handle ParentHash conversion - check if it's hex-encoded genesis
 		ParentHash: s.decodeParentHash(tempBlock.Header.ParentHash),
@@ -1134,15 +1182,108 @@ func (s *Storage) loadBlockFromDisk(hash string) (*types.Block, error) {
 
 	block.Header.Nonce = tempBlock.Header.Nonce
 
-	// Set body
-	block.Body.TxsList = tempBlock.Body.TxsList
+	// Convert transactions from maps back to Transaction objects
+	block.Body.TxsList = make([]*types.Transaction, len(tempBlock.Body.TxsList))
+	for i, txMap := range tempBlock.Body.TxsList {
+		tx := &types.Transaction{
+			ID:       getStringFromMap(txMap, "id"),
+			Sender:   getStringFromMap(txMap, "sender"),
+			Receiver: getStringFromMap(txMap, "receiver"),
+			Nonce:    getUint64FromMap(txMap, "nonce"),
+		}
+
+		// Convert amount from string to big.Int
+		if amountStr, ok := txMap["amount"].(string); ok {
+			amount := new(big.Int)
+			amount.SetString(amountStr, 10)
+			tx.Amount = amount
+		} else {
+			tx.Amount = big.NewInt(0)
+		}
+
+		// Convert gas limit from string to big.Int
+		if gasLimitStr, ok := txMap["gas_limit"].(string); ok {
+			gasLimit := new(big.Int)
+			gasLimit.SetString(gasLimitStr, 10)
+			tx.GasLimit = gasLimit
+		} else {
+			tx.GasLimit = big.NewInt(0)
+		}
+
+		// Convert gas price from string to big.Int
+		if gasPriceStr, ok := txMap["gas_price"].(string); ok {
+			gasPrice := new(big.Int)
+			gasPrice.SetString(gasPriceStr, 10)
+			tx.GasPrice = gasPrice
+		} else {
+			tx.GasPrice = big.NewInt(0)
+		}
+
+		// Convert timestamp from ISO to Unix
+		if timestampStr, ok := txMap["timestamp"].(string); ok {
+			t, err := time.Parse(time.RFC3339, timestampStr)
+			if err == nil {
+				tx.Timestamp = t.Unix()
+			} else {
+				tx.Timestamp = 0 // Default to 0 if parsing fails
+			}
+		} else {
+			tx.Timestamp = 0
+		}
+
+		// Convert signature from hex string to bytes
+		if signatureStr, ok := txMap["signature"].(string); ok {
+			signature, err := hex.DecodeString(signatureStr)
+			if err == nil {
+				tx.Signature = signature
+			} else {
+				tx.Signature = nil
+			}
+		} else {
+			tx.Signature = nil
+		}
+
+		block.Body.TxsList[i] = tx
+	}
+
 	block.Body.UnclesHash = s.decodeHexField(tempBlock.Body.UnclesHash)
 
-	// Log ParentHash information for debugging
-	logger.Debug("Block loaded from disk: height=%d, hash=%s, ParentHash=%s, file=%s",
-		block.GetHeight(), block.GetHash(), string(block.Header.ParentHash), usedFilename)
+	// Log timestamp information for debugging
+	timestampISO := common.GetTimeService().GetTimeInfo(timestamp).ISOUTC
+	logger.Debug("Block loaded from disk: height=%d, hash=%s, timestamp=%s, file=%s",
+		block.GetHeight(), block.GetHash(), timestampISO, usedFilename)
 
 	return &block, nil
+}
+
+// Helper functions for map conversion
+func getStringFromMap(m map[string]interface{}, key string) string {
+	if val, ok := m[key]; ok {
+		if str, ok := val.(string); ok {
+			return str
+		}
+	}
+	return ""
+}
+
+func getUint64FromMap(m map[string]interface{}, key string) uint64 {
+	if val, ok := m[key]; ok {
+		switch v := val.(type) {
+		case float64:
+			return uint64(v)
+		case int:
+			return uint64(v)
+		case int64:
+			return uint64(v)
+		case uint64:
+			return v
+		case string:
+			if parsed, err := strconv.ParseUint(v, 10, 64); err == nil {
+				return parsed
+			}
+		}
+	}
+	return 0
 }
 
 // decodeParentHash handles ParentHash conversion, specifically handling hex-encoded genesis hashes

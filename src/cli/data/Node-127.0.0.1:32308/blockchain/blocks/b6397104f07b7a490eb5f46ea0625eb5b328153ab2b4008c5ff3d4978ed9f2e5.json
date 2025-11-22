@@ -1,0 +1,35 @@
+{
+  "header": {
+    "hash": "b6397104f07b7a490eb5f46ea0625eb5b328153ab2b4008c5ff3d4978ed9f2e5",
+    "txs_root": "042c1c7edf6d3d61ef79c643cff07dc042ef02fe5bf9866416e1aca72c90783f",
+    "state_root": "c58e0d13d6270377ee27685abcf317f17bb96602238c85d404ba67b515ca6d3e",
+    "parent_hash": "GENESIS_c85836891c20cfab86e60770aa54396b8ef4bfa2fec04129e12e0a4b2c611373",
+    "uncles_hash": "2c669e9ff4b5b5dd3c20c116397d974c50c3b573c30ed4ec5dd6152de1c9fe76",
+    "extra_data": "Sphinx Network Block",
+    "miner": "0000000000000000000000000000000000000000",
+    "version": 1,
+    "nblock": 1,
+    "height": 1,
+    "timestamp": "2025-11-22T06:53:51Z",
+    "difficulty": "1",
+    "nonce": 0,
+    "gas_limit": "10000000",
+    "gas_used": "0"
+  },
+  "body": {
+    "txs_list": [
+      {
+        "amount": "1000",
+        "gas_limit": "21000",
+        "gas_price": "1",
+        "id": "ff9996afefa62c1db26dc28bd4c3c619126aa53a83d8d182bdf71ea5015f3a0b",
+        "nonce": 1,
+        "receiver": "alice",
+        "sender": "bob",
+        "signature": "",
+        "timestamp": "1970-01-01T00:00:00Z"
+      }
+    ],
+    "uncles_hash": "3916d45c66e84c612c8a4a403702ec44cc575fc2383dbe4e861dd29ef892bee3"
+  }
+}

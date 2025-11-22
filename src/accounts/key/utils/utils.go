@@ -20,7 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// go/src/account/key/util/utils.go
+// go/src/account/key/utils/utils.go
 package utils
 
 import (
@@ -29,37 +29,33 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/sphinx-core/go/src/accounts/key"
 	disk "github.com/sphinx-core/go/src/accounts/key/disk"
 	usb "github.com/sphinx-core/go/src/accounts/key/external"
 )
 
-const (
-	StorageTypeDisk StorageType = "disk" // Changed from StorageTypeHot
-	StorageTypeUSB  StorageType = "usb"
-)
-
 // NewStorageManager creates a new storage manager
 func NewStorageManager() (*StorageManager, error) {
-	diskStore, err := disk.NewDiskKeyStore("") // Changed from NewHotKeyStore
+	diskStore, err := disk.NewDiskKeyStore("")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create disk storage: %w", err) // Updated error message
+		return nil, fmt.Errorf("failed to create disk storage: %w", err)
 	}
 
 	return &StorageManager{
-		diskStore: diskStore, // Changed from hotStore
+		diskStore: diskStore,
 		usbStore:  usb.NewUSBKeyStore(),
 	}, nil
 }
 
-// GetStorage returns the appropriate storage based on type
-func (sm *StorageManager) GetStorage(storageType StorageType) interface{} {
-	switch storageType {
-	case StorageTypeDisk: // Changed from StorageTypeHot
-		return sm.diskStore // Changed from hotStore
+// GetStorage returns the appropriate storage based on type - FIXED SIGNATURE
+func (sm *StorageManager) GetStorage(storageType string) key.StorageInterface {
+	switch StorageType(storageType) {
+	case StorageTypeDisk:
+		return sm.diskStore
 	case StorageTypeUSB:
 		return sm.usbStore
 	default:
-		return sm.diskStore // Changed from hotStore
+		return sm.diskStore
 	}
 }
 
@@ -83,42 +79,42 @@ func (sm *StorageManager) InitializeUSBStorage(usbPath string) error {
 	return sm.usbStore.InitializeUSB(usbPath)
 }
 
-// BackupToUSB creates a backup of disk wallet to USB  // Updated comment
+// BackupToUSB creates a backup of disk wallet to USB
 func (sm *StorageManager) BackupToUSB(passphrase string) error {
 	if !sm.IsUSBMounted() {
 		return fmt.Errorf("USB device not mounted")
 	}
-	return sm.usbStore.BackupFromDisk(sm.diskStore, passphrase) // Changed from BackupFromHot
+	return sm.usbStore.BackupFromDisk(sm.diskStore, passphrase)
 }
 
-// RestoreFromUSB restores keys from USB to disk wallet  // Updated comment
+// RestoreFromUSB restores keys from USB to disk wallet
 func (sm *StorageManager) RestoreFromUSB(passphrase string) (int, error) {
 	if !sm.IsUSBMounted() {
 		return 0, fmt.Errorf("USB device not mounted")
 	}
-	keys, err := sm.usbStore.RestoreToDisk(sm.diskStore, passphrase) // Changed from RestoreToHot
+	keys, err := sm.usbStore.RestoreToDisk(sm.diskStore, passphrase)
 	if err != nil {
 		return 0, err
 	}
 	return len(keys), nil
 }
 
-// GetStorageInfo returns information about all storage types
-func (sm *StorageManager) GetStorageInfo() map[StorageType]interface{} {
-	info := make(map[StorageType]interface{})
+// GetStorageInfo returns information about all storage types - FIXED SIGNATURE
+func (sm *StorageManager) GetStorageInfo() map[string]interface{} {
+	info := make(map[string]interface{})
 
-	// Disk storage info  // Updated comment
-	diskInfo := sm.diskStore.GetWalletInfo()        // Changed from hotStore
-	info[StorageTypeDisk] = map[string]interface{}{ // Changed from StorageTypeHot
-		"type":          "disk", // Changed from "hot"
+	// Disk storage info
+	diskInfo := sm.diskStore.GetWalletInfo()
+	info["disk"] = map[string]interface{}{
+		"type":          "disk",
 		"key_count":     diskInfo.KeyCount,
 		"last_accessed": diskInfo.LastAccessed,
-		"storage_path":  getDefaultDiskStoragePath(), // Changed from getDefaultHotStoragePath
+		"storage_path":  getDefaultDiskStoragePath(),
 	}
 
 	// USB storage info
 	usbInfo := sm.usbStore.GetWalletInfo()
-	info[StorageTypeUSB] = map[string]interface{}{
+	info["usb"] = map[string]interface{}{
 		"type":          "usb",
 		"key_count":     usbInfo.KeyCount,
 		"last_accessed": usbInfo.LastAccessed,
@@ -130,10 +126,10 @@ func (sm *StorageManager) GetStorageInfo() map[StorageType]interface{} {
 
 // CreateDefaultDirectories creates all necessary directories for Sphinx keystore
 func CreateDefaultDirectories() error {
-	// Create disk storage directory  // Updated comment
-	diskPath := getDefaultDiskStoragePath() // Changed from getDefaultHotStoragePath
+	// Create disk storage directory
+	diskPath := getDefaultDiskStoragePath()
 	if err := os.MkdirAll(filepath.Join(diskPath, "keys"), 0700); err != nil {
-		return fmt.Errorf("failed to create disk storage directory: %w", err) // Updated error message
+		return fmt.Errorf("failed to create disk storage directory: %w", err)
 	}
 
 	// Create backup directory
@@ -153,22 +149,20 @@ func CreateDefaultDirectories() error {
 
 // GetRecommendedStorage returns the recommended storage type based on system
 func GetRecommendedStorage() StorageType {
-	// For production use, recommend USB for better security
-	// For development, use disk storage for convenience  // Updated comment
 	if isProductionEnvironment() {
 		return StorageTypeUSB
 	}
-	return StorageTypeDisk // Changed from StorageTypeHot
+	return StorageTypeDisk
 }
 
 // Helper functions
 
-func getDefaultDiskStoragePath() string { // Renamed from getDefaultHotStoragePath
+func getDefaultDiskStoragePath() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return "./sphinx-disk-keystore" // Changed from "./sphinx-hot-keystore"
+		return "./sphinx-disk-keystore"
 	}
-	return filepath.Join(homeDir, ".sphinx", "disk-keystore") // Changed from "hot-keystore"
+	return filepath.Join(homeDir, ".sphinx", "disk-keystore")
 }
 
 func getDefaultBackupPath() string {
@@ -188,28 +182,22 @@ func getDefaultConfigPath() string {
 }
 
 func isProductionEnvironment() bool {
-	// Simple check - in real implementation, this would be more sophisticated
-	return runtime.GOOS != "darwin" // Example: consider non-macOS as production for demo
+	return runtime.GOOS != "darwin"
 }
 
 // ValidateStoragePath validates if a path is suitable for storage
 func ValidateStoragePath(path string, storageType StorageType) error {
-	// Check if path exists and is writable
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return fmt.Errorf("path does not exist: %s", path)
 	}
 
-	// Check if we have write permissions
 	testFile := filepath.Join(path, ".write-test")
 	if err := os.WriteFile(testFile, []byte("test"), 0600); err != nil {
 		return fmt.Errorf("path is not writable: %s", path)
 	}
 	os.Remove(testFile)
 
-	// Additional checks for USB storage
 	if storageType == StorageTypeUSB {
-		// Check if it's a removable drive (basic check)
-		// In production, you'd want more sophisticated USB detection
 		if filepath.VolumeName(path) == "" {
 			return fmt.Errorf("path does not appear to be a removable drive: %s", path)
 		}

@@ -101,3 +101,27 @@ type KeystoreConfig struct {
 	MagicNumber uint32
 	Symbol      string
 }
+
+// StorageInterface defines the common interface for all storage types
+type StorageInterface interface {
+	StoreKey(keyPair *KeyPair) error
+	GetKey(keyID string) (*KeyPair, error)
+	GetKeyByAddress(address string) (*KeyPair, error)
+	ListKeys() []*KeyPair
+	RemoveKey(keyID string) error
+	GetWalletInfo() *WalletInfo
+	StoreEncryptedKey(encryptedSK, publicKey []byte, address string, walletType HardwareWalletType, chainID uint64, derivationPath string, metadata map[string]interface{}) (*KeyPair, error)
+	EncryptData(data []byte, passphrase string) ([]byte, error)
+	DecryptKey(keyPair *KeyPair, passphrase string) ([]byte, error)
+}
+
+// StorageManagerInterface defines the interface for storage management
+type StorageManagerInterface interface {
+	GetStorage(storageType string) StorageInterface
+	MountUSB(usbPath string) error
+	UnmountUSB()
+	IsUSBMounted() bool
+	BackupToUSB(passphrase string) error
+	RestoreFromUSB(passphrase string) (int, error)
+	GetStorageInfo() map[string]interface{}
+}

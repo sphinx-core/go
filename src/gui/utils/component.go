@@ -21,25 +21,21 @@
 // SOFTWARE.
 
 // go/src/gui/utils/component.go
-// go/src/gui/utils/components.go
 package utils
 
 import (
+	"fmt"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 )
 
-// CreateHeader creates a standardized header component
+// CreateHeader creates a standardized header component with better styling
 func CreateHeader(title string, subtitle string) fyne.CanvasObject {
-	titleLabel := widget.NewLabel(title)
-	titleLabel.TextStyle = fyne.TextStyle{Bold: true}
-	titleLabel.Alignment = fyne.TextAlignCenter
-
-	subtitleLabel := widget.NewLabel(subtitle)
-	subtitleLabel.TextStyle = fyne.TextStyle{Italic: true}
-	subtitleLabel.Alignment = fyne.TextAlignCenter
+	titleLabel := widget.NewLabelWithStyle(title, fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	subtitleLabel := widget.NewLabelWithStyle(subtitle, fyne.TextAlignCenter, fyne.TextStyle{Italic: true})
 
 	return container.NewVBox(
 		titleLabel,
@@ -47,46 +43,43 @@ func CreateHeader(title string, subtitle string) fyne.CanvasObject {
 	)
 }
 
-// CreateBalanceDisplay creates a balance display component
+// CreateBalanceDisplay creates a balance display component with better styling
 func CreateBalanceDisplay(balance string, currency string) fyne.CanvasObject {
-	// For larger text, we can use a custom approach
-	balanceLabel := widget.NewLabel(balance)
-	balanceLabel.TextStyle = fyne.TextStyle{Bold: true}
-	balanceLabel.Alignment = fyne.TextAlignCenter
+	// For larger text, we'll use a custom approach with padding and layout
+	balanceLabel := widget.NewLabelWithStyle(balance, fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 
-	// To make text appear larger, we can use padding and layout
-	balanceContainer := container.NewPadded(balanceLabel)
+	// Create a container with padding to make it appear larger
+	balanceContainer := container.NewPadded(
+		container.NewCenter(balanceLabel),
+	)
 
-	currencyLabel := widget.NewLabel(currency)
-	currencyLabel.Alignment = fyne.TextAlignCenter
+	currencyLabel := widget.NewLabelWithStyle(currency, fyne.TextAlignCenter, fyne.TextStyle{})
 
 	return container.NewVBox(
 		balanceContainer,
-		currencyLabel,
+		container.NewCenter(currencyLabel),
 	)
 }
 
 // CreateLargeText creates a label with larger appearance
 func CreateLargeText(text string) *widget.Label {
-	label := widget.NewLabel(text)
-	label.TextStyle = fyne.TextStyle{Bold: true}
-	// Use padding to make it appear larger
+	label := widget.NewLabelWithStyle(text, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	return label
 }
 
 // CreateActionButton creates a styled action button
 func CreateActionButton(text string, action func()) *widget.Button {
 	button := widget.NewButton(text, action)
-	// You can customize button appearance here if needed
+	button.Importance = widget.MediumImportance
 	return button
 }
 
 // CreateFormSection creates a form section with title
 func CreateFormSection(title string, items ...fyne.CanvasObject) fyne.CanvasObject {
-	titleLabel := widget.NewLabel(title)
-	titleLabel.TextStyle = fyne.TextStyle{Bold: true}
+	titleLabel := widget.NewLabelWithStyle(title, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 
 	content := container.NewVBox(items...)
+	content = container.NewPadded(content)
 
 	return container.NewVBox(
 		titleLabel,
@@ -135,4 +128,40 @@ func CreateProgressBar(labelText string) *widget.ProgressBar {
 // CreateToolbar creates a simple toolbar
 func CreateToolbar(items ...fyne.CanvasObject) fyne.CanvasObject {
 	return container.NewHBox(items...)
+}
+
+// CreateHoverButton creates a button with hover effects
+func CreateHoverButton(text string, action func()) *widget.Button {
+	button := widget.NewButton(text, action)
+	button.Importance = widget.MediumImportance
+	return button
+}
+
+// CreateProgressBarWithLabel creates a progress bar with label
+func CreateProgressBarWithLabel(labelText string, current, max float64) fyne.CanvasObject {
+	label := widget.NewLabel(labelText)
+	progress := widget.NewProgressBar()
+	progress.SetValue(current / max)
+
+	percentage := widget.NewLabel(fmt.Sprintf("%.1f%%", (current/max)*100))
+
+	return container.NewVBox(
+		container.NewHBox(label, layout.NewSpacer(), percentage),
+		progress,
+	)
+}
+
+// CreateStyledLabel creates a label with custom styling
+func CreateStyledLabel(text string, alignment fyne.TextAlign, style fyne.TextStyle) *widget.Label {
+	return widget.NewLabelWithStyle(text, alignment, style)
+}
+
+// CreateHeading creates a heading label
+func CreateHeading(text string) *widget.Label {
+	return widget.NewLabelWithStyle(text, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+}
+
+// CreateSubHeading creates a subheading label
+func CreateSubHeading(text string) *widget.Label {
+	return widget.NewLabelWithStyle(text, fyne.TextAlignLeading, fyne.TextStyle{Italic: true})
 }
