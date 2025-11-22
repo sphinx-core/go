@@ -141,5 +141,8 @@ type Blockchain struct {
 	consensusEngine *consensus.Consensus
 	chainParams     *SphinxChainParameters
 
-	merkleRootCache map[string]string // Add this field
+	merkleRootCache map[string]string
+
+	// TPS Monitoring
+	tpsMonitor *types.TPSMonitor // Add this line
 }

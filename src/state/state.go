@@ -24,6 +24,7 @@
 package state
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -180,6 +181,12 @@ func NewStorage(dataDir string) (*Storage, error) {
 		txIndex:       make(map[string]*types.Transaction),
 		totalBlocks:   0,
 		bestBlockHash: "",
+		tpsConfig: &TPSConfig{
+			WindowDuration: 5 * time.Second, // Keep as time.Duration
+			MaxHistorySize: 1000,
+			SaveInterval:   30 * time.Second,
+			ReportInterval: 60 * time.Second,
+		},
 	}
 
 	// Create directories if they don't exist
@@ -204,6 +211,12 @@ func NewStorage(dataDir string) (*Storage, error) {
 		// Continue with fresh index
 	}
 
+	// Load TPS metrics
+	if err := storage.loadTPSMetrics(); err != nil {
+		logger.Warn("Could not load TPS metrics: %v", err)
+		storage.initializeTPSMetrics()
+	}
+
 	// Log final state
 	logger.Info("Storage initialized: total_blocks=%d, best_block=%s",
 		storage.totalBlocks, storage.bestBlockHash)
@@ -211,31 +224,480 @@ func NewStorage(dataDir string) (*Storage, error) {
 	return storage, nil
 }
 
-// calculateBlockSizeMetrics calculates block size metrics for all stored blocks
-// TEMPORARY FIX: Completely skip block size calculation
-func (s *Storage) calculateBlockSizeMetrics(chainState *ChainState) error {
-	logger.Info("SKIPPING block size metrics calculation for now")
+// TPS Metrics Management
+func (s *Storage) initializeTPSMetrics() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	// Immediately return with empty metrics
-	chainState.BlockSizeMetrics = &BlockSizeMetrics{
-		TotalBlocks:     1, // We know we have genesis block
-		AverageSize:     377,
-		MinSize:         377,
-		MaxSize:         377,
-		TotalSize:       377,
-		SizeStats:       []BlockSizeInfo{},
-		CalculationTime: time.Now().Format(time.RFC3339),
-		AverageSizeMB:   0.000359,
-		MinSizeMB:       0.000359,
-		MaxSizeMB:       0.000359,
-		TotalSizeMB:     0.000359,
+	if s.tpsMetrics == nil {
+		s.tpsMetrics = &TPSMetrics{
+			CurrentTPS:              0,
+			AverageTPS:              0,
+			PeakTPS:                 0,
+			TotalTransactions:       0,
+			BlocksProcessed:         s.totalBlocks, // ✅ Start with actual block count
+			LastUpdated:             time.Now(),
+			CurrentWindowCount:      0,
+			WindowStartTime:         time.Now(),
+			WindowDuration:          s.tpsConfig.WindowDuration,
+			WindowDurationSeconds:   s.tpsConfig.WindowDuration.Seconds(),
+			TPSHistory:              make([]TPSDataPoint, 0),
+			TransactionsPerBlock:    make([]BlockTXCount, 0),
+			AvgTransactionsPerBlock: 0,
+			MaxTransactionsPerBlock: 0,
+			MinTransactionsPerBlock: 0,
+		}
+		logger.Info("✅ TPS metrics initialized with BlocksProcessed=%d", s.totalBlocks)
+	}
+}
+
+// RecordTransaction records a transaction for TPS calculation
+func (s *Storage) RecordTransaction() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.tpsMetrics == nil {
+		s.initializeTPSMetrics()
 	}
 
-	logger.Info("Block size metrics skipped, using default values")
+	s.tpsMetrics.TotalTransactions++
+	s.tpsMetrics.CurrentWindowCount++
+	s.tpsMetrics.LastUpdated = time.Now()
+
+	// Update TPS calculation
+	s.updateTPS()
+}
+
+// RecordBlock records block information for TPS calculation
+func (s *Storage) RecordBlock(block *types.Block, blockTime time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.tpsMetrics == nil {
+		s.initializeTPSMetrics()
+	}
+
+	txCount := uint64(len(block.Body.TxsList))
+	s.tpsMetrics.BlocksProcessed++
+
+	// Record block transaction count
+	blockTX := BlockTXCount{
+		BlockHeight: block.GetHeight(),
+		BlockHash:   block.GetHash(),
+		TxCount:     txCount,
+		BlockTime:   time.Unix(block.Header.Timestamp, 0),
+		BlockSize:   s.calculateBlockSize(block),
+	}
+
+	s.tpsMetrics.TransactionsPerBlock = append(s.tpsMetrics.TransactionsPerBlock, blockTX)
+
+	// Update block statistics
+	s.updateBlockStatistics()
+
+	// Calculate block TPS
+	if blockTime > 0 {
+		blockTPS := float64(txCount) / blockTime.Seconds()
+		tpsDataPoint := TPSDataPoint{
+			Timestamp:   time.Now(),
+			TPS:         blockTPS,
+			BlockHeight: block.GetHeight(),
+		}
+		s.tpsMetrics.TPSHistory = append(s.tpsMetrics.TPSHistory, tpsDataPoint)
+	}
+
+	// Maintain history size
+	if len(s.tpsMetrics.TPSHistory) > s.tpsConfig.MaxHistorySize {
+		s.tpsMetrics.TPSHistory = s.tpsMetrics.TPSHistory[1:]
+	}
+	if len(s.tpsMetrics.TransactionsPerBlock) > s.tpsConfig.MaxHistorySize {
+		s.tpsMetrics.TransactionsPerBlock = s.tpsMetrics.TransactionsPerBlock[1:]
+	}
+
+	s.tpsMetrics.LastUpdated = time.Now()
+}
+
+// updateTPS calculates current TPS based on window
+func (s *Storage) updateTPS() {
+	now := time.Now()
+	windowElapsed := now.Sub(s.tpsMetrics.WindowStartTime)
+
+	// Reset window if it's been too long (avoid stale calculations)
+	if windowElapsed > s.tpsMetrics.WindowDuration*2 {
+		logger.Debug("Resetting stale TPS window")
+		s.tpsMetrics.CurrentWindowCount = 0
+		s.tpsMetrics.WindowStartTime = now
+		return
+	}
+
+	// Now both are time.Duration, so comparison works
+	if windowElapsed >= s.tpsMetrics.WindowDuration {
+		// Calculate TPS for completed window
+		windowTPS := float64(s.tpsMetrics.CurrentWindowCount) / windowElapsed.Seconds()
+
+		s.tpsMetrics.CurrentTPS = windowTPS
+
+		// Update historical data
+		tpsDataPoint := TPSDataPoint{
+			Timestamp: now,
+			TPS:       windowTPS,
+		}
+		s.tpsMetrics.TPSHistory = append(s.tpsMetrics.TPSHistory, tpsDataPoint)
+
+		// Update peak TPS
+		if windowTPS > s.tpsMetrics.PeakTPS {
+			s.tpsMetrics.PeakTPS = windowTPS
+		}
+
+		// Update average TPS
+		s.updateAverageTPS()
+
+		// Reset window
+		s.tpsMetrics.CurrentWindowCount = 0
+		s.tpsMetrics.WindowStartTime = now
+
+		// Maintain history size
+		if len(s.tpsMetrics.TPSHistory) > s.tpsConfig.MaxHistorySize {
+			s.tpsMetrics.TPSHistory = s.tpsMetrics.TPSHistory[1:]
+		}
+
+		logger.Debug("TPS updated: current=%.2f, peak=%.2f, avg=%.2f, total_txs=%d",
+			s.tpsMetrics.CurrentTPS, s.tpsMetrics.PeakTPS, s.tpsMetrics.AverageTPS,
+			s.tpsMetrics.TotalTransactions)
+	}
+}
+
+// updateAverageTPS calculates the average TPS
+func (s *Storage) updateAverageTPS() {
+	if len(s.tpsMetrics.TPSHistory) == 0 {
+		s.tpsMetrics.AverageTPS = 0
+		return
+	}
+
+	var sum float64
+	for _, point := range s.tpsMetrics.TPSHistory {
+		sum += point.TPS
+	}
+	s.tpsMetrics.AverageTPS = sum / float64(len(s.tpsMetrics.TPSHistory))
+}
+
+// updateBlockStatistics updates block-based statistics
+func (s *Storage) updateBlockStatistics() {
+	if len(s.tpsMetrics.TransactionsPerBlock) == 0 {
+		return
+	}
+
+	var sum uint64
+	min := ^uint64(0)
+	max := uint64(0)
+
+	for _, block := range s.tpsMetrics.TransactionsPerBlock {
+		if block.TxCount < min {
+			min = block.TxCount
+		}
+		if block.TxCount > max {
+			max = block.TxCount
+		}
+		sum += block.TxCount
+	}
+
+	s.tpsMetrics.AvgTransactionsPerBlock = float64(sum) / float64(len(s.tpsMetrics.TransactionsPerBlock))
+	s.tpsMetrics.MinTransactionsPerBlock = min
+	s.tpsMetrics.MaxTransactionsPerBlock = max
+}
+
+// GetTPSMetrics returns current TPS metrics
+// Fix GetTPSMetrics to ensure WindowDurationSeconds is set
+func (s *Storage) GetTPSMetrics() *TPSMetrics {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.tpsMetrics == nil {
+		// Return empty metrics if not initialized
+		return &TPSMetrics{
+			CurrentTPS:              0,
+			AverageTPS:              0,
+			PeakTPS:                 0,
+			TotalTransactions:       0,
+			BlocksProcessed:         0,
+			LastUpdated:             time.Now(),
+			CurrentWindowCount:      0,
+			WindowStartTime:         time.Now(),
+			WindowDuration:          s.tpsConfig.WindowDuration,
+			WindowDurationSeconds:   s.tpsConfig.WindowDuration.Seconds(),
+			TPSHistory:              []TPSDataPoint{},
+			TransactionsPerBlock:    []BlockTXCount{},
+			AvgTransactionsPerBlock: 0,
+			MaxTransactionsPerBlock: 0,
+			MinTransactionsPerBlock: 0,
+		}
+	}
+
+	// Ensure WindowDurationSeconds is always set
+	s.tpsMetrics.WindowDurationSeconds = s.tpsMetrics.WindowDuration.Seconds()
+
+	// Return a copy to avoid concurrent modification
+	return &TPSMetrics{
+		CurrentTPS:              s.tpsMetrics.CurrentTPS,
+		AverageTPS:              s.tpsMetrics.AverageTPS,
+		PeakTPS:                 s.tpsMetrics.PeakTPS,
+		TotalTransactions:       s.tpsMetrics.TotalTransactions,
+		BlocksProcessed:         s.tpsMetrics.BlocksProcessed,
+		LastUpdated:             s.tpsMetrics.LastUpdated,
+		CurrentWindowCount:      s.tpsMetrics.CurrentWindowCount,
+		WindowStartTime:         s.tpsMetrics.WindowStartTime,
+		WindowDuration:          s.tpsMetrics.WindowDuration,
+		WindowDurationSeconds:   s.tpsMetrics.WindowDurationSeconds,
+		TPSHistory:              append([]TPSDataPoint{}, s.tpsMetrics.TPSHistory...),
+		TransactionsPerBlock:    append([]BlockTXCount{}, s.tpsMetrics.TransactionsPerBlock...),
+		AvgTransactionsPerBlock: s.tpsMetrics.AvgTransactionsPerBlock,
+		MaxTransactionsPerBlock: s.tpsMetrics.MaxTransactionsPerBlock,
+		MinTransactionsPerBlock: s.tpsMetrics.MinTransactionsPerBlock,
+	}
+}
+
+// SaveTPSMetrics saves TPS metrics to disk
+// Fix SaveTPSMetrics to ensure WindowDurationSeconds is set before saving
+func (s *Storage) SaveTPSMetrics() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.tpsMetrics == nil {
+		logger.Warn("TPS metrics not initialized, skipping save")
+		return nil
+	}
+
+	// Ensure WindowDurationSeconds is set before serialization
+	s.tpsMetrics.WindowDurationSeconds = s.tpsMetrics.WindowDuration.Seconds()
+
+	tpsFile := filepath.Join(s.stateDir, "tps_metrics.json")
+
+	// Create a copy for serialization
+	tpsMetricsCopy := &TPSMetrics{
+		CurrentTPS:              s.tpsMetrics.CurrentTPS,
+		AverageTPS:              s.tpsMetrics.AverageTPS,
+		PeakTPS:                 s.tpsMetrics.PeakTPS,
+		TotalTransactions:       s.tpsMetrics.TotalTransactions,
+		BlocksProcessed:         s.tpsMetrics.BlocksProcessed,
+		LastUpdated:             s.tpsMetrics.LastUpdated,
+		CurrentWindowCount:      s.tpsMetrics.CurrentWindowCount,
+		WindowStartTime:         s.tpsMetrics.WindowStartTime,
+		WindowDuration:          s.tpsMetrics.WindowDuration,
+		WindowDurationSeconds:   s.tpsMetrics.WindowDurationSeconds, // This will be serialized
+		TPSHistory:              append([]TPSDataPoint{}, s.tpsMetrics.TPSHistory...),
+		TransactionsPerBlock:    append([]BlockTXCount{}, s.tpsMetrics.TransactionsPerBlock...),
+		AvgTransactionsPerBlock: s.tpsMetrics.AvgTransactionsPerBlock,
+		MaxTransactionsPerBlock: s.tpsMetrics.MaxTransactionsPerBlock,
+		MinTransactionsPerBlock: s.tpsMetrics.MinTransactionsPerBlock,
+	}
+
+	data, err := json.MarshalIndent(tpsMetricsCopy, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal TPS metrics: %w", err)
+	}
+
+	// Write with atomic replace
+	tmpFile := tpsFile + ".tmp"
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write TPS metrics file: %w", err)
+	}
+
+	if err := os.Rename(tmpFile, tpsFile); err != nil {
+		return fmt.Errorf("failed to rename TPS metrics file: %w", err)
+	}
+
+	logger.Debug("✅ TPS metrics saved: current_tps=%.2f, total_txs=%d, history_size=%d",
+		s.tpsMetrics.CurrentTPS, s.tpsMetrics.TotalTransactions, len(s.tpsMetrics.TPSHistory))
 	return nil
 }
 
+// loadTPSMetrics loads TPS metrics from disk
+func (s *Storage) loadTPSMetrics() error {
+	tpsFile := filepath.Join(s.stateDir, "tps_metrics.json")
+
+	// Check if file exists
+	if _, err := os.Stat(tpsFile); os.IsNotExist(err) {
+		logger.Info("No TPS metrics file found, starting fresh")
+		return fmt.Errorf("TPS metrics file does not exist")
+	}
+
+	data, err := os.ReadFile(tpsFile)
+	if err != nil {
+		return fmt.Errorf("failed to read TPS metrics file: %w", err)
+	}
+
+	var tpsMetrics TPSMetrics
+	if err := json.Unmarshal(data, &tpsMetrics); err != nil {
+		return fmt.Errorf("failed to unmarshal TPS metrics: %w", err)
+	}
+
+	// After loading TPS metrics, sync BlocksProcessed with actual chain state
+	if s.tpsMetrics != nil {
+		s.tpsMetrics.BlocksProcessed = s.totalBlocks
+		logger.Info("Synced TPS BlocksProcessed with chain: %d blocks", s.totalBlocks)
+	}
+
+	s.mu.Lock()
+	s.tpsMetrics = &tpsMetrics
+	s.mu.Unlock()
+
+	logger.Info("TPS metrics loaded: current_tps=%.2f, total_txs=%d",
+		tpsMetrics.CurrentTPS, tpsMetrics.TotalTransactions)
+	return nil
+}
+
+// StartTPSAutoSave starts automatic TPS metrics saving
+func (s *Storage) StartTPSAutoSave(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(s.tpsConfig.SaveInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				// Save final state before exiting
+				if err := s.SaveTPSMetrics(); err != nil {
+					logger.Warn("Failed to save final TPS metrics: %v", err)
+				}
+				return
+			case <-ticker.C:
+				if err := s.SaveTPSMetrics(); err != nil {
+					logger.Warn("Failed to auto-save TPS metrics: %v", err)
+				} else {
+					logger.Debug("Auto-saved TPS metrics")
+				}
+			}
+		}
+	}()
+}
+
+// calculateBlockSizeMetrics calculates block size metrics for all stored blocks
+func (s *Storage) calculateBlockSizeMetrics(chainState *ChainState) error {
+	logger.Info("Starting block size metrics calculation...")
+
+	// Get all blocks for analysis
+	blocks, err := s.GetAllBlocks()
+	if err != nil {
+		return fmt.Errorf("failed to get blocks for size metrics: %w", err)
+	}
+
+	if len(blocks) == 0 {
+		logger.Info("No blocks available for size metrics calculation")
+		// Set default values for empty chain
+		chainState.BlockSizeMetrics = &BlockSizeMetrics{
+			TotalBlocks:     0,
+			AverageSize:     0,
+			MinSize:         0,
+			MaxSize:         0,
+			TotalSize:       0,
+			SizeStats:       []BlockSizeInfo{},
+			CalculationTime: time.Now().Format(time.RFC3339),
+			AverageSizeMB:   0,
+			MinSizeMB:       0,
+			MaxSizeMB:       0,
+			TotalSizeMB:     0,
+		}
+		return nil
+	}
+
+	var totalSize uint64
+	var minSize uint64 = ^uint64(0) // Max uint64
+	var maxSize uint64
+	sizeStats := make([]BlockSizeInfo, 0, len(blocks))
+
+	for _, block := range blocks {
+		blockSize := s.calculateBlockSize(block)
+		totalSize += blockSize
+
+		if blockSize < minSize {
+			minSize = blockSize
+		}
+		if blockSize > maxSize {
+			maxSize = blockSize
+		}
+
+		// Record individual block stats
+		blockStat := BlockSizeInfo{
+			Height:    block.GetHeight(),
+			Hash:      block.GetHash(),
+			Size:      blockSize,
+			SizeMB:    float64(blockSize) / (1024 * 1024),
+			TxCount:   uint64(len(block.Body.TxsList)),
+			Timestamp: block.Header.Timestamp,
+		}
+		sizeStats = append(sizeStats, blockStat)
+
+		logger.Debug("Block %d size: %d bytes, %d transactions",
+			block.GetHeight(), blockSize, len(block.Body.TxsList))
+	}
+
+	averageSize := uint64(0)
+	if len(blocks) > 0 {
+		averageSize = totalSize / uint64(len(blocks))
+	}
+
+	// Convert to MB for human readability
+	averageSizeMB := float64(averageSize) / (1024 * 1024)
+	minSizeMB := float64(minSize) / (1024 * 1024)
+	maxSizeMB := float64(maxSize) / (1024 * 1024)
+	totalSizeMB := float64(totalSize) / (1024 * 1024)
+
+	// Create block size metrics
+	chainState.BlockSizeMetrics = &BlockSizeMetrics{
+		TotalBlocks:     uint64(len(blocks)),
+		AverageSize:     averageSize,
+		MinSize:         minSize,
+		MaxSize:         maxSize,
+		TotalSize:       totalSize,
+		SizeStats:       sizeStats,
+		CalculationTime: time.Now().Format(time.RFC3339),
+		AverageSizeMB:   averageSizeMB,
+		MinSizeMB:       minSizeMB,
+		MaxSizeMB:       maxSizeMB,
+		TotalSizeMB:     totalSizeMB,
+	}
+
+	logger.Info("Successfully calculated block size metrics for %d blocks", len(blocks))
+	logger.Info("Block size stats: avg=%.2f MB, min=%.2f MB, max=%.2f MB, total=%.2f MB",
+		averageSizeMB, minSizeMB, maxSizeMB, totalSizeMB)
+	logger.Info("Size stats contains %d entries", len(sizeStats))
+
+	return nil
+}
+
+// calculateBlockSize calculates the approximate size of a block in bytes
+func (s *Storage) calculateBlockSize(block *types.Block) uint64 {
+	if block == nil {
+		return 0
+	}
+
+	size := uint64(0)
+
+	// Header size (approximate)
+	size += 80 // Fixed header components
+
+	// Transactions size - calculate based on actual transaction data
+	for _, tx := range block.Body.TxsList {
+		txSize := uint64(0)
+
+		// Add size of transaction fields
+		txSize += uint64(len(tx.ID))        // Transaction ID
+		txSize += uint64(len(tx.Sender))    // Sender address
+		txSize += uint64(len(tx.Receiver))  // Receiver address
+		txSize += 8                         // Nonce (uint64)
+		txSize += 32                        // Amount (big.Int - approximate)
+		txSize += 32                        // GasLimit (big.Int - approximate)
+		txSize += 32                        // GasPrice (big.Int - approximate)
+		txSize += 8                         // Timestamp (int64)
+		txSize += uint64(len(tx.Signature)) // Signature
+
+		size += txSize
+	}
+
+	return size
+}
+
 // FIXED SaveCompleteChainState - removed all FinalState references for nodes
+// Enhanced SaveCompleteChainState with TPS metrics
 func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *ChainParams, walletPaths map[string]string) error {
 	// CRITICAL: Check if chainState is nil
 	if chainState == nil {
@@ -311,7 +773,6 @@ func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *Ch
 			TokenInfo: map[string]interface{}{
 				"ledger_name": chainParams.LedgerName,
 			},
-
 			NetworkInfo: map[string]interface{}{
 				"network_name": "Sphinx Mainnet",
 				"protocol":     "SPX/1.0.0",
@@ -341,6 +802,15 @@ func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *Ch
 		logger.Info("Successfully calculated block size metrics for %d blocks",
 			chainState.BlockSizeMetrics.TotalBlocks)
 	}
+
+	// ✅ ADD TPS METRICS TO CHAIN STATE
+	logger.Info("Adding TPS metrics to chain state...")
+	tpsMetrics := s.GetTPSMetrics()
+	tpsMetrics.LastUpdated = time.Now()
+	chainState.TPSMetrics = tpsMetrics
+
+	logger.Info("TPS metrics added: current_tps=%.2f, total_txs=%d, blocks_processed=%d",
+		tpsMetrics.CurrentTPS, tpsMetrics.TotalTransactions, tpsMetrics.BlocksProcessed)
 
 	// VALIDATE AND FIX FINAL STATES BEFORE SAVING
 	if chainState.FinalStates != nil {
@@ -393,21 +863,55 @@ func (s *Storage) SaveCompleteChainState(chainState *ChainState, chainParams *Ch
 		return fmt.Errorf("failed to rename chain state file: %w", err)
 	}
 
-	logger.Info("Complete chain state saved: %s", stateFile)
-	logger.Info("Chain state includes %d final states", len(chainState.FinalStates))
+	// ✅ SAVE TPS METRICS SEPARATELY AS WELL
+	logger.Info("Saving TPS metrics to separate file...")
+	if err := s.SaveTPSMetrics(); err != nil {
+		logger.Warn("Failed to save TPS metrics: %v", err)
+	} else {
+		logger.Info("✅ TPS metrics saved separately to tps_metrics.json")
+	}
+
+	logger.Info("✅ Complete chain state saved: %s", stateFile)
+	logger.Info("Chain state includes:")
+	logger.Info("  - %d nodes", len(chainState.Nodes))
+	logger.Info("  - %d final states", len(chainState.FinalStates))
+	logger.Info("  - Block size metrics for %d blocks", chainState.BlockSizeMetrics.TotalBlocks)
+	logger.Info("  - TPS metrics: current=%.2f, avg=%.2f, peak=%.2f, total_txs=%d",
+		chainState.TPSMetrics.CurrentTPS, chainState.TPSMetrics.AverageTPS,
+		chainState.TPSMetrics.PeakTPS, chainState.TPSMetrics.TotalTransactions)
 
 	// Log final states for debugging
-	for i, state := range chainState.FinalStates {
-		if state != nil {
-			logger.Info("  FinalState %d: block=%s, merkle=%s, status=%s",
-				i, state.BlockHash, state.MerkleRoot, state.Status)
+	if len(chainState.FinalStates) > 0 {
+		logger.Info("Final states summary:")
+		for i, state := range chainState.FinalStates {
+			if state != nil && i < 5 { // Log first 5 for brevity
+				logger.Info("  [%d] block=%s, height=%d, status=%s, merkle=%s",
+					i, state.BlockHash, state.BlockHeight, state.Status, state.MerkleRoot)
+			}
+		}
+		if len(chainState.FinalStates) > 5 {
+			logger.Info("  ... and %d more final states", len(chainState.FinalStates)-5)
 		}
 	}
 
 	return nil
 }
 
+// ensureFinalStateValues ensures all final states have proper values
 func (s *Storage) ensureFinalStateValues(state *FinalStateInfo) *FinalStateInfo {
+	if state == nil {
+		return &FinalStateInfo{
+			BlockHash:   "unknown",
+			BlockHeight: 0,
+			MerkleRoot:  "unknown",
+			Status:      "unknown",
+			Signature:   "no_signature",
+			MessageType: "unknown",
+			Timestamp:   time.Now().Format(time.RFC3339),
+			Valid:       false,
+		}
+	}
+
 	// Ensure merkle_root is never empty
 	if state.MerkleRoot == "" {
 		block, err := s.GetBlockByHash(state.BlockHash)
@@ -444,10 +948,25 @@ func (s *Storage) ensureFinalStateValues(state *FinalStateInfo) *FinalStateInfo 
 		state.Timestamp = time.Now().Format(time.RFC3339)
 	}
 
+	// Ensure signature status is never empty
+	if state.SignatureStatus == "" {
+		if state.Valid {
+			state.SignatureStatus = "Valid"
+		} else {
+			state.SignatureStatus = "Invalid"
+		}
+	}
+
+	// Ensure message type is never empty
+	if state.MessageType == "" {
+		state.MessageType = "unknown"
+	}
+
 	return state
 }
 
 // createRealNodeInfo creates real node information without FinalState
+// Helper method to create node information
 func (s *Storage) createNodeInfo(index int) *NodeInfo {
 	latestBlock, err := s.GetLatestBlock()
 	var blockHash string
@@ -460,13 +979,20 @@ func (s *Storage) createNodeInfo(index int) *NodeInfo {
 		merkleRoot = hex.EncodeToString(latestBlock.CalculateTxsRoot())
 	}
 
+	// Get TPS metrics for node info
+	tpsMetrics := s.GetTPSMetrics()
+
 	node := &NodeInfo{
 		NodeID:      fmt.Sprintf("Node-%d", index),
-		NodeName:    fmt.Sprintf("Node-%d", index),
+		NodeName:    fmt.Sprintf("Sphinx-Node-%d", index),
 		NodeAddress: fmt.Sprintf("127.0.0.1:%d", 32300+index),
 		ChainInfo: map[string]interface{}{
-			"status":       "active",
-			"last_updated": time.Now().Format(time.RFC3339),
+			"status":        "active",
+			"last_updated":  time.Now().Format(time.RFC3339),
+			"tps_current":   tpsMetrics.CurrentTPS,
+			"tps_average":   tpsMetrics.AverageTPS,
+			"total_txs":     tpsMetrics.TotalTransactions,
+			"blocks_height": blockHeight,
 		},
 		BlockHeight: blockHeight,
 		BlockHash:   blockHash,

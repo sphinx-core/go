@@ -99,6 +99,10 @@ type Storage struct {
 	// Chain state
 	bestBlockHash string
 	totalBlocks   uint64
+
+	// TPS Monitoring
+	tpsMetrics *TPSMetrics // Add this line
+	tpsConfig  *TPSConfig
 }
 
 // ChainParams represents basic chain parameters for storage
@@ -149,7 +153,59 @@ type BlockSizeInfo struct {
 	Timestamp int64   `json:"timestamp"`
 }
 
-// ChainState represents the complete chain state
+// TPSMetrics represents Transactions Per Second metrics
+type TPSMetrics struct {
+	// Current metrics
+	CurrentTPS        float64   `json:"current_tps"`
+	AverageTPS        float64   `json:"average_tps"`
+	PeakTPS           float64   `json:"peak_tps"`
+	TotalTransactions uint64    `json:"total_transactions"`
+	BlocksProcessed   uint64    `json:"blocks_processed"`
+	LastUpdated       time.Time `json:"last_updated"`
+
+	// Window-based metrics (use time.Duration for calculations)
+	CurrentWindowCount uint64        `json:"current_window_count"`
+	WindowStartTime    time.Time     `json:"window_start_time"`
+	WindowDuration     time.Duration `json:"-"` // Don't serialize directly
+
+	// For JSON serialization only
+	WindowDurationSeconds float64 `json:"window_duration_seconds"`
+
+	// Historical data
+	TPSHistory           []TPSDataPoint `json:"tps_history,omitempty"`
+	TransactionsPerBlock []BlockTXCount `json:"transactions_per_block,omitempty"`
+
+	// Statistics
+	AvgTransactionsPerBlock float64 `json:"avg_transactions_per_block"`
+	MaxTransactionsPerBlock uint64  `json:"max_transactions_per_block"`
+	MinTransactionsPerBlock uint64  `json:"min_transactions_per_block"`
+}
+
+// TPSDataPoint represents a single TPS measurement
+type TPSDataPoint struct {
+	Timestamp   time.Time `json:"timestamp"`
+	TPS         float64   `json:"tps"`
+	BlockHeight uint64    `json:"block_height,omitempty"`
+}
+
+// BlockTXCount represents transaction count for a block
+type BlockTXCount struct {
+	BlockHeight uint64    `json:"block_height"`
+	BlockHash   string    `json:"block_hash"`
+	TxCount     uint64    `json:"tx_count"`
+	BlockTime   time.Time `json:"block_time"`
+	BlockSize   uint64    `json:"block_size_bytes"`
+}
+
+// TPSConfig represents TPS monitoring configuration
+type TPSConfig struct {
+	WindowDuration time.Duration `json:"-"`
+	MaxHistorySize int           `json:"max_history_size"`
+	SaveInterval   time.Duration `json:"-"`
+	ReportInterval time.Duration `json:"-"`
+}
+
+// Enhanced ChainState with TPS metrics
 type ChainState struct {
 	// Chain identification
 	ChainIdentification *ChainIdentification `json:"chain_identification"`
@@ -165,6 +221,9 @@ type ChainState struct {
 
 	// Block size metrics
 	BlockSizeMetrics *BlockSizeMetrics `json:"block_size_metrics"`
+
+	// TPS Metrics - NEW FIELD
+	TPSMetrics *TPSMetrics `json:"tps_metrics,omitempty"`
 
 	// Timestamp
 	Timestamp string `json:"timestamp"`
