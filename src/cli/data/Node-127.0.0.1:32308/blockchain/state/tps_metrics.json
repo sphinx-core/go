@@ -1,46 +1,46 @@
 {
-  "current_tps": 0.14251492721869838,
-  "average_tps": 0.14251492721869838,
-  "peak_tps": 0.14251492721869838,
-  "total_transactions": 1,
+  "current_tps": 0.12986131228702558,
+  "average_tps": 0.12986131228702558,
+  "peak_tps": 0.12986131228702558,
+  "total_transactions": 3,
   "blocks_processed": 2,
-  "last_updated": "2025-11-22T15:05:35.891855+07:00",
-  "current_window_count": 0,
-  "window_start_time": "2025-11-22T15:04:37.90574+07:00",
+  "last_updated": "2025-11-24T18:58:56.072979+07:00",
+  "current_window_count": 2,
+  "window_start_time": "2025-11-24T18:57:57.520285+07:00",
   "window_duration_seconds": 5,
   "tps_history": [
     {
-      "timestamp": "2025-11-22T15:04:37.90574+07:00",
-      "tps": 0.14251492721869838
+      "timestamp": "2025-11-24T18:57:57.520285+07:00",
+      "tps": 0.12986131228702558
     },
     {
-      "timestamp": "2025-11-22T15:05:34.933306+07:00",
-      "tps": 3.151761607811931e-8,
+      "timestamp": "2025-11-24T18:58:54.277451+07:00",
+      "tps": 9.399942748082035e-8,
       "block_height": 1
     },
     {
-      "timestamp": "2025-11-22T15:05:35.891854+07:00",
-      "tps": 0.2,
+      "timestamp": "2025-11-24T18:58:56.072977+07:00",
+      "tps": 0.6,
       "block_height": 1
     }
   ],
   "transactions_per_block": [
     {
       "block_height": 1,
-      "block_hash": "2915397c483aa61e9d9f7f98a38ffe15f151549f13e31eb469bfb80baa54e7ee",
-      "tx_count": 1,
-      "block_time": "2025-11-22T15:04:48+07:00",
-      "block_size_bytes": 264
+      "block_hash": "11d4f3212d0228a98f41a510a5117b582e0896f351855f8dfd4dee7da34aa7ec",
+      "tx_count": 3,
+      "block_time": "2025-11-24T18:58:08+07:00",
+      "block_size_bytes": 638
     },
     {
       "block_height": 1,
-      "block_hash": "2915397c483aa61e9d9f7f98a38ffe15f151549f13e31eb469bfb80baa54e7ee",
-      "tx_count": 1,
-      "block_time": "2025-11-22T15:04:48+07:00",
-      "block_size_bytes": 264
+      "block_hash": "11d4f3212d0228a98f41a510a5117b582e0896f351855f8dfd4dee7da34aa7ec",
+      "tx_count": 3,
+      "block_time": "2025-11-24T18:58:08+07:00",
+      "block_size_bytes": 638
     }
   ],
-  "avg_transactions_per_block": 1,
-  "max_transactions_per_block": 1,
-  "min_transactions_per_block": 1
+  "avg_transactions_per_block": 3,
+  "max_transactions_per_block": 3,
+  "min_transactions_per_block": 3
 }

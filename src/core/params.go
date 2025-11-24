@@ -300,3 +300,32 @@ func (p *SphinxChainParameters) GenerateLedgerHeaders(operation string, amount f
 	keystoreConfig := p.GetKeystoreConfig()
 	return keystoreConfig.GenerateLedgerHeaders(operation, amount, address, memo)
 }
+
+// GetMaxBlockSize returns the maximum block size in bytes
+func (p *SphinxChainParameters) GetMaxBlockSize() uint64 {
+	return p.MaxBlockSize
+}
+
+// GetTargetBlockSize returns the target block size in bytes
+func (p *SphinxChainParameters) GetTargetBlockSize() uint64 {
+	return p.TargetBlockSize
+}
+
+// GetMaxTransactionSize returns the maximum transaction size in bytes
+func (p *SphinxChainParameters) GetMaxTransactionSize() uint64 {
+	return p.MaxTransactionSize
+}
+
+// IsBlockSizeValid checks if a block size is within acceptable limits
+func (p *SphinxChainParameters) IsBlockSizeValid(blockSize uint64) bool {
+	return blockSize <= p.MaxBlockSize && blockSize > 0
+}
+
+// GetRecommendedBlockSize returns a recommended block size (could be target or a percentage of max)
+func (p *SphinxChainParameters) GetRecommendedBlockSize() uint64 {
+	// Use target size if set, otherwise 90% of max size
+	if p.TargetBlockSize > 0 && p.TargetBlockSize < p.MaxBlockSize {
+		return p.TargetBlockSize
+	}
+	return p.MaxBlockSize * 90 / 100
+}

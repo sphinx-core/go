@@ -1,0 +1,57 @@
+{
+  "header": {
+    "hash": "11d4f3212d0228a98f41a510a5117b582e0896f351855f8dfd4dee7da34aa7ec",
+    "txs_root": "52acb8fe2fda733f7169993afa3f28702912e1994a8dd759a24a4fbbd4d8133d",
+    "state_root": "03d940a591d5160e2ba5b816f06341cee64fb573f0457464dca11b0092ab1a6e",
+    "parent_hash": "GENESIS_c85836891c20cfab86e60770aa54396b8ef4bfa2fec04129e12e0a4b2c611373",
+    "uncles_hash": "2c669e9ff4b5b5dd3c20c116397d974c50c3b573c30ed4ec5dd6152de1c9fe76",
+    "extra_data": "Sphinx Network Block",
+    "miner": "0000000000000000000000000000000000000000",
+    "version": 1,
+    "nblock": 1,
+    "height": 1,
+    "timestamp": "2025-11-24T11:58:08Z",
+    "difficulty": "1",
+    "nonce": 0,
+    "gas_limit": "10000000",
+    "gas_used": "0"
+  },
+  "body": {
+    "txs_list": [
+      {
+        "amount": "1000",
+        "gas_limit": "21000",
+        "gas_price": "1",
+        "id": "496cef01d64c664a1fcc46adf52ca384adc56769a077fc1d38cf12c4f7b93f58",
+        "nonce": 1,
+        "receiver": "bob",
+        "sender": "alice",
+        "signature": "",
+        "timestamp": "2025-11-24T11:57:56Z"
+      },
+      {
+        "amount": "500",
+        "gas_limit": "21000",
+        "gas_price": "1",
+        "id": "cd86af8f00407159d4a19cc4a133f704fa7a488d4084da17d079fcf5969e73ce",
+        "nonce": 2,
+        "receiver": "charlie",
+        "sender": "bob",
+        "signature": "",
+        "timestamp": "2025-11-24T11:57:56Z"
+      },
+      {
+        "amount": "200",
+        "gas_limit": "21000",
+        "gas_price": "1",
+        "id": "40eb7760c9a073a34dce8317b567307a5ad039a91219108e9d7937978c321213",
+        "nonce": 3,
+        "receiver": "alice",
+        "sender": "charlie",
+        "signature": "",
+        "timestamp": "2025-11-24T11:57:57Z"
+      }
+    ],
+    "uncles_hash": "3916d45c66e84c612c8a4a403702ec44cc575fc2383dbe4e861dd29ef892bee3"
+  }
+}

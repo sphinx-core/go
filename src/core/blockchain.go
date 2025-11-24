@@ -966,6 +966,7 @@ func (bc *Blockchain) GetBlocksizeInfo() map[string]interface{} {
 }
 
 // CreateBlock creates a new block with transactions from mempool
+// CreateBlock creates a new block with transactions from mempool
 func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 	if bc.mempool == nil {
 		return nil, fmt.Errorf("mempool not initialized")
@@ -1004,29 +1005,22 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 		return nil, errors.New("no pending transactions in mempool")
 	}
 
-	logger.Info("Found %d pending transactions in mempool", len(pendingTxs))
+	logger.Info("Found %d pending transactions in mempool, max block size: %d bytes",
+		len(pendingTxs), bc.chainParams.MaxBlockSize)
 
-	var selectedTxs []*types.Transaction
-	currentSize := uint64(0)
-
-	for _, tx := range pendingTxs {
-		txSize := bc.mempool.CalculateTransactionSize(tx)
-		if currentSize+txSize > bc.chainParams.MaxBlockSize {
-			break
-		}
-		selectedTxs = append(selectedTxs, tx)
-		currentSize += txSize
-		if len(selectedTxs) >= 1000 {
-			break
-		}
+	// Select transactions based on block size constraints
+	selectedTxs, totalSize, err := bc.selectTransactionsForBlock(pendingTxs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to select transactions: %w", err)
 	}
 
 	if len(selectedTxs) == 0 {
 		return nil, errors.New("no transactions could be selected for block")
 	}
 
-	logger.Info("Creating block with %d transactions, estimated size: %d bytes (limit: %d)",
-		len(selectedTxs), currentSize, bc.chainParams.MaxBlockSize)
+	logger.Info("Creating block with %d transactions, estimated size: %d bytes (limit: %d, utilization: %.2f%%)",
+		len(selectedTxs), totalSize, bc.chainParams.MaxBlockSize,
+		float64(totalSize)/float64(bc.chainParams.MaxBlockSize)*100)
 
 	// Calculate roots and create block
 	txsRoot := bc.calculateTransactionsRoot(selectedTxs)
@@ -1043,7 +1037,7 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 
 	newHeader := types.NewBlockHeader(
 		prevBlock.GetHeight()+1,
-		parentHashBytes, // Use consistent variable name
+		parentHashBytes,
 		big.NewInt(1),
 		txsRoot,
 		stateRoot,
@@ -1080,7 +1074,7 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 
 	logger.Info("✅ Pre-calculated merkle root for new block %s: %s", blockHash, merkleRoot)
 
-	// Cache it in consensus if available - FIXED: Direct method call
+	// Cache it in consensus if available
 	if bc.consensusEngine != nil {
 		bc.consensusEngine.CacheMerkleRoot(blockHash, merkleRoot)
 		logger.Info("✅ Cached merkle root in consensus engine")
@@ -1088,10 +1082,171 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 		logger.Warn("⚠️ No consensus engine available for caching")
 	}
 
-	logger.Info("✅ Created new block: height=%d, transactions=%d, hash=%s, uncles=%d",
-		newBlock.GetHeight(), len(selectedTxs), newBlock.GetHash(), len(emptyUncles))
+	logger.Info("✅ Created new block: height=%d, transactions=%d, hash=%s, uncles=%d, size=%d bytes",
+		newBlock.GetHeight(), len(selectedTxs), newBlock.GetHash(), len(emptyUncles), totalSize)
 
 	return newBlock, nil
+}
+
+// selectTransactionsForBlock selects transactions for the block based on size constraints
+// selectTransactionsForBlock selects transactions for the block based on size constraints
+func (bc *Blockchain) selectTransactionsForBlock(pendingTxs []*types.Transaction) ([]*types.Transaction, uint64, error) {
+	var selectedTxs []*types.Transaction
+	currentSize := uint64(0)
+	txCount := 0
+	maxTxCount := 10000 // Safety limit to prevent excessive processing
+
+	// Calculate overhead for block metadata (header, etc.)
+	// This is an estimate - adjust based on your actual block structure
+	blockOverhead := uint64(1000) // ~1KB for header and other metadata
+	availableSize := bc.chainParams.MaxBlockSize - blockOverhead
+
+	if availableSize <= 0 {
+		return nil, 0, fmt.Errorf("block size too small for overhead")
+	}
+
+	logger.Debug("Available block size for transactions: %d bytes (after %d bytes overhead)",
+		availableSize, blockOverhead)
+
+	// Track gas usage if applicable
+	currentGas := big.NewInt(0)
+
+	for _, tx := range pendingTxs {
+		// Safety check to prevent infinite loops
+		if txCount >= maxTxCount {
+			logger.Warn("Reached maximum transaction count limit: %d", maxTxCount)
+			break
+		}
+
+		txSize, err := bc.calculateTxsSize(tx)
+		if err != nil {
+			logger.Warn("Failed to calculate transaction size: %v", err)
+			continue
+		}
+
+		// Check if transaction is too large individually
+		if txSize > bc.chainParams.MaxTransactionSize {
+			logger.Warn("Transaction exceeds maximum size: %d > %d", txSize, bc.chainParams.MaxTransactionSize)
+			continue
+		}
+
+		// Check if adding this transaction would exceed block size
+		if currentSize+txSize > availableSize {
+			// Try to find smaller transactions that might fit
+			continue
+		}
+
+		// Check transaction gas limit if applicable
+		if bc.chainParams.BlockGasLimit != nil {
+			txGas := bc.getTransactionGas(tx)
+			proposedGas := new(big.Int).Add(currentGas, txGas)
+
+			// Check if adding this transaction would exceed block gas limit
+			if proposedGas.Cmp(bc.chainParams.BlockGasLimit) > 0 {
+				logger.Debug("Transaction would exceed gas limit: %s > %s",
+					proposedGas.String(), bc.chainParams.BlockGasLimit.String())
+				continue
+			}
+			currentGas = proposedGas
+		}
+
+		selectedTxs = append(selectedTxs, tx)
+		currentSize += txSize
+		txCount++
+
+		// Optional: Stop if we're close to the target size to leave room for variability
+		if currentSize >= availableSize*95/100 {
+			logger.Debug("Reached 95%% of available block size, stopping selection")
+			break
+		}
+	}
+
+	// Log selection statistics
+	if len(selectedTxs) > 0 {
+		utilization := float64(currentSize) / float64(availableSize) * 100
+		averageTxSize := float64(currentSize) / float64(len(selectedTxs))
+
+		logger.Info("Selected %d transactions, total size: %d bytes (%.2f%% utilization, avg tx: %.2f bytes)",
+			len(selectedTxs), currentSize, utilization, averageTxSize)
+
+		if bc.chainParams.BlockGasLimit != nil {
+			gasUtilization := float64(currentGas.Int64()) / float64(bc.chainParams.BlockGasLimit.Int64()) * 100
+			logger.Info("Gas usage: %s / %s (%.2f%%)",
+				currentGas.String(), bc.chainParams.BlockGasLimit.String(), gasUtilization)
+		}
+	}
+
+	return selectedTxs, currentSize + blockOverhead, nil
+}
+
+// calculateTransactionSize calculates the size of a transaction in bytes
+func (bc *Blockchain) calculateTxsSize(tx *types.Transaction) (uint64, error) {
+	// Use mempool's calculation if available - this is the preferred method
+	if bc.mempool != nil {
+		return bc.mempool.CalculateTransactionSize(tx), nil
+	}
+
+	// Calculate size based on actual transaction fields
+	estimatedSize := uint64(0)
+
+	// Base transaction overhead
+	estimatedSize += 50 // Fixed overhead
+
+	// Account for transaction ID
+	estimatedSize += uint64(len(tx.ID))
+
+	// Account for sender and receiver addresses
+	estimatedSize += uint64(len(tx.Sender))
+	estimatedSize += uint64(len(tx.Receiver))
+
+	// Account for amount (big.Int size)
+	if tx.Amount != nil {
+		estimatedSize += uint64(len(tx.Amount.Bytes()))
+	}
+
+	// Account for gas fields
+	if tx.GasLimit != nil {
+		estimatedSize += uint64(len(tx.GasLimit.Bytes()))
+	}
+	if tx.GasPrice != nil {
+		estimatedSize += uint64(len(tx.GasPrice.Bytes()))
+	}
+
+	// Account for nonce (uint64 = 8 bytes)
+	estimatedSize += 8
+
+	// Account for timestamp (int64 = 8 bytes)
+	estimatedSize += 8
+
+	// Account for signature (len() for nil slices is 0)
+	estimatedSize += uint64(len(tx.Signature))
+
+	logger.Debug("Calculated transaction size: %d bytes", estimatedSize)
+	return estimatedSize, nil
+}
+
+// getTransactionGas returns the gas consumption of a transaction
+// getTransactionGas returns the gas consumption of a transaction
+func (bc *Blockchain) getTransactionGas(tx *types.Transaction) *big.Int {
+	// Use the transaction's gas limit if available
+	if tx.GasLimit != nil && tx.GasLimit.Cmp(big.NewInt(0)) > 0 {
+		return tx.GasLimit
+	}
+
+	// Calculate gas based on transaction complexity
+	baseGas := big.NewInt(21000) // Base transaction gas
+
+	// Add gas for signature verification (len() for nil slices is 0)
+	sigGas := big.NewInt(int64(len(tx.Signature)) * 100) // 100 gas per signature byte
+	baseGas.Add(baseGas, sigGas)
+
+	// Add gas for value transfer if amount is significant
+	if tx.Amount != nil && tx.Amount.Cmp(big.NewInt(0)) > 0 {
+		valueGas := big.NewInt(9000) // Additional gas for value transfer
+		baseGas.Add(baseGas, valueGas)
+	}
+
+	return baseGas
 }
 
 func (bc *Blockchain) GetCachedMerkleRoot(blockHash string) string {

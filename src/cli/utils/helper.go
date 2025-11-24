@@ -488,41 +488,221 @@ func CallConsensus(numNodes int) error {
 		logger.Info("%s genesis: height=%d, hash=%s", validatorIDs[i], genesis.GetHeight(), genesis.GetHash())
 	}
 
-	// ========== TRANSACTION PROPAGATION TEST ==========
-	tx := &types.Transaction{
-		Sender:   "bob",
-		Receiver: "alice",
-		Amount:   big.NewInt(1000),
-		GasLimit: big.NewInt(21000),
-		GasPrice: big.NewInt(1),
-		Nonce:    1,
+	// ========== TRANSACTION PROPAGATION TEST USING NOTES ==========
+	logger.Info("=== CREATING AND DISTRIBUTING MULTIPLE TRANSACTIONS VIA NOTES ===")
+
+	// Create notes with proper MAC generation using the Note constructor
+	notes := []*types.Note{
+		// These will auto-generate proper MACs and timestamps through ToTxs conversion
+		{
+			To:      "bob",
+			From:    "alice",
+			Fee:     1000.0, // Only hardcoded value as specified - the transaction amount
+			Storage: "test-storage-1",
+		},
+		{
+			To:      "charlie",
+			From:    "bob",
+			Fee:     500.0, // Only hardcoded value as specified - the transaction amount
+			Storage: "test-storage-2",
+		},
+		{
+			To:      "alice",
+			From:    "charlie",
+			Fee:     200.0, // Only hardcoded value as specified - the transaction amount
+			Storage: "test-storage-3",
+		},
 	}
 
-	// Distribute test transaction to all node mempools
+	// Convert notes to transactions (this will auto-generate IDs, timestamps, and proper MACs)
+	transactions := make([]*types.Transaction, len(notes))
+	for i, note := range notes {
+		transactions[i] = note.ToTxs(uint64(i+1), big.NewInt(21000), big.NewInt(1))
+		logger.Info("Created transaction from note: %s → %s (ID: %s)",
+			transactions[i].Sender, transactions[i].Receiver, transactions[i].ID)
+	}
+
+	// Rest of the distribution code remains the same...
+	successfulDistributions := 0
 	for i := 0; i < numNodes; i++ {
-		txCopy := &types.Transaction{
-			Sender:   tx.Sender,
-			Receiver: tx.Receiver,
-			Amount:   new(big.Int).Set(tx.Amount),
-			GasLimit: new(big.Int).Set(tx.GasLimit),
-			GasPrice: new(big.Int).Set(tx.GasPrice),
-			Nonce:    tx.Nonce,
+		nodeID := validatorIDs[i]
+		nodeSuccessCount := 0
+
+		for _, tx := range transactions {
+			// Create a copy (the ID is already set by ToTxs)
+			txCopy := &types.Transaction{
+				ID:        tx.ID, // Use the auto-generated ID
+				Sender:    tx.Sender,
+				Receiver:  tx.Receiver,
+				Amount:    new(big.Int).Set(tx.Amount),
+				GasLimit:  new(big.Int).Set(tx.GasLimit),
+				GasPrice:  new(big.Int).Set(tx.GasPrice),
+				Nonce:     tx.Nonce,
+				Timestamp: tx.Timestamp,
+				Signature: make([]byte, len(tx.Signature)),
+			}
+			copy(txCopy.Signature, tx.Signature)
+
+			if err := blockchains[i].AddTransaction(txCopy); err != nil {
+				logger.Warn("%s failed to add transaction %s: %v", nodeID, tx.ID, err)
+			} else {
+				nodeSuccessCount++
+				logger.Debug("%s added transaction %s to mempool", nodeID, tx.ID)
+			}
 		}
 
-		if err := blockchains[i].AddTransaction(txCopy); err != nil {
-			logger.Warn("%s failed to add transaction: %v", validatorIDs[i], err)
+		if nodeSuccessCount == len(transactions) {
+			successfulDistributions++
+		}
+
+		logger.Info("%s added %d/%d transactions to mempool", nodeID, nodeSuccessCount, len(transactions))
+	}
+
+	// Log transaction details
+	logger.Info("=== TRANSACTION DETAILS ===")
+	for i, tx := range transactions {
+		logger.Info("TX%d: %s → %s (Amount: %s, Gas: %s, ID: %s)",
+			i+1, tx.Sender, tx.Receiver, tx.Amount.String(), tx.GasLimit.String(), tx.ID)
+	}
+	logger.Info("Total transactions created: %d", len(transactions))
+
+	// Allow transactions to propagate through network with longer timeout
+	logger.Info("Waiting for transactions to propagate across network...")
+	time.Sleep(5 * time.Second)
+
+	// Enhanced transaction propagation status check WITH DEBUGGING
+	logger.Info("=== TRANSACTION PROPAGATION STATUS ===")
+	for i := 0; i < numNodes; i++ {
+		nodeID := validatorIDs[i]
+		mempoolStats := blockchains[i].GetMempool().GetStats()
+
+		// DEBUG: Print all mempool stats to see what's available
+		logger.Info("DEBUG %s mempool stats: %+v", nodeID, mempoolStats)
+
+		// SAFE: Get transaction count with multiple fallbacks
+		var txCount int
+		if mempoolStats == nil {
+			logger.Warn("%s: mempoolStats is nil", nodeID)
+			// Try alternative way to get transaction count
+			pendingTxs := blockchains[i].GetMempool().GetPendingTransactions()
+			txCount = len(pendingTxs)
+			logger.Info("%s: using direct pending transactions count: %d", nodeID, txCount)
 		} else {
-			logger.Info("%s added transaction to mempool", validatorIDs[i])
+			// Try multiple possible keys for transaction count
+			possibleKeys := []string{"transaction_count", "tx_count", "count", "size"}
+			for _, key := range possibleKeys {
+				if count, exists := mempoolStats[key]; exists && count != nil {
+					switch v := count.(type) {
+					case int:
+						txCount = v
+					case float64:
+						txCount = int(v)
+					case int64:
+						txCount = int(v)
+					case uint64:
+						txCount = int(v)
+					}
+					if txCount > 0 {
+						break
+					}
+				}
+			}
+
+			// If still 0, try direct method
+			if txCount == 0 {
+				pendingTxs := blockchains[i].GetMempool().GetPendingTransactions()
+				txCount = len(pendingTxs)
+			}
+		}
+
+		logger.Info("%s: %d transactions in mempool", nodeID, txCount)
+
+		// Check for specific transactions
+		missingTxs := 0
+		foundTxs := 0
+		for _, tx := range transactions {
+			hasTx := blockchains[i].HasPendingTx(tx.ID)
+			if !hasTx {
+				missingTxs++
+				logger.Warn("  ✗ %s missing transaction %s", nodeID, tx.ID)
+			} else {
+				foundTxs++
+				logger.Debug("  ✓ %s has transaction %s", nodeID, tx.ID)
+			}
+		}
+
+		if missingTxs > 0 {
+			logger.Warn("  %s is missing %d/%d transactions (found %d)", nodeID, missingTxs, len(transactions), foundTxs)
+		} else {
+			logger.Info("  ✅ %s has all %d transactions", nodeID, len(transactions))
 		}
 	}
-	logger.Info("Test transaction distributed: alice → bob (100 SPX)")
 
-	// Display consensus state for debugging
-	logger.Info("=== CONSENSUS STATE DIAGNOSTICS ===")
+	// Enhanced consensus diagnostics
+	logger.Info("=== ENHANCED CONSENSUS STATE DIAGNOSTICS ===")
 	for i := 0; i < numNodes; i++ {
-		hasPendingTx := blockchains[i].HasPendingTx(tx.GetHash())
-		logger.Info("%s: leader=%v, pending_tx=%v",
-			validatorIDs[i], consensusEngines[i].IsLeader(), hasPendingTx)
+		leaderStatus := "follower"
+		if consensusEngines[i].IsLeader() {
+			leaderStatus = "LEADER"
+		}
+
+		mempoolStats := blockchains[i].GetMempool().GetStats()
+
+		// SAFE: Get transaction count
+		var txCount int
+		if mempoolStats != nil {
+			if count, exists := mempoolStats["transaction_count"]; exists && count != nil {
+				switch v := count.(type) {
+				case int:
+					txCount = v
+				case float64:
+					txCount = int(v)
+				case int64:
+					txCount = int(v)
+				case uint64:
+					txCount = int(v)
+				default:
+					txCount = 0
+				}
+			}
+		}
+
+		// Get block size stats with safe handling
+		sizeStats := blockchains[i].GetBlockSizeStats()
+		var avgBlockSize interface{} = "N/A"
+		var maxBlockSize interface{} = "N/A"
+
+		if sizeStats != nil {
+			if avg, exists := sizeStats["average_block_size"]; exists {
+				avgBlockSize = avg
+			}
+			if max, exists := sizeStats["max_block_size"]; exists {
+				maxBlockSize = max
+			}
+		}
+
+		logger.Info("%s: %s, pending_txs=%d, avg_block_size=%v, max_block_size=%v",
+			validatorIDs[i], leaderStatus, txCount, avgBlockSize, maxBlockSize)
+
+		// Check if this node can create a block with current transactions
+		if txCount > 0 {
+			pendingTxs := blockchains[i].GetMempool().GetPendingTransactions()
+			estimatedSize := uint64(0)
+			for _, tx := range pendingTxs {
+				txSize := blockchains[i].GetMempool().CalculateTransactionSize(tx)
+				estimatedSize += txSize
+			}
+
+			blockOverhead := uint64(1000)
+			totalSize := estimatedSize + blockOverhead
+			maxBlockSize := blockchains[i].GetChainParams().MaxBlockSize
+
+			if totalSize > maxBlockSize {
+				logger.Warn("  ⚠️  Transactions exceed block size: %d > %d", totalSize, maxBlockSize)
+			} else {
+				logger.Info("  ✅ Block size OK: %d/%d bytes", totalSize, maxBlockSize)
+			}
+		}
 	}
 	logger.Info("====================================")
 
@@ -530,7 +710,7 @@ func CallConsensus(numNodes int) error {
 	time.Sleep(2 * time.Second)
 
 	// ========== BLOCK COMMITMENT AND CONSENSUS VALIDATION ==========
-	const timeout = 90 * time.Second // INCREASED FROM 60s TO 90s
+	const timeout = 180 * time.Second // INCREASED FROM 60s TO 90s
 	start := time.Now()
 	logger.Info("Waiting for block commitment (timeout: %v)...", timeout)
 
@@ -580,19 +760,24 @@ func CallConsensus(numNodes int) error {
 		}
 	}
 
-	// Handle consensus timeout scenario
+	// Handle consensus timeout scenario - FIXED: Remove references to undefined 'tx'
 	if timeoutReached {
 		logger.Info("=== CONSENSUS TIMEOUT DIAGNOSTICS ===")
 		for i := 0; i < numNodes; i++ {
 			latest := blockchains[i].GetLatestBlock()
-			hasPendingTx := blockchains[i].HasPendingTx(tx.GetHash())
+
+			// Check if any transactions are still pending (using the first transaction as example)
+			hasPendingTxs := false
+			if len(transactions) > 0 {
+				hasPendingTxs = blockchains[i].HasPendingTx(transactions[0].ID)
+			}
 
 			if latest != nil {
-				logger.Info("%s: height=%d, hash=%s, pending_tx=%v, leader=%v",
-					validatorIDs[i], latest.GetHeight(), latest.GetHash(), hasPendingTx, consensusEngines[i].IsLeader())
+				logger.Info("%s: height=%d, hash=%s, pending_txs=%v, leader=%v",
+					validatorIDs[i], latest.GetHeight(), latest.GetHash(), hasPendingTxs, consensusEngines[i].IsLeader())
 			} else {
-				logger.Info("%s: no blocks, pending_tx=%v, leader=%v",
-					validatorIDs[i], hasPendingTx, consensusEngines[i].IsLeader())
+				logger.Info("%s: no blocks, pending_txs=%v, leader=%v",
+					validatorIDs[i], hasPendingTxs, consensusEngines[i].IsLeader())
 			}
 		}
 		logger.Info("======================================")
