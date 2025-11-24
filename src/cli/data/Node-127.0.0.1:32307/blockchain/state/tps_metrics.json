@@ -1,46 +1,42 @@
 {
-  "current_tps": 0.10456489186224707,
-  "average_tps": 0.10456489186224707,
-  "peak_tps": 0.10456489186224707,
-  "total_transactions": 3,
+  "current_tps": 0,
+  "average_tps": 0,
+  "peak_tps": 0,
+  "total_transactions": 10,
   "blocks_processed": 2,
-  "last_updated": "2025-11-24T18:58:56.0473+07:00",
-  "current_window_count": 2,
-  "window_start_time": "2025-11-24T18:57:57.520253+07:00",
+  "last_updated": "2025-11-24T19:21:33.415187+07:00",
+  "current_window_count": 9,
+  "window_start_time": "2025-11-24T19:18:43.272916+07:00",
   "window_duration_seconds": 5,
   "tps_history": [
     {
-      "timestamp": "2025-11-24T18:57:57.520253+07:00",
-      "tps": 0.10456489186224707
-    },
-    {
-      "timestamp": "2025-11-24T18:58:54.24613+07:00",
-      "tps": 9.399942748082035e-8,
+      "timestamp": "2025-11-24T19:21:25.964333+07:00",
+      "tps": 3.1331851524747324e-7,
       "block_height": 1
     },
     {
-      "timestamp": "2025-11-24T18:58:56.047298+07:00",
-      "tps": 0.6,
+      "timestamp": "2025-11-24T19:21:33.415186+07:00",
+      "tps": 2,
       "block_height": 1
     }
   ],
   "transactions_per_block": [
     {
       "block_height": 1,
-      "block_hash": "11d4f3212d0228a98f41a510a5117b582e0896f351855f8dfd4dee7da34aa7ec",
-      "tx_count": 3,
-      "block_time": "2025-11-24T18:58:08+07:00",
-      "block_size_bytes": 638
+      "block_hash": "1ff8b862acd55f321206b6aaa510dd07a1c6ade601f9b70a8c093d3da8398f38",
+      "tx_count": 10,
+      "block_time": "2025-11-24T19:20:03+07:00",
+      "block_size_bytes": 1936
     },
     {
       "block_height": 1,
-      "block_hash": "11d4f3212d0228a98f41a510a5117b582e0896f351855f8dfd4dee7da34aa7ec",
-      "tx_count": 3,
-      "block_time": "2025-11-24T18:58:08+07:00",
-      "block_size_bytes": 638
+      "block_hash": "1ff8b862acd55f321206b6aaa510dd07a1c6ade601f9b70a8c093d3da8398f38",
+      "tx_count": 10,
+      "block_time": "2025-11-24T19:20:03+07:00",
+      "block_size_bytes": 1936
     }
   ],
-  "avg_transactions_per_block": 3,
-  "max_transactions_per_block": 3,
-  "min_transactions_per_block": 3
+  "avg_transactions_per_block": 10,
+  "max_transactions_per_block": 10,
+  "min_transactions_per_block": 10
 }

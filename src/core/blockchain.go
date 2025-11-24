@@ -607,10 +607,13 @@ func (bc *Blockchain) SetConsensusEngine(engine *consensus.Consensus) {
 	bc.consensusEngine = engine
 }
 
-// Enhanced StartLeaderLoop with better leader coordination
+// Enhanced StartLeaderLoop with leader lock to prevent rapid view changes
 func (bc *Blockchain) StartLeaderLoop(ctx context.Context) {
+	leaderMutex := sync.Mutex{}
+	var isProposing bool
+
 	go func() {
-		ticker := time.NewTicker(5 * time.Second) // Reduced from 10s to 5s
+		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 
 		for {
@@ -627,9 +630,22 @@ func (bc *Blockchain) StartLeaderLoop(ctx context.Context) {
 					continue
 				}
 
+				// Check if we're already proposing
+				leaderMutex.Lock()
+				if isProposing {
+					leaderMutex.Unlock()
+					logger.Debug("Leader: already proposing block, skipping")
+					continue
+				}
+				isProposing = true
+				leaderMutex.Unlock()
+
 				// Check if we have transactions in mempool
 				hasTxs := bc.mempool.GetTransactionCount() > 0
 				if !hasTxs {
+					leaderMutex.Lock()
+					isProposing = false
+					leaderMutex.Unlock()
 					logger.Debug("Leader: no pending transactions to propose")
 					continue
 				}
@@ -641,6 +657,9 @@ func (bc *Blockchain) StartLeaderLoop(ctx context.Context) {
 				block, err := bc.CreateBlock()
 				if err != nil {
 					logger.Warn("Leader: failed to create block: %v", err)
+					leaderMutex.Lock()
+					isProposing = false
+					leaderMutex.Unlock()
 					continue
 				}
 
@@ -654,6 +673,14 @@ func (bc *Blockchain) StartLeaderLoop(ctx context.Context) {
 				} else {
 					logger.Info("Leader: block proposal sent successfully")
 				}
+
+				// Reset proposing flag after a delay to allow consensus to complete
+				go func() {
+					time.Sleep(30 * time.Second) // Wait for consensus to complete
+					leaderMutex.Lock()
+					isProposing = false
+					leaderMutex.Unlock()
+				}()
 			}
 		}
 	}()

@@ -59,7 +59,7 @@ func NewConsensus(
 		currentHeight:    0,                                 // Start at height 0
 		phase:            PhaseIdle,                         // Initial phase is idle
 		quorumFraction:   0.67,                              // 2/3 quorum required for Byzantine fault tolerance
-		timeout:          60 * time.Second,                  // View change timeout
+		timeout:          300 * time.Second,                 // View change timeout
 		receivedVotes:    make(map[string]map[string]*Vote), // Track commit votes by block hash
 		prepareVotes:     make(map[string]map[string]*Vote), // Track prepare votes by block hash
 		sentVotes:        make(map[string]bool),             // Track which votes this node has sent

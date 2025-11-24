@@ -1,0 +1,134 @@
+{
+  "header": {
+    "hash": "1ff8b862acd55f321206b6aaa510dd07a1c6ade601f9b70a8c093d3da8398f38",
+    "txs_root": "284cbb16ca4feaf0e79b27af0821cceb73cafd82adbc620534725898acd62448",
+    "state_root": "b3c1c7da15444a7ae4f621d75fb8168a85ebf7e4421134eae12594ec00fe1fd3",
+    "parent_hash": "GENESIS_c85836891c20cfab86e60770aa54396b8ef4bfa2fec04129e12e0a4b2c611373",
+    "uncles_hash": "2c669e9ff4b5b5dd3c20c116397d974c50c3b573c30ed4ec5dd6152de1c9fe76",
+    "extra_data": "Sphinx Network Block",
+    "miner": "0000000000000000000000000000000000000000",
+    "version": 1,
+    "nblock": 1,
+    "height": 1,
+    "timestamp": "2025-11-24T12:20:03Z",
+    "difficulty": "1",
+    "nonce": 0,
+    "gas_limit": "10000000",
+    "gas_used": "0"
+  },
+  "body": {
+    "txs_list": [
+      {
+        "amount": "400",
+        "gas_limit": "21000",
+        "gas_price": "1",
+        "id": "9fb5cb11e89b7668b2c4440404b4bf76f42ae668cab477f9e11374ba6fdbd04d",
+        "nonce": 9,
+        "receiver": "alice",
+        "sender": "frank",
+        "signature": "",
+        "timestamp": "2025-11-24T12:18:42Z"
+      },
+      {
+        "amount": "950",
+        "gas_limit": "21000",
+        "gas_price": "1",
+        "id": "841ac090d68ff11b767555a8593f0521058bccc5faf1830a8f05291160f4acc7",
+        "nonce": 10,
+        "receiver": "bob",
+        "sender": "grace",
+        "signature": "",
+        "timestamp": "2025-11-24T12:18:42Z"
+      },
+      {
+        "amount": "200",
+        "gas_limit": "21000",
+        "gas_price": "1",
+        "id": "541d134579366f4bd726211c9411030fca8a5391863e93bc504fc931284af2f2",
+        "nonce": 3,
+        "receiver": "alice",
+        "sender": "charlie",
+        "signature": "",
+        "timestamp": "2025-11-24T12:18:40Z"
+      },
+      {
+        "amount": "300",
+        "gas_limit": "21000",
+        "gas_price": "1",
+        "id": "6555812582d543e287977e6ac933e889aebfe11c8cbc6816bb323f68a765fe55",
+        "nonce": 6,
+        "receiver": "frank",
+        "sender": "charlie",
+        "signature": "",
+        "timestamp": "2025-11-24T12:18:41Z"
+      },
+      {
+        "amount": "1200",
+        "gas_limit": "21000",
+        "gas_price": "1",
+        "id": "7cc79b81856073f16c318552f7929745e876333b1cfa7ed08ff6537a03f85466",
+        "nonce": 7,
+        "receiver": "grace",
+        "sender": "david",
+        "signature": "",
+        "timestamp": "2025-11-24T12:18:41Z"
+      },
+      {
+        "amount": "800",
+        "gas_limit": "21000",
+        "gas_price": "1",
+        "id": "304fea0cd0c2f6ea2b319efd897fe2cea224fff7afcde2546abb32bae4f8310e",
+        "nonce": 8,
+        "receiver": "henry",
+        "sender": "emma",
+        "signature": "",
+        "timestamp": "2025-11-24T12:18:42Z"
+      },
+      {
+        "amount": "1000",
+        "gas_limit": "21000",
+        "gas_price": "1",
+        "id": "ba8cfa2226a7ed54b1cdf76d54bdc428653146717b8452a00f44a759133e2cd9",
+        "nonce": 1,
+        "receiver": "bob",
+        "sender": "alice",
+        "signature": "",
+        "timestamp": "2025-11-24T12:18:40Z"
+      },
+      {
+        "amount": "500",
+        "gas_limit": "21000",
+        "gas_price": "1",
+        "id": "f403e9f96377423692efab404a6c6f743b3244e2c40c0c61ee06a749bbd55e66",
+        "nonce": 2,
+        "receiver": "charlie",
+        "sender": "bob",
+        "signature": "",
+        "timestamp": "2025-11-24T12:18:40Z"
+      },
+      {
+        "amount": "1500",
+        "gas_limit": "21000",
+        "gas_price": "1",
+        "id": "fef07a985089b5a74e7af673b80601419fecd9e91b7b6edee1a4e16bbb0fe18c",
+        "nonce": 4,
+        "receiver": "david",
+        "sender": "alice",
+        "signature": "",
+        "timestamp": "2025-11-24T12:18:41Z"
+      },
+      {
+        "amount": "750",
+        "gas_limit": "21000",
+        "gas_price": "1",
+        "id": "d76602bf5743a59b4beb545a01a2a9633c6195a216cbaff7a63561c6d395cb2f",
+        "nonce": 5,
+        "receiver": "emma",
+        "sender": "bob",
+        "signature": "",
+        "timestamp": "2025-11-24T12:18:41Z"
+      }
+    ],
+    "uncles_hash": "3916d45c66e84c612c8a4a403702ec44cc575fc2383dbe4e861dd29ef892bee3"
+  }
+}

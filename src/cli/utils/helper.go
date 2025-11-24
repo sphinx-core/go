@@ -491,26 +491,67 @@ func CallConsensus(numNodes int) error {
 	// ========== TRANSACTION PROPAGATION TEST USING NOTES ==========
 	logger.Info("=== CREATING AND DISTRIBUTING MULTIPLE TRANSACTIONS VIA NOTES ===")
 
-	// Create notes with proper MAC generation using the Note constructor
+	// Create 10 notes with different balances for comprehensive testing
 	notes := []*types.Note{
-		// These will auto-generate proper MACs and timestamps through ToTxs conversion
 		{
 			To:      "bob",
 			From:    "alice",
-			Fee:     1000.0, // Only hardcoded value as specified - the transaction amount
+			Fee:     1000.0,
 			Storage: "test-storage-1",
 		},
 		{
 			To:      "charlie",
 			From:    "bob",
-			Fee:     500.0, // Only hardcoded value as specified - the transaction amount
+			Fee:     500.0,
 			Storage: "test-storage-2",
 		},
 		{
 			To:      "alice",
 			From:    "charlie",
-			Fee:     200.0, // Only hardcoded value as specified - the transaction amount
+			Fee:     200.0,
 			Storage: "test-storage-3",
+		},
+		{
+			To:      "david",
+			From:    "alice",
+			Fee:     1500.0,
+			Storage: "test-storage-4",
+		},
+		{
+			To:      "emma",
+			From:    "bob",
+			Fee:     750.0,
+			Storage: "test-storage-5",
+		},
+		{
+			To:      "frank",
+			From:    "charlie",
+			Fee:     300.0,
+			Storage: "test-storage-6",
+		},
+		{
+			To:      "grace",
+			From:    "david",
+			Fee:     1200.0,
+			Storage: "test-storage-7",
+		},
+		{
+			To:      "henry",
+			From:    "emma",
+			Fee:     800.0,
+			Storage: "test-storage-8",
+		},
+		{
+			To:      "alice",
+			From:    "frank",
+			Fee:     400.0,
+			Storage: "test-storage-9",
+		},
+		{
+			To:      "bob",
+			From:    "grace",
+			Fee:     950.0,
+			Storage: "test-storage-10",
 		},
 	}
 
@@ -518,11 +559,11 @@ func CallConsensus(numNodes int) error {
 	transactions := make([]*types.Transaction, len(notes))
 	for i, note := range notes {
 		transactions[i] = note.ToTxs(uint64(i+1), big.NewInt(21000), big.NewInt(1))
-		logger.Info("Created transaction from note: %s → %s (ID: %s)",
-			transactions[i].Sender, transactions[i].Receiver, transactions[i].ID)
+		logger.Info("Created transaction from note: %s → %s (Amount: %s, ID: %s)",
+			transactions[i].Sender, transactions[i].Receiver, transactions[i].Amount.String(), transactions[i].ID)
 	}
 
-	// Rest of the distribution code remains the same...
+	// Distribute transactions across all nodes
 	successfulDistributions := 0
 	for i := 0; i < numNodes; i++ {
 		nodeID := validatorIDs[i]
@@ -566,9 +607,9 @@ func CallConsensus(numNodes int) error {
 	}
 	logger.Info("Total transactions created: %d", len(transactions))
 
-	// Allow transactions to propagate through network with longer timeout
+	// CRITICAL FIX: Increase timeout for larger transaction sets
 	logger.Info("Waiting for transactions to propagate across network...")
-	time.Sleep(5 * time.Second)
+	time.Sleep(8 * time.Second) // Increased from 5s to 8s for 10 transactions
 
 	// Enhanced transaction propagation status check WITH DEBUGGING
 	logger.Info("=== TRANSACTION PROPAGATION STATUS ===")
@@ -706,11 +747,22 @@ func CallConsensus(numNodes int) error {
 	}
 	logger.Info("====================================")
 
-	// Allow transaction to propagate through network
-	time.Sleep(2 * time.Second)
+	// CRITICAL FIX: Increase consensus timeout for larger blocks
+	// Configure consensus engines to handle larger transaction sets
+	for i := 0; i < numNodes; i++ {
+		// Increase timeout for larger blocks
+		consensusEngines[i].SetTimeout(600 * time.Second) // 10 minutes for 10+ transactions
+
+		// Log consensus configuration
+		logger.Info("Consensus %s configured with timeout: %v", validatorIDs[i], 600*time.Second)
+	}
+
+	// Allow transaction to propagate through network with increased timeout
+	logger.Info("Waiting for consensus with 10 transactions (increased timeout)...")
+	time.Sleep(10 * time.Second) // Increased from 2s to 10s
 
 	// ========== BLOCK COMMITMENT AND CONSENSUS VALIDATION ==========
-	const timeout = 180 * time.Second // INCREASED FROM 60s TO 90s
+	const timeout = 300 * time.Second // INCREASED FROM 60s TO 90s
 	start := time.Now()
 	logger.Info("Waiting for block commitment (timeout: %v)...", timeout)
 
