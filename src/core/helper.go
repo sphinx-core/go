@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 // go/src/core/helper.go
+// go/src/core/helper.go
 package core
 
 import (
@@ -70,12 +71,20 @@ func (a *BlockHelper) GetDifficulty() *big.Int {
 	return big.NewInt(1)
 }
 
+// GetCurrentNonce returns the current nonce value - ADD THIS METHOD
+func (a *BlockHelper) GetCurrentNonce() (uint64, error) {
+	if a.block == nil {
+		return 0, fmt.Errorf("block is nil")
+	}
+	return a.block.GetCurrentNonce()
+}
+
 // GetUnderlyingBlock returns the underlying types.Block
 func (a *BlockHelper) GetUnderlyingBlock() *types.Block {
 	return a.block
 }
 
-// In core/block_helper.go or wherever BlockHelper is defined
+// GetMerkleRoot returns the merkle root as a string
 func (b *BlockHelper) GetMerkleRoot() string {
 	if b.block != nil && b.block.Header != nil {
 		return fmt.Sprintf("%x", b.block.Header.TxsRoot)
@@ -83,6 +92,7 @@ func (b *BlockHelper) GetMerkleRoot() string {
 	return ""
 }
 
+// ExtractMerkleRoot returns the merkle root as a string
 func (b *BlockHelper) ExtractMerkleRoot() string {
 	if b.block != nil && b.block.Header != nil {
 		return fmt.Sprintf("%x", b.block.Header.TxsRoot)

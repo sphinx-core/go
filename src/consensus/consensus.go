@@ -347,16 +347,26 @@ func (c *Consensus) updateLeaderStatus() {
 }
 
 // FIXED: processProposal with proper signature creation
+// FIXED: processProposal with proper signature creation
 func (c *Consensus) processProposal(proposal *Proposal) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	logger.Info("🔍 DEBUG: Processing proposal for block %s at view %d from %s",
-		proposal.Block.GetHash(), proposal.View, proposal.ProposerID)
+	// Get nonce safely - handle the multiple return values
+	nonce, err := proposal.Block.GetCurrentNonce()
+	nonceStr := "unknown"
+	if err != nil {
+		logger.Warn("Failed to get block nonce: %v", err)
+	} else {
+		nonceStr = fmt.Sprintf("%d", nonce)
+	}
 
-	// Check if we're the leader - if so, ignore proposals from others (except our own)
-	if c.isLeader && proposal.ProposerID != c.nodeID {
-		logger.Warn("❌ Leader ignoring proposal from other node: %s", proposal.ProposerID)
+	logger.Info("🔍 DEBUG: Processing proposal for block %s at view %d from %s, nonce: %s",
+		proposal.Block.GetHash(), proposal.View, proposal.ProposerID, nonceStr)
+
+	// Use existing block validation
+	if err := c.blockChain.ValidateBlock(proposal.Block); err != nil {
+		logger.Warn("❌ Block validation failed: %v", err)
 		return
 	}
 
@@ -410,7 +420,7 @@ func (c *Consensus) processProposal(proposal *Proposal) {
 	c.addConsensusSig(consensusSig)
 	logger.Info("✅ Added proposal signature for block %s", proposal.Block.GetHash())
 
-	// Rest of the method remains the same...
+	// Rest of the existing validation logic...
 	if proposal.View < c.currentView {
 		logger.Warn("❌ Stale proposal for view %d, current view %d", proposal.View, c.currentView)
 		return
@@ -430,27 +440,20 @@ func (c *Consensus) processProposal(proposal *Proposal) {
 		return
 	}
 
-	logger.Info("🔍 DEBUG: Starting blockchain validation for block %s", proposal.Block.GetHash())
-	if err := c.blockChain.ValidateBlock(proposal.Block); err != nil {
-		logger.Warn("❌ Invalid block in proposal: %v", err)
-		return
-	}
-	logger.Info("✅ Blockchain validation passed for block %s", proposal.Block.GetHash())
-
 	if !c.isValidLeader(proposal.ProposerID, proposal.View) {
 		logger.Warn("❌ Invalid leader %s for view %d", proposal.ProposerID, proposal.View)
 		return
 	}
 
-	logger.Info("✅ Node %s accepting proposal for block %s at view %d (height %d)",
-		c.nodeID, proposal.Block.GetHash(), proposal.View, proposal.Block.GetHeight())
+	logger.Info("✅ Node %s accepting proposal for block %s at view %d (height %d, nonce: %s)",
+		c.nodeID, proposal.Block.GetHash(), proposal.View, proposal.Block.GetHeight(), nonceStr)
 
 	c.preparedBlock = proposal.Block
 	c.preparedView = proposal.View
 	c.phase = PhasePrePrepared
 
-	logger.Info("💾 Stored prepared block: hash=%s, view=%d, phase=%v",
-		proposal.Block.GetHash(), proposal.View, c.phase)
+	logger.Info("💾 Stored prepared block: hash=%s, view=%d, phase=%v, nonce=%s",
+		proposal.Block.GetHash(), proposal.View, c.phase, nonceStr)
 
 	c.sendPrepareVote(proposal.Block.GetHash(), proposal.View)
 }

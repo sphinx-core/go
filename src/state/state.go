@@ -1498,7 +1498,7 @@ func (s *Storage) storeBlockToDisk(block *types.Block) error {
 			Height     uint64 `json:"height"`      // Block height
 			Timestamp  string `json:"timestamp"`   // Block timestamp in ISO RFC format
 			Difficulty string `json:"difficulty"`  // Mining difficulty
-			Nonce      uint64 `json:"nonce"`       // Mining nonce
+			Nonce      string `json:"nonce"`       // Mining nonce
 			GasLimit   string `json:"gas_limit"`   // Gas limit
 			GasUsed    string `json:"gas_used"`    // Gas used
 		} `json:"header"`
@@ -1587,6 +1587,7 @@ func (s *Storage) storeBlockToDisk(block *types.Block) error {
 }
 
 // loadBlockFromDisk loads a block from disk, handling both string and hex ParentHash formats and ISO timestamp
+// loadBlockFromDisk loads a block from disk, handling both string and hex ParentHash formats and ISO timestamp
 func (s *Storage) loadBlockFromDisk(hash string) (*types.Block, error) {
 	// Try both original hash and sanitized version
 	filenames := []string{
@@ -1627,7 +1628,7 @@ func (s *Storage) loadBlockFromDisk(hash string) (*types.Block, error) {
 			Height     uint64 `json:"height"`
 			Timestamp  string `json:"timestamp"` // This could be ISO string or int64 (for backward compatibility)
 			Difficulty string `json:"difficulty"`
-			Nonce      uint64 `json:"nonce"`
+			Nonce      uint64 `json:"nonce"` // This is uint64 in the JSON file
 			GasLimit   string `json:"gas_limit"`
 			GasUsed    string `json:"gas_used"`
 		} `json:"header"`
@@ -1706,7 +1707,8 @@ func (s *Storage) loadBlockFromDisk(hash string) (*types.Block, error) {
 	}
 	block.Header.GasUsed = gasUsed
 
-	block.Header.Nonce = tempBlock.Header.Nonce
+	// FIX: Convert uint64 nonce to string format
+	block.Header.Nonce = common.FormatNonce(tempBlock.Header.Nonce)
 
 	// Convert transactions from maps back to Transaction objects
 	block.Body.TxsList = make([]*types.Transaction, len(tempBlock.Body.TxsList))

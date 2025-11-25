@@ -37,7 +37,7 @@ type BlockHeader struct {
 	ParentHash []byte   `json:"parent_hash"` // Hash of the previous block (main chain continuity)
 	Hash       []byte   `json:"hash"`        // This block's hash
 	Difficulty *big.Int `json:"difficulty"`  // Difficulty level of mining the block
-	Nonce      uint64   `json:"nonce"`       // The nonce used in mining
+	Nonce      string   `json:"nonce"`       // The nonce used in mining (CHANGED to string)
 	TxsRoot    []byte   `json:"txs_root"`    // Merkle root of the transactions in the block
 	StateRoot  []byte   `json:"state_root"`  // Merkle root of the state (EVM-like state)
 	GasLimit   *big.Int `json:"gas_limit"`   // The maximum gas that can be used in the block

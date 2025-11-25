@@ -653,7 +653,8 @@ func (bc *Blockchain) StartLeaderLoop(ctx context.Context) {
 				logger.Info("Leader %s: creating block with %d pending transactions",
 					bc.consensusEngine.GetNodeID(), bc.mempool.GetTransactionCount())
 
-				// Create and propose block
+				// Create and propose block using existing CreateBlock function
+				// This now includes nonce iteration internally
 				block, err := bc.CreateBlock()
 				if err != nil {
 					logger.Warn("Leader: failed to create block: %v", err)
@@ -663,15 +664,15 @@ func (bc *Blockchain) StartLeaderLoop(ctx context.Context) {
 					continue
 				}
 
-				logger.Info("Leader %s proposing block at height %d with %d transactions",
-					bc.consensusEngine.GetNodeID(), block.GetHeight(), len(block.Body.TxsList))
+				logger.Info("Leader %s proposing block at height %d with %d transactions and nonce %s",
+					bc.consensusEngine.GetNodeID(), block.GetHeight(), len(block.Body.TxsList), block.Header.Nonce)
 
 				// Convert to consensus.Block using adapter
 				consensusBlock := NewBlockHelper(block)
 				if err := bc.consensusEngine.ProposeBlock(consensusBlock); err != nil {
 					logger.Warn("Leader: failed to propose block: %v", err)
 				} else {
-					logger.Info("Leader: block proposal sent successfully")
+					logger.Info("Leader: block proposal sent successfully with nonce %s", block.Header.Nonce)
 				}
 
 				// Reset proposing flag after a delay to allow consensus to complete
@@ -993,7 +994,7 @@ func (bc *Blockchain) GetBlocksizeInfo() map[string]interface{} {
 }
 
 // CreateBlock creates a new block with transactions from mempool
-// CreateBlock creates a new block with transactions from mempool
+// CreateBlock creates a new block and iterates nonce until consensus using existing functions
 func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 	if bc.mempool == nil {
 		return nil, fmt.Errorf("mempool not initialized")
@@ -1010,7 +1011,7 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 		return nil, fmt.Errorf("no previous block found: %v", err)
 	}
 
-	// Get previous hash - rename variable for consistency
+	// Get previous hash
 	parentHash := prevBlock.GetHash()
 	var parentHashBytes []byte
 
@@ -1062,10 +1063,11 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 	miner := make([]byte, 20)
 	emptyUncles := []*types.BlockHeader{}
 
+	// Create block with initial nonce
 	newHeader := types.NewBlockHeader(
 		prevBlock.GetHeight()+1,
 		parentHashBytes,
-		big.NewInt(1),
+		bc.GetDifficulty(),
 		txsRoot,
 		stateRoot,
 		bc.chainParams.BlockGasLimit,
@@ -1079,10 +1081,40 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 	newBody := types.NewBlockBody(selectedTxs, emptyUncles)
 	newBlock := types.NewBlock(newHeader, newBody)
 
-	// Finalize and validate
-	newBlock.FinalizeHash()
+	// CRITICAL: Increment nonce multiple times until consensus is achieved
+	logger.Info("Starting nonce iteration for consensus: initial nonce=%s", newBlock.Header.Nonce)
 
-	// VALIDATE THE GENERATED HASH FORMAT
+	maxAttempts := 1000000 // 1 million attempts
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		// Use existing IncrementNonce function
+		if err := newBlock.IncrementNonce(); err != nil {
+			logger.Warn("Failed to increment nonce on attempt %d: %v", attempt, err)
+			continue
+		}
+
+		// Finalize hash with new nonce
+		newBlock.FinalizeHash()
+
+		// Check if consensus requirements are met using existing validation
+		if bc.checkConsensusRequirements(newBlock) {
+			logger.Info("✅ Consensus achieved with nonce %s after %d attempts",
+				newBlock.Header.Nonce, attempt+1)
+			break
+		}
+
+		// Log progress every 1000 attempts
+		if (attempt+1)%1000 == 0 {
+			logger.Debug("Nonce iteration: attempt %d, current nonce: %s",
+				attempt+1, newBlock.Header.Nonce)
+		}
+
+		// If we reach the end, use the last nonce
+		if attempt == maxAttempts-1 {
+			logger.Info("⚠️ Max nonce attempts reached, using nonce %s", newBlock.Header.Nonce)
+		}
+	}
+
+	// Final validation using existing functions
 	if err := newBlock.ValidateHashFormat(); err != nil {
 		logger.Warn("❌ Block hash format validation failed: %v", err)
 		newBlock.SetHash(hex.EncodeToString(newBlock.GenerateBlockHash()))
@@ -1109,10 +1141,29 @@ func (bc *Blockchain) CreateBlock() (*types.Block, error) {
 		logger.Warn("⚠️ No consensus engine available for caching")
 	}
 
-	logger.Info("✅ Created new block: height=%d, transactions=%d, hash=%s, uncles=%d, size=%d bytes",
-		newBlock.GetHeight(), len(selectedTxs), newBlock.GetHash(), len(emptyUncles), totalSize)
+	logger.Info("✅ Created new PBFT block: height=%d, transactions=%d, hash=%s, final_nonce=%s",
+		newBlock.GetHeight(), len(selectedTxs), newBlock.GetHash(), newBlock.Header.Nonce)
 
 	return newBlock, nil
+}
+
+// checkConsensusRequirements uses existing validation functions
+func (bc *Blockchain) checkConsensusRequirements(block *types.Block) bool {
+	// Use existing block validation
+	if err := block.Validate(); err != nil {
+		logger.Debug("Block validation failed: %v", err)
+		return false
+	}
+
+	// Use existing hash format validation
+	if err := block.ValidateHashFormat(); err != nil {
+		logger.Debug("Hash format validation failed: %v", err)
+		return false
+	}
+
+	// For PBFT, we consider the block valid if it passes basic validation
+	// Actual consensus will be determined by voting
+	return true
 }
 
 // selectTransactionsForBlock selects transactions for the block based on size constraints

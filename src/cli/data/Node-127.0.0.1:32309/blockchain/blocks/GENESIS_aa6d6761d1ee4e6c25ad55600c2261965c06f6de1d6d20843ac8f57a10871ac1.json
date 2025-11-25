@@ -1,6 +1,6 @@
 {
   "header": {
-    "hash": "GENESIS_c85836891c20cfab86e60770aa54396b8ef4bfa2fec04129e12e0a4b2c611373",
+    "hash": "GENESIS_aa6d6761d1ee4e6c25ad55600c2261965c06f6de1d6d20843ac8f57a10871ac1",
     "txs_root": "c20f4bc14267aad693be2bb6e9799675ec4c494c654a6ad275b3124ae3182782",
     "state_root": "6bd593c675ee90f411c64f9f56ff743cae4219b1581efac28458b63ae550cf77",
     "parent_hash": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -12,7 +12,7 @@
     "height": 0,
     "timestamp": "2024-11-20T02:40:00Z",
     "difficulty": "17179869184",
-    "nonce": 66,
+    "nonce": "0000000000000001",
     "gas_limit": "5000",
     "gas_used": "0"
   },

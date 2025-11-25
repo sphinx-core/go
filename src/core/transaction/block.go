@@ -33,6 +33,7 @@ import (
 	"math/big"
 
 	"github.com/sphinx-core/go/src/common"
+	logger "github.com/sphinx-core/go/src/log"
 )
 
 // NewBlockHeader creates a new BlockHeader with proper parent-uncle relationships
@@ -62,6 +63,16 @@ func NewBlockHeader(height uint64, parentHash []byte, difficulty *big.Int, txsRo
 		parentHash = make([]byte, 32) // Empty hash for genesis
 	}
 
+	// Start with nonce 2 for regular blocks (genesis is 1)
+	var nonce string
+	if height == 0 {
+		// Genesis block uses nonce 1
+		nonce = common.FormatNonce(1)
+	} else {
+		// Regular blocks start from nonce 2 and will be incremented during consensus
+		nonce = common.FormatNonce(2)
+	}
+
 	return &BlockHeader{
 		Version:    1,
 		Block:      height,
@@ -70,7 +81,7 @@ func NewBlockHeader(height uint64, parentHash []byte, difficulty *big.Int, txsRo
 		ParentHash: parentHash, // Main chain continuity - using ParentHash consistently
 		Hash:       []byte{},
 		Difficulty: difficulty,
-		Nonce:      uint64(0),
+		Nonce:      nonce,
 		TxsRoot:    txsRoot,
 		StateRoot:  stateRoot,
 		GasLimit:   gasLimit,
@@ -100,6 +111,39 @@ func NewBlock(header *BlockHeader, body *BlockBody) *Block {
 		Header: header,
 		Body:   *body,
 	}
+}
+
+// IncrementNonce increments the block nonce and updates the hash
+func (b *Block) IncrementNonce() error {
+	if b.Header == nil {
+		return fmt.Errorf("block header is nil")
+	}
+
+	// Parse current nonce
+	currentNonce, err := common.ParseNonce(b.Header.Nonce)
+	if err != nil {
+		return fmt.Errorf("failed to parse current nonce: %w", err)
+	}
+
+	// Increment nonce
+	newNonce := currentNonce + 1
+	b.Header.Nonce = common.FormatNonce(newNonce)
+
+	// Regenerate block hash with new nonce
+	b.FinalizeHash()
+
+	logger.Debug("Incremented nonce for block %s: %s -> %s",
+		b.GetHash(), common.FormatNonce(currentNonce), b.Header.Nonce)
+
+	return nil
+}
+
+// GetCurrentNonce returns the current nonce as uint64
+func (b *Block) GetCurrentNonce() (uint64, error) {
+	if b.Header == nil {
+		return 0, fmt.Errorf("block header is nil")
+	}
+	return common.ParseNonce(b.Header.Nonce)
 }
 
 // CalculateUnclesHash calculates the Merkle root of uncle block headers
@@ -179,7 +223,6 @@ func CalculateMerkleRootFromHashes(hashes [][]byte) []byte {
 }
 
 // GenerateBlockHash generates the block hash with proper parent-uncle relationships
-// GenerateBlockHash generates the block hash with proper parent-uncle relationships
 func (b *Block) GenerateBlockHash() []byte {
 	if b.Header == nil {
 		return []byte{}
@@ -217,21 +260,26 @@ func (b *Block) GenerateBlockHash() []byte {
 	timestampBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(timestampBytes, uint64(b.Header.Timestamp))
 
-	nonceBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(nonceBytes, b.Header.Nonce)
+	// FIX: Convert string nonce to bytes properly
+	nonceBytes, err := common.NonceToBytes(b.Header.Nonce)
+	if err != nil {
+		// Fallback: use zero nonce if conversion fails
+		logger.Warn("Failed to convert nonce to bytes: %v, using zero nonce", err)
+		nonceBytes = make([]byte, 8) // 8 zero bytes
+	}
 
 	// Include ALL important header fields in the hash calculation
 	headerData := versionBytes                                      // Version
 	headerData = append(headerData, blockNumBytes...)               // Block number/height
 	headerData = append(headerData, timestampBytes...)              // Timestamp
-	headerData = append(headerData, b.Header.ParentHash...)         // Parent hash (main chain continuity)
+	headerData = append(headerData, b.Header.ParentHash...)         // Parent hash
 	headerData = append(headerData, b.Header.TxsRoot...)            // Transactions Merkle root
 	headerData = append(headerData, b.Header.StateRoot...)          // State Merkle root
-	headerData = append(headerData, nonceBytes...)                  // Nonce
+	headerData = append(headerData, nonceBytes...)                  // Nonce (as bytes)
 	headerData = append(headerData, b.Header.Difficulty.Bytes()...) // Difficulty
 	headerData = append(headerData, b.Header.GasLimit.Bytes()...)   // Gas limit
 	headerData = append(headerData, b.Header.GasUsed.Bytes()...)    // Gas used
-	headerData = append(headerData, b.Header.UnclesHash...)         // Uncles hash (side blocks reference)
+	headerData = append(headerData, b.Header.UnclesHash...)         // Uncles hash
 	headerData = append(headerData, b.Header.ExtraData...)          // Extra data
 	headerData = append(headerData, b.Header.Miner...)              // Miner address
 
@@ -439,6 +487,7 @@ func (b *Block) GetTimeInfo() *common.TimeInfo {
 }
 
 // MarshalJSON custom marshaling for BlockHeader
+// MarshalJSON custom marshaling for BlockHeader
 func (h *BlockHeader) MarshalJSON() ([]byte, error) {
 	type Alias BlockHeader
 	return json.Marshal(&struct {
@@ -449,15 +498,17 @@ func (h *BlockHeader) MarshalJSON() ([]byte, error) {
 		UnclesHash string `json:"uncles_hash"`
 		ExtraData  string `json:"extra_data"`
 		Miner      string `json:"miner"`
+		Nonce      string `json:"nonce"` // Correctly handles string nonce
 		*Alias
 	}{
 		Hash:       string(h.Hash),
-		TxsRoot:    hex.EncodeToString(h.TxsRoot),
-		StateRoot:  hex.EncodeToString(h.StateRoot),
-		ParentHash: hex.EncodeToString(h.ParentHash),
-		UnclesHash: hex.EncodeToString(h.UnclesHash),
+		TxsRoot:    common.Bytes2Hex(h.TxsRoot),
+		StateRoot:  common.Bytes2Hex(h.StateRoot),
+		ParentHash: common.Bytes2Hex(h.ParentHash),
+		UnclesHash: common.Bytes2Hex(h.UnclesHash),
 		ExtraData:  string(h.ExtraData),
-		Miner:      hex.EncodeToString(h.Miner),
+		Miner:      common.Bytes2Hex(h.Miner),
+		Nonce:      h.Nonce, // String nonce
 		Alias:      (*Alias)(h),
 	})
 }
@@ -473,6 +524,7 @@ func (h *BlockHeader) UnmarshalJSON(data []byte) error {
 		UnclesHash string `json:"uncles_hash"`
 		ExtraData  string `json:"extra_data"`
 		Miner      string `json:"miner"`
+		Nonce      string `json:"nonce"` // Add nonce as string
 		*Alias
 	}{
 		Alias: (*Alias)(h),
@@ -505,6 +557,7 @@ func (h *BlockHeader) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to decode miner: %w", err)
 	}
+	h.Nonce = aux.Nonce // Direct string assignment
 
 	return nil
 }

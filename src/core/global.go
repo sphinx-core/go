@@ -66,9 +66,9 @@ const (
 var genesisBlockDefinition = &types.BlockHeader{
 	Version:    1,
 	Height:     0,
-	Timestamp:  1732070400,               // Fixed: Nov 20, 2024 00:00:00 UTC
-	Difficulty: big.NewInt(17179869184),  // Substantial initial difficulty
-	Nonce:      66,                       // Meaningful nonce
+	Timestamp:  1732070400, // Fixed: Nov 20, 2024 00:00:00 UTC
+	Difficulty: big.NewInt(1),
+	Nonce:      common.FormatNonce(1),    // FIXED: Start with "0000000000000001"
 	TxsRoot:    common.SpxHash([]byte{}), // Empty transactions root
 	StateRoot:  common.SpxHash([]byte("sphinx-genesis-state-root")),
 	GasLimit:   big.NewInt(5000), // Initial gas limit
@@ -87,7 +87,7 @@ func GetGenesisBlockDefinition() *types.BlockHeader {
 		Height:     genesisBlockDefinition.Height,
 		Timestamp:  genesisBlockDefinition.Timestamp,
 		Difficulty: new(big.Int).Set(genesisBlockDefinition.Difficulty),
-		Nonce:      genesisBlockDefinition.Nonce,
+		Nonce:      common.FormatNonce(1), // FIXED: Ensure consistent nonce format "0000000000000001"
 		TxsRoot:    append([]byte{}, genesisBlockDefinition.TxsRoot...),
 		StateRoot:  append([]byte{}, genesisBlockDefinition.StateRoot...),
 		GasLimit:   new(big.Int).Set(genesisBlockDefinition.GasLimit),
@@ -101,11 +101,27 @@ func GetGenesisBlockDefinition() *types.BlockHeader {
 
 // CreateStandardGenesisBlock creates a standardized genesis block that all nodes should use
 func CreateStandardGenesisBlock() *types.Block {
+	// Create the genesis header directly to ensure all fields are properly set
+	genesisHeader := &types.BlockHeader{
+		Version:    1,
+		Block:      0, // Same as Height
+		Height:     0,
+		Timestamp:  1732070400,               // Fixed: Nov 20, 2024 00:00:00 UTC
+		Difficulty: big.NewInt(17179869184),  // Substantial initial difficulty
+		Nonce:      common.FormatNonce(1),    // FIXED: "0000000000000001"
+		TxsRoot:    common.SpxHash([]byte{}), // Empty transactions root
+		StateRoot:  common.SpxHash([]byte("sphinx-genesis-state-root")),
+		GasLimit:   big.NewInt(5000), // Initial gas limit
+		GasUsed:    big.NewInt(0),
+		ExtraData:  []byte("Sphinx Network Genesis Block - Decentralized Future"),
+		Miner:      make([]byte, 20), // Zero address for genesis
+		ParentHash: make([]byte, 32), // Genesis has no parent
+		UnclesHash: common.SpxHash([]byte("genesis-no-uncles")),
+		Hash:       []byte{}, // Will be set by FinalizeHash
+	}
+
 	// Create empty uncles slice for genesis
 	emptyUncles := []*types.BlockHeader{}
-
-	// Use the standardized genesis definition
-	genesisHeader := GetGenesisBlockDefinition()
 
 	// Create block body with empty transactions and uncles
 	genesisBody := types.NewBlockBody([]*types.Transaction{}, emptyUncles)
@@ -113,6 +129,13 @@ func CreateStandardGenesisBlock() *types.Block {
 
 	// Finalize the hash
 	genesis.FinalizeHash()
+
+	// Log the genesis block details for verification
+	logger.Info("✅ Created standardized genesis block:")
+	logger.Info("   - Height: %d", genesis.Header.Height)
+	logger.Info("   - Nonce: %s", genesis.Header.Nonce)
+	logger.Info("   - Hash: %s", genesis.GetHash())
+	logger.Info("   - Difficulty: %s", genesis.Header.Difficulty.String())
 
 	return genesis
 }

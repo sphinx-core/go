@@ -39,12 +39,13 @@ import (
 // This interface defines the minimum required methods for a block
 // to participate in the consensus protocol
 type Block interface {
-	GetHeight() uint64       // Returns the block height/sequence number
-	GetHash() string         // Returns the cryptographic hash of the block
-	GetPrevHash() string     // Returns the hash of the previous block
-	GetTimestamp() int64     // Returns the block creation timestamp
-	Validate() error         // Validates the block structure and contents
-	GetDifficulty() *big.Int // Returns the block difficulty
+	GetHeight() uint64                // Returns the block height/sequence number
+	GetHash() string                  // Returns the cryptographic hash of the block
+	GetPrevHash() string              // Returns the hash of the previous block
+	GetTimestamp() int64              // Returns the block creation timestamp
+	Validate() error                  // Validates the block structure and contents
+	GetDifficulty() *big.Int          // Returns the block difficulty
+	GetCurrentNonce() (uint64, error) // ADD THIS METHOD - Returns the current nonce value
 }
 
 // MerkleRootExtractor is a separate interface for blocks that can provide merkle roots
