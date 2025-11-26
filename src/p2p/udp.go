@@ -284,6 +284,17 @@ func (s *Server) handleDiscoveryMessage(msg *network.DiscoveryMessage, addr *net
 	}
 
 	switch msg.Type {
+	case "FINDNODE":
+		var findNodeData network.FindNodeData
+		if err := json.Unmarshal(msg.Data, &findNodeData); err != nil {
+			log.Printf("handleDiscoveryMessage: Invalid FINDNODE data from %s for %s: %v", addr.String(), s.localNode.Address, err)
+			return
+		}
+		log.Printf("handleDiscoveryMessage: Received FINDNODE from %s for target %x", addr.String(), findNodeData.TargetID[:8])
+
+		// Use the unused sendUDPNeighbors function
+		s.sendUDPNeighbors(addr, findNodeData.TargetID, msg.Nonce)
+		log.Printf("handleDiscoveryMessage: Sent NEIGHBORS in response to FINDNODE from %s", addr.String())
 	case "PING":
 		var pingData network.PingData
 		if err := json.Unmarshal(msg.Data, &pingData); err != nil {
@@ -520,6 +531,38 @@ func (s *Server) sendUDPPong(addr *net.UDPAddr, toID network.NodeID, nonce []byt
 
 // sendUDPNeighbors sends a NEIGHBORS message with closest peers.
 func (s *Server) sendUDPNeighbors(addr *net.UDPAddr, targetID network.NodeID, nonce []byte) {
+	// Check cache first
+	s.cacheMutex.RLock()
+	cachedNeighbors, cacheValid := s.neighborsCache[targetID]
+	cacheFresh := time.Since(s.neighborsCacheTime) < 30*time.Second
+	s.cacheMutex.RUnlock()
+
+	var neighbors []network.PeerInfo
+	if cacheValid && cacheFresh {
+		neighbors = cachedNeighbors
+		log.Printf("sendUDPNeighbors: Using cached neighbors for target %x", targetID[:8])
+	} else {
+		peers := s.nodeManager.FindClosestPeers(targetID, s.nodeManager.K)
+		neighbors = make([]network.PeerInfo, 0, len(peers))
+		for _, peer := range peers {
+			neighbors = append(neighbors, peer.GetPeerInfo())
+		}
+
+		// Update cache
+		s.cacheMutex.Lock()
+		if s.neighborsCache == nil {
+			s.neighborsCache = make(map[network.NodeID][]network.PeerInfo)
+		}
+		s.neighborsCache[targetID] = neighbors
+		s.neighborsCacheTime = time.Now()
+		s.cacheMutex.Unlock()
+	}
+
+	if len(neighbors) == 0 {
+		log.Printf("sendUDPNeighbors: No neighbors found for target %x", targetID[:8])
+		return
+	}
+
 	km, err := key.NewKeyManager()
 	if err != nil {
 		log.Printf("sendUDPNeighbors: Failed to initialize KeyManager: %v", err)
@@ -532,7 +575,7 @@ func (s *Server) sendUDPNeighbors(addr *net.UDPAddr, targetID network.NodeID, no
 		return
 	}
 	peers := s.nodeManager.FindClosestPeers(targetID, s.nodeManager.K)
-	neighbors := make([]network.PeerInfo, 0, len(peers))
+	neighbors = make([]network.PeerInfo, 0, len(peers))
 	for _, peer := range peers {
 		neighbors = append(neighbors, peer.GetPeerInfo())
 	}

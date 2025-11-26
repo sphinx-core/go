@@ -51,6 +51,10 @@ type Server struct {
 	udpReadyCh  chan struct{} // Channel to signal UDP readiness
 	dht         network.DHT   // Add DHT field
 	consensus   *consensus.Consensus
+
+	neighborsCache     map[network.NodeID][]network.PeerInfo
+	neighborsCacheTime time.Time
+	cacheMutex         sync.RWMutex
 }
 
 func (s *Server) LocalNode() *network.Node {

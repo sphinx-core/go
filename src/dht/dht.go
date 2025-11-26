@@ -399,18 +399,36 @@ func (d *DHT) toLocalNode(addr net.UDPAddr) bool {
 
 func (d *DHT) sendMessage(m rpc.Message, addr net.UDPAddr) {
 	d.verifyMessage(m)
+
+	// First marshal the RPC message
 	data, err := m.Marshal(make([]byte, m.MarshalSize()))
 	if err != nil {
 		d.log.Error("Failed to marshal message", zap.Error(err))
 		return
 	}
-	secMsg := &security.Message{Type: "rpc", Data: data}
+
+	// Create a wrapper message for getMessageBuf
+	wrapperMsg := rpc.Message{}
+	if err := wrapperMsg.Unmarshal(data); err != nil {
+		d.log.Error("Failed to unmarshal for wrapper", zap.Error(err))
+		return
+	}
+
+	// Use getMessageBuf to add magic header and BLAKE3 hash
+	encodedMsg, err := d.conn.EncodeMessage(wrapperMsg)
+	if err != nil {
+		d.log.Error("Failed to encode message with getMessageBuf", zap.Error(err))
+		return
+	}
+
+	secMsg := &security.Message{Type: "rpc", Data: encodedMsg}
 	encodedData, err := secMsg.Encode()
 	if err != nil {
 		d.log.Error("Failed to encode security message", zap.Error(err))
 		return
 	}
-	m.Secret = d.cfg.Secret // Set Secret before sending
+
+	m.Secret = d.cfg.Secret
 	req := sendReq{Addr: addr, Msg: m, EncodedData: encodedData}
 	if d.toLocalNode(addr) {
 		select {

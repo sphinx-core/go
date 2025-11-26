@@ -35,7 +35,6 @@ package dht
 
 import (
 	"errors"
-	"hash/crc32"
 	"net"
 	"os"
 	"time"
@@ -43,12 +42,19 @@ import (
 	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/rpc"
 	"go.uber.org/zap"
+	"lukechampine.com/blake3"
 )
 
 const (
 	maxPacketSize int = 4096
 	readTimeout       = 250 * time.Millisecond
+	hashSize          = 32 // BLAKE3 output size (256 bits/32 bytes)
 )
+
+// Add this method to the conn struct to use getMessageBuf
+func (c *conn) EncodeMessage(msg rpc.Message) ([]byte, error) {
+	return getMessageBuf(c.sendBuf, msg)
+}
 
 func newConn(cfg Config, logger *zap.Logger) (*conn, error) {
 	listener, err := net.ListenPacket(cfg.Proto, cfg.Address.String())
@@ -61,7 +67,7 @@ func newConn(cfg Config, logger *zap.Logger) (*conn, error) {
 		sendBuf:    make([]byte, maxPacketSize),
 		recvBuf:    make([]byte, maxPacketSize),
 		c:          listener.(*net.UDPConn),
-		log:        logger, // Initialize logger
+		log:        logger,
 	}, nil
 }
 
@@ -94,9 +100,7 @@ func (c *conn) ReceiveMessageLoop(stopc chan struct{}) error {
 		if err != nil {
 			continue
 		}
-		// Log received message source for debugging
-		// Note: Logging requires a logger; assuming one is available or can be added
-		// log.Printf("Received message from %s", addr.String())
+
 		buf, ok := verifyReceivedMessage(c.recvBuf[:n])
 		if !ok {
 			continue
@@ -123,44 +127,73 @@ func (c *conn) ReceiveMessageLoop(stopc chan struct{}) error {
 
 func getMessageBuf(buf []byte, msg rpc.Message) ([]byte, error) {
 	msgSize := msg.MarshalSize()
-	bufSize := msgSize + 8
+	// Calculate buffer size: magic(2) + size(2) + payload(msgSize) + hash(32)
+	bufSize := 2 + 2 + msgSize + hashSize
 	if bufSize > len(buf) {
 		buf = make([]byte, bufSize)
 	}
 
 	codec := &rpc.Codec{}
-	// tag
+
+	// Magic number
 	buf[0] = magicNumber[0]
 	buf[1] = magicNumber[1]
-	// message payload size
+
+	// Message payload size
 	codec.PutUint16(buf[2:], uint16(msgSize))
+
+	// Marshal message payload
 	if _, err := msg.Marshal(buf[4:]); err != nil {
 		return nil, err
 	}
-	// crc
-	v := crc32.ChecksumIEEE(buf[2 : 4+msgSize])
-	codec.PutUint32(buf[4+msgSize:], v)
+
+	// Calculate BLAKE3 hash of header + payload
+	hash := blake3.Sum256(buf[2 : 4+msgSize])
+
+	// Copy hash to the end
+	copy(buf[4+msgSize:], hash[:])
 
 	return buf[:bufSize], nil
 }
 
 func verifyReceivedMessage(msg []byte) ([]byte, bool) {
-	if len(msg) < 8 {
+	if len(msg) < 4+hashSize {
 		return nil, false
 	}
+
+	// Verify magic number
 	if msg[0] != magicNumber[0] || msg[1] != magicNumber[1] {
 		return nil, false
 	}
+
 	codec := &rpc.Codec{}
 	sz := int(codec.Uint16(msg[2:]))
-	if len(msg) != sz+8 {
+
+	// Verify total message length
+	if len(msg) != 4+sz+hashSize {
 		return nil, false
 	}
-	v := crc32.ChecksumIEEE(msg[2 : 4+sz])
-	crcMsg := codec.Uint32(msg[4+sz:])
-	if v != crcMsg {
+
+	// Calculate and verify BLAKE3 hash
+	expectedHash := blake3.Sum256(msg[2 : 4+sz])
+	receivedHash := msg[4+sz : 4+sz+hashSize]
+
+	if !equalHashes(expectedHash[:], receivedHash) {
 		return nil, false
 	}
 
 	return msg[4 : 4+sz], true
+}
+
+// Constant-time hash comparison to prevent timing attacks
+func equalHashes(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	var result byte
+	for i := 0; i < len(a); i++ {
+		result |= a[i] ^ b[i]
+	}
+	return result == 0
 }

@@ -34,12 +34,12 @@ package network
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
+
 	"encoding/hex"
 	"fmt"
-	"io"
 
 	database "github.com/sphinx-core/go/src/core/state"
+	"lukechampine.com/blake3"
 )
 
 // SimpleKeyManager provides basic key management functionality
@@ -166,13 +166,15 @@ func (k *Key) FromNodeID(other nodeID) {
 	*k = other
 }
 
-// FromString generates a 256-bit key by hashing the input string with SHA-256.
-func (k *Key) FromString(v string) {
-	h := sha256.New()
-	if _, err := io.WriteString(h, v); err != nil {
-		panic(err)
+// FromString generates a 256-bit key by hashing the input string with BLAKE3.
+// Returns an error instead of panicking.
+func (k *Key) FromString(v string) error {
+	hash := blake3.Sum256([]byte(v))
+	if len(k) < len(hash) {
+		return fmt.Errorf("key size too small: need %d bytes, have %d", len(hash), len(k))
 	}
-	copy(k[:], h.Sum(nil))
+	copy(k[:], hash[:])
+	return nil
 }
 
 // GenerateKademliaID generates a 256-bit Kademlia ID by hashing the input string.

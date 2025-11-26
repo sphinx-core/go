@@ -26,7 +26,7 @@ package p2p
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
+
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -40,6 +40,7 @@ import (
 	security "github.com/sphinx-core/go/src/handshake"
 	"github.com/sphinx-core/go/src/network"
 	"github.com/sphinx-core/go/src/transport"
+	"lukechampine.com/blake3"
 )
 
 // NewPeerManager creates a new peer manager.
@@ -337,6 +338,6 @@ func (pm *PeerManager) MaintainPeers() {
 // generateMessageID creates a unique ID for a message.
 func generateMessageID(msg *security.Message) string {
 	data, _ := json.Marshal(msg)
-	hash := sha256.Sum256(data)
+	hash := blake3.Sum256(data)
 	return hex.EncodeToString(hash[:])
 }
